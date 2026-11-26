@@ -34,6 +34,8 @@ INBOX_SUFFIX = "/inbox"
 PROMPT_SUFFIX = "/prompt"
 MESSAGE_SUFFIX = "/message"
 DEFAULT_PILOT_DIR = os.path.expanduser("~/.local/state/better-talker/coord-pilot")
+# Fonte única e canônica do endpoint local autorizado (P3B.0).
+DEFAULT_ENDPOINT = "http://127.0.0.1:49999"
 PILOT_TRANSITIONS = {
     "AUTHORIZED": {"DISPATCHING", "UNKNOWN", "FAILED"},
     "DISPATCHING": {"UNKNOWN", "FAILED", "DELIVERED", "RUNNING", "COMPLETED"},
@@ -45,6 +47,53 @@ PILOT_TRANSITIONS = {
 }
 ALLOWED_METHODS = {"GET", "POST"}
 ALLOWED_PATH_PREFIXES = ("/api/",)
+
+
+def canonical_endpoint(value: str, *, allowed_port: Optional[int] = None) -> str:
+    """Fonte única do endpoint: HTTP, 127.0.0.1, porta autorizada, sem excessos.
+
+    Rejeita userinfo, query, fragmento, caminho e porta divergente. O valor
+    retornado é sempre ``http://127.0.0.1:<porta>`` e é o único aceito pelo
+    manifesto, pela autorização e pela operação.
+    """
+    if not isinstance(value, str) or not value:
+        raise cc.ContractError("endpoint ausente")
+    try:
+        parsed = urllib.parse.urlparse(value)
+    except ValueError as e:
+        raise cc.ContractError("endpoint inválido") from e
+    if (parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username
+            or parsed.password or parsed.fragment or parsed.query or parsed.params):
+        raise cc.ContractError("endpoint inválido: exige http://127.0.0.1 sem userinfo/query/fragmento")
+    try:
+        port = parsed.port
+    except ValueError as e:
+        raise cc.ContractError("porta inválida") from e
+    if port is None or not 1 <= port <= 65535:
+        raise cc.ContractError("porta inválida")
+    if allowed_port is not None and port != allowed_port:
+        raise cc.ContractError("porta não autorizada")
+    if parsed.path not in {"", "/"}:
+        raise cc.ContractError("endpoint não pode conter caminho")
+    return f"http://127.0.0.1:{port}"
+
+
+def endpoint_port(endpoint: str) -> int:
+    """Porta de um endpoint já canônico (para construir o cliente real)."""
+    port = urllib.parse.urlparse(canonical_endpoint(endpoint)).port
+    if port is None:
+        raise cc.ContractError("endpoint sem porta")
+    return port
+
+
+def client_endpoint(client: "HttpClient") -> str:
+    """Endpoint efetivo exposto pelo cliente; nunca informado pelo chamador."""
+    raw = getattr(client, "endpoint", None)
+    if raw is None:
+        raw = getattr(client, "base_url", None)
+    if not isinstance(raw, str):
+        raise cc.ContractError("cliente não expõe endpoint efetivo")
+    return canonical_endpoint(raw)
 
 # Prompt único publicado em PILOT.md; compartilhado por executor, CLI e fixtures.
 PILOT_PROMPT = (
@@ -109,21 +158,11 @@ class LocalHttpClient(HttpClient):
     """Cliente opcional, restrito a base local fixa e caminhos /api/."""
 
     def __init__(self, base_url: str, *, allowed_port: int, allow_write: bool = False):
-        parsed = urllib.parse.urlparse(base_url)
-        if (parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username
-                or parsed.password or parsed.fragment or parsed.query or parsed.params):
-            raise cc.ContractError("base_url inválida")
-        try:
-            port = parsed.port
-        except ValueError as e:
-            raise cc.ContractError("porta inválida") from e
-        if port is None or port != allowed_port or not 1 <= port <= 65535:
-            raise cc.ContractError("porta não autorizada")
-        if parsed.path not in {"", "/"}:
-            raise cc.ContractError("base_url não pode conter caminho adicional")
-        self.base_url = f"http://127.0.0.1:{port}"
-        self.allowed_port = port
+        self.endpoint = canonical_endpoint(base_url, allowed_port=allowed_port)
+        self.base_url = self.endpoint
+        self.allowed_port = allowed_port
         self.allow_write = allow_write
+        # Proxies externos desativados e redirecionamentos proibidos.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
 
     def request(self, method: str, path: str, body: Optional[dict[str, Any]] = None) -> tuple[int, dict[str, Any]]:
@@ -153,6 +192,18 @@ class LocalHttpClient(HttpClient):
         if not isinstance(payload, dict):
             raise cc.ContractError("resposta HTTP inválida")
         return status, payload
+
+
+class ReadOnlyHttpClient(LocalHttpClient):
+    """Cliente real somente leitura: POST é bloqueado mecanicamente."""
+
+    def __init__(self, base_url: str, *, allowed_port: int):
+        super().__init__(base_url, allowed_port=allowed_port, allow_write=False)
+
+    def request(self, method: str, path: str, body: Optional[dict[str, Any]] = None) -> tuple[int, dict[str, Any]]:
+        if method.upper() == "POST":
+            raise cc.TransportDisabled("cliente real somente leitura: POST proibido")
+        return super().request(method, path, body)
 
 
 def sha256_text(value: str) -> str:
@@ -187,6 +238,10 @@ class PilotAuthorization:
     environment: str = "PROPOSED"
     max_transmissions: int = 1
     expected_model: str = "opencode-go/hungerg-free#default"
+    endpoint: str = DEFAULT_ENDPOINT
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "endpoint", canonical_endpoint(self.endpoint))
 
     def validate(self) -> None:
         self.target.validate()
@@ -206,6 +261,8 @@ class PilotAuthorization:
             raise cc.ContractError("hash do prompt inválido")
         if not cc.SHA256_PATTERN.fullmatch(self.mission_identity):
             raise cc.ContractError("identidade da missão inválida")
+        if self.endpoint != canonical_endpoint(self.endpoint):
+            raise cc.ContractError("endpoint divergente na autorização")
         cc._require_aware(self.issued_at, "issued_at")
         cc._require_aware(self.expires_at, "expires_at")
         if self.expires_at <= self.issued_at:
@@ -254,6 +311,7 @@ class PilotAuthorization:
             "environment": self.environment,
             "max_transmissions": self.max_transmissions,
             "expected_model": self.expected_model,
+            "endpoint": self.endpoint,
         }
         return hashlib.sha256(cc.canonical_json(material).encode("utf-8")).hexdigest()
 
@@ -277,6 +335,7 @@ class PilotAuthorization:
             "environment": self.environment,
             "max_transmissions": self.max_transmissions,
             "expected_model": self.expected_model,
+            "endpoint": self.endpoint,
             "canonical_sha256": self.canonical(),
         }
 
@@ -301,6 +360,10 @@ class PilotManifest:
     issued_at: datetime
     expires_at: datetime
     max_transmissions: int
+
+    def __post_init__(self) -> None:
+        # Nenhum endpoint externo/divergente entra no manifesto aprovado.
+        object.__setattr__(self, "endpoint", canonical_endpoint(self.endpoint))
 
     def material(self) -> dict[str, Any]:
         cc._require_aware(self.issued_at, "issued_at")
@@ -384,6 +447,8 @@ class PilotApproval:
             raise cc.AuthorizationError("arquivos operacionais divergentes")
         if not cc.SHA256_PATTERN.fullmatch(manifest.prompt_sha256):
             raise cc.ContractError("hash do prompt inválido")
+        if manifest.endpoint != canonical_endpoint(manifest.endpoint):
+            raise cc.ContractError("endpoint do manifesto inválido")
         if manifest.max_transmissions != 1:
             raise cc.ContractError("limite de transmissão inválido")
         cc._require_aware(manifest.issued_at, "issued_at")
@@ -456,6 +521,7 @@ class _OperationGuard:
     target_key: tuple[str, ...]
     store: Any
     reservation: dict[str, Any]
+    endpoint: str = DEFAULT_ENDPOINT
     consumed: bool = False
 
 
@@ -473,6 +539,8 @@ class OpenCodeTransport(cc.Transport):
         self.is_real = mode == "real"
         self.last_receipt: Optional[cc.TransportReceipt] = None
         self.client = client
+        # Endpoint efetivo do cliente: fonte única, nunca argumento do chamador.
+        self.endpoint = client_endpoint(client)
         self.expected_instance_id = expected_instance_id
         self.registered = {target.key(): target for target in registered_targets}
         self.pilot = pilot_authorization
@@ -494,6 +562,20 @@ class OpenCodeTransport(cc.Transport):
 
     def confirm_target(self, target: cc.TargetIdentity) -> None:
         self._confirm_target(target)
+
+    def effective_endpoint(self) -> str:
+        return self.endpoint
+
+    def confirm_endpoint(self, expected: Optional[str] = None) -> str:
+        """Revalida o endpoint do cliente contra a operação, imediatamente antes do envio."""
+        actual = client_endpoint(self.client)
+        if actual != self.endpoint:
+            raise cc.TransportError("endpoint do cliente divergente", phase="pre_transmit")
+        if expected is not None and actual != canonical_endpoint(expected):
+            raise cc.TransportError("endpoint diverge da operação autorizada", phase="pre_transmit")
+        if self.pilot.endpoint != actual:
+            raise cc.TransportError("endpoint diverge da autorização", phase="pre_transmit")
+        return actual
 
     def _get(self, path: str) -> dict[str, Any]:
         self.calls.append(("GET", path))
@@ -562,6 +644,7 @@ class OpenCodeTransport(cc.Transport):
 
     def prepare(self, envelope: cc.MissionEnvelope, authorization: cc.Authorization) -> cc.PreparedRequest:
         self.pilot.validate_for_pilot(self.clock(), require_real=self.is_real)
+        self.confirm_endpoint(self.pilot.endpoint)
         envelope.validate()
         if (envelope.mission_id != self.pilot.mission_id or
                 envelope.operation_id != self.pilot.operation_id or
@@ -602,6 +685,8 @@ class OpenCodeTransport(cc.Transport):
             raise cc.AuthorizationError("payload diverge da reserva")
         if tuple(request.envelope.target.key()) != guard.target_key:
             raise cc.AuthorizationError("destino diverge da reserva")
+        # Endpoint efetivo revalidado logo antes de qualquer POST.
+        self.confirm_endpoint(guard.endpoint)
         record = guard.store.load()
         if record is None or record.state != "DISPATCHING":
             raise cc.AuthorizationError("DISPATCHING persistido ausente")
@@ -903,12 +988,17 @@ class PilotExecutor:
     """Executa uma única operação experimental pelo caminho protegido."""
 
     def __init__(self, transport: OpenCodeTransport, store: PilotOperationStore,
-                 approval: PilotApproval, *, endpoint: str, allow_real: bool = False,
-                 clock=None):
+                 approval: PilotApproval, *, endpoint: Optional[str] = None,
+                 allow_real: bool = False, clock=None):
         self.transport = transport
         self.store = store
         self.approval = approval
-        self.endpoint = endpoint
+        # O endpoint vem do cliente efetivo; um valor declarado só é aceito se
+        # for idêntico ao endpoint exposto pelo transporte.
+        effective = transport.effective_endpoint()
+        if endpoint is not None and canonical_endpoint(endpoint) != effective:
+            raise cc.ContractError("endpoint declarado diverge do cliente efetivo")
+        self.endpoint = effective
         self.allow_real = allow_real
         self.clock = clock or cc.utc_now
 
@@ -923,6 +1013,11 @@ class PilotExecutor:
                 raise cc.AuthorizationError("autorização FIXTURE não habilita HTTP real")
         elif self.transport.is_real:
             raise cc.AuthorizationError("transporte real requer allow_real explícito")
+        # Revalidação do endpoint cliente↔autorização↔operação antes de execute()
+        # e novamente antes de transmit() (esta função é chamada nos dois pontos).
+        confirmed = self.transport.confirm_endpoint(self.endpoint)
+        if self.transport.pilot.endpoint != confirmed:
+            raise cc.ContractError("endpoint diverge da autorização")
         runtime = build_runtime_manifest(mission, self.transport.pilot, prompt_sha256,
                                          self.endpoint)
         if not self.approval.matches(runtime):
@@ -984,7 +1079,7 @@ class PilotExecutor:
                 authorization_canonical=cc.canonical_authorization_identity(authorization),
                 payload_sha256=mission.payload_sha256,
                 target_key=tuple(mission.target.key()),
-                store=self.store, reservation=reservation)
+                store=self.store, reservation=reservation, endpoint=self.endpoint)
             self.transport.bind_operation(guard)
             try:
                 # Revalidação imediata antes da tentativa única.
@@ -999,7 +1094,10 @@ class PilotExecutor:
                         "transmit_called": True,
                         # Origem da evidência: a reconciliação por fixture nunca
                         # pode ser aplicada a um registro de operação real.
-                        "environment": self.approval.environment}
+                        "environment": self.approval.environment,
+                        "source": "real" if self.transport.is_real else "fixture",
+                        "endpoint": self.endpoint,
+                        "service_contacted": self.transport.is_real}
             if engine_record.state == cc.OperationState.UNKNOWN:
                 state = "UNKNOWN"
             elif engine_record.state == cc.OperationState.FAILED:

@@ -226,6 +226,11 @@ class F2ManifestTests(unittest.TestCase):
         for field in ("authorization_id", "maintainer_id", "approval_reference",
                       "authorization_identity", "mission_identity", "model", "endpoint"):
             with self.subTest(field=field):
+                if field == "endpoint":
+                    # P3B.0: endpoint inválido é rejeitado na construção do manifesto.
+                    with self.assertRaises(cc.ContractError):
+                        replace(base, endpoint="http://externo.example.com/prompt")
+                    continue
                 changed = replace(base, **{field: "0" * 64 if field.endswith("identity")
                                            else "alterado"})
                 appr = approval(m, environment="FIXTURE", manifest=changed)

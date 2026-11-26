@@ -218,21 +218,31 @@ separada, autorização real e recertificação independente.
 
 ## Preflight posterior (P3B) — comandos exatos (NÃO executados nesta missão)
 
+Endpoint é **fonte única e canônica**: `http://127.0.0.1:<porta>`; HTTP, host exatamente
+`127.0.0.1`, porta autorizada, sem userinfo, query, fragmento ou caminho, sem proxies e sem
+redirecionamentos. O cliente real somente leitura bloqueia POST mecanicamente; falha de
+conexão **nunca** cai para fixture. Stores de fixture e de operação real são separados.
+
+Estado observado em P3B.0: OpenCode v2.3.2 instalado, serviço de fundo `stopped`,
+`opencode service get` vazio — nenhuma instância local autorizada/disponível. Por isso
+**nenhum GET real foi executado** nesta missão; o serviço não foi iniciado.
+
+Comandos propostos, sujeitos a autorização específica para instância privada:
+
 ```sh
-python3 .opencode/scripts/coord_pilot_cli.py preflight --endpoint <endpoint-local-autorizado>
-opencode service status
-opencode api get /api/info
-opencode api get "/api/location?location[directory]=/home/guilherme/Documentos/better-talker-coord-supervisor-shadow"
-opencode api get /api/session/ses_defc05853ffeej4fPXrp7frx4x
-opencode api get /api/session/active
-opencode api get /api/session/ses_defc05853ffeej4fPXrp7frx4x/inbox
+# 1) somente após autorização explícita para iniciar instância privada (não compartilhada):
+opencode api --standalone get /api/info
+# 2) usar a url observada em /api/info como <endpoint-local-autorizado> (http://127.0.0.1:<porta>)
+python3 .opencode/scripts/coord_pilot_cli.py preflight --real --endpoint <endpoint-local-autorizado>
+python3 .opencode/scripts/coord_pilot_cli.py prepare --real --endpoint <endpoint-local-autorizado>
 ```
 
 Confirmar, somente com metadados autorizados: identidade real do agente (não presumir `A`),
-projeto e location, instância calculada de `/api/info`, modelo gratuito, disponibilidade,
-inbox, permissões efetivas da sessão e compatibilidade observada da API OpenCode v2.3.2.
-Destinatário proposto mantido: `ses_defc05853ffeej4fPXrp7frx4x`. Qualquer divergência
-bloqueia o piloto; não improvisar configuração, modelo, sessão ou permissões.
+projeto e location, instância calculada de `/api/info`, repositório observado (não derivado
+do `project_id`), modelo gratuito, disponibilidade, inbox, permissões efetivas da sessão e
+compatibilidade observada da API OpenCode v2.3.2. Destinatário proposto mantido:
+`ses_defc05853ffeej4fPXrp7frx4x`. Qualquer divergência bloqueia o piloto; não improvisar
+configuração, modelo, sessão ou permissões. Nenhuma aprovação humana é emitida pela CLI.
 
 ## Encerramento seguro
 

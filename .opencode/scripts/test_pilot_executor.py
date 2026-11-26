@@ -75,6 +75,8 @@ def core_auth(m=None, **changes):
 
 
 class FakeClient(pilot.HttpClient):
+    endpoint = ENDPOINT
+
     def __init__(self):
         self.responses = {}
         self.calls = []

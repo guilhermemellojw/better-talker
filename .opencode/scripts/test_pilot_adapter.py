@@ -39,11 +39,14 @@ def instance_id(info: dict) -> str:
     return hashlib.sha256(cc.canonical_json(material).encode()).hexdigest()
 
 
-INFO = {"version": "2.3.2", "pid": 4242, "hostname": "fixture", "urls": ["http://127.0.0.1:49999"]}
+ENDPOINT = "http://127.0.0.1:49999"
+INFO = {"version": "2.3.2", "pid": 4242, "hostname": "fixture", "urls": [ENDPOINT]}
 INSTANCE_ID = instance_id(INFO)
 
 
 class FakeHttpClient(pilot.HttpClient):
+    endpoint = ENDPOINT
+
     def __init__(self):
         self.responses: dict[tuple[str, str], tuple[int, dict]] = {}
         self.calls: list[tuple[str, str, object]] = []
