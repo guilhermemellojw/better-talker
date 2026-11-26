@@ -24,8 +24,8 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `5d7791388842` | Pendente |
-| [#71 — feat(coord): motor deterministico Free First/1M de selecao de modelos (COORD-05B) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/71) | Outros | `4e6986f71f1d` | Verde |
+| [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `5d7791388842` | Verde |
+| [#71 — feat(coord): motor deterministico Free First/1M de selecao de modelos (COORD-05B) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/71) | Outros | `8fb26b64c453` | Pendente |
 | [#70 — feat(coord05): ledger persistente de missões (Draft)](https://github.com/guilhermemellojw/better-talker/pull/70) | Outros | `523485dd6766` | Verde |
 | [#69 — docs(coord): transferência operacional e prontidão do supervisor (COORD-08/09 PREP) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/69) | Documentação | `db58380af3b3` | Verde |
 | [#68 — HOTFIX P0: compatibilidade ICU/Android das regex pedagógicas (Draft)](https://github.com/guilhermemellojw/better-talker/pull/68) | Outros | `6533b45734c7` | Verde |
