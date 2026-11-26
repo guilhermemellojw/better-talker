@@ -148,7 +148,9 @@ class PermissionProbeTests(unittest.TestCase):
         self.assertTrue(plan["no_prompt"] and plan["no_llm"] and plan["no_tool_execution"])
         self.assertTrue(plan["no_save"] and plan["question_is_tool"])
         self.assertTrue(plan["deny_is_not_exhaustive"])
-        self.assertEqual(plan["max_requests"], len(cli.PERMISSION_PROBE_MATRIX) + 2)
+        limits = plan["limits"]
+        self.assertEqual(limits["max_evaluation_posts"], len(cli.PERMISSION_PROBE_MATRIX))
+        self.assertEqual(plan["max_requests"], sum(limits.values()))
         text = json.dumps(plan, ensure_ascii=False)
         self.assertNotIn("rm -rf", text)
         self.assertEqual(plan["ask_handling"]["decision"], "reject")

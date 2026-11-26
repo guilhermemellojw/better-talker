@@ -140,6 +140,12 @@ def classify_availability(*, active_observed: bool, target_in_active: bool,
     return {"state": "UNKNOWN", "reasons": ("evidência insuficiente para estado terminal",)}
 
 
+def canonical_policy_sha256(policy: Any) -> str:
+    if policy is None:
+        return ""
+    return hashlib.sha256(cc.canonical_json(policy).encode("utf-8")).hexdigest()
+
+
 def canonical_model_ref(provider_id: Optional[str], model_id: Optional[str],
                         variant: Optional[str] = None) -> str:
     """Representação canônica observada em `Model.Ref` (id + providerID).
@@ -644,6 +650,7 @@ class PilotManifest:
     repository_source: str = "git-local"
     admission_authorized: bool = False
     exclusive_consumer: bool = False
+    exclusive_consumer_evidence_sha256: str = ""
 
     def __post_init__(self) -> None:
         # Nenhum endpoint externo/divergente entra no manifesto aprovado.
@@ -675,6 +682,7 @@ class PilotManifest:
             "repository_source": self.repository_source,
             "admission_authorized": self.admission_authorized,
             "exclusive_consumer": self.exclusive_consumer,
+            "exclusive_consumer_evidence_sha256": self.exclusive_consumer_evidence_sha256,
         }
 
     def canonical(self) -> str:
@@ -691,7 +699,8 @@ def build_runtime_manifest(mission: cc.MissionEnvelope, authorization: PilotAuth
                            inbox_evidence: str = "unobserved",
                            repository_source: str = "git-local",
                            admission_authorized: bool = False,
-                           exclusive_consumer: bool = False) -> PilotManifest:
+                           exclusive_consumer: bool = False,
+                           exclusive_consumer_evidence_sha256: str = "") -> PilotManifest:
     """Manifesto reconstruído do estado real, sem confiar em campos informados."""
     return PilotManifest(
         reviewed_head_sha=executed_head_sha(),
@@ -716,6 +725,7 @@ def build_runtime_manifest(mission: cc.MissionEnvelope, authorization: PilotAuth
         repository_source=repository_source,
         admission_authorized=admission_authorized,
         exclusive_consumer=exclusive_consumer,
+        exclusive_consumer_evidence_sha256=exclusive_consumer_evidence_sha256,
     )
 
 
@@ -984,6 +994,65 @@ class OpenCodeTransport(cc.Transport):
             "availability_state": assessment["state"],
             "availability_reasons": list(assessment["reasons"]),
             "availability_claimed": False, "source": "opencode-api"})
+
+    def fresh_evidence(self, target: Optional[cc.TargetIdentity] = None,
+                       *, catalog: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        """Reobservação imediata (somente GET) para validação pré-POST."""
+        target = target or self.pilot.target
+        info = self._get(INFO_PATH)
+        location = self._get(LOCATION_PATH)
+        session_payload = self._get(f"/api/session/{target.session_id}")
+        session = session_payload.get("data") if isinstance(session_payload, dict) else None
+        session = session if isinstance(session, dict) else {}
+        active_payload = self._get(ACTIVE_PATH)
+        active = active_payload.get("data") if isinstance(active_payload, dict) else None
+        inbox_payload = self._get(f"/api/session/{target.session_id}{INBOX_SUFFIX}")
+        inbox = inbox_payload.get("data") if isinstance(inbox_payload, dict) else None
+        messages_payload = self._get(
+            f"/api/session/{target.session_id}{MESSAGE_SUFFIX}?limit=20&order=desc")
+        messages = messages_payload.get("data") if isinstance(messages_payload, dict) else None
+        pending_payload = self._get(f"/api/session/{target.session_id}/permission")
+        pending = pending_payload.get("data") if isinstance(pending_payload, dict) else None
+        model = session.get("model") or {}
+        project = location.get("project") or {}
+        tokens = session.get("tokens")
+        cost = session.get("cost")
+        evidence: dict[str, Any] = {
+            "source": "fresh-observation", "endpoint": self.endpoint,
+            "instance_id": hashlib.sha256(cc.canonical_json({
+                "version": info.get("version"), "pid": info.get("pid"),
+                "urls": info.get("urls"), "hostname": info.get("hostname"),
+            }).encode("utf-8")).hexdigest(),
+            "target_key": list(target.key()),
+            "opencode_project_id": project.get("id"),
+            "session_project_id": session.get("projectID"),
+            "location": (location.get("directory")),
+            "session_location": (session.get("location") or {}).get("directory"),
+            "session_id": session.get("id"), "agent_id": session.get("agent"),
+            "session_model": canonical_model_ref(model.get("providerID"), model.get("id"),
+                                                 model.get("variant")),
+            "permission_policy": session.get("permissions"),
+            "permission_policy_sha256": canonical_policy_sha256(session.get("permissions")),
+            "tokens": tokens, "cost": cost,
+            "outcome": session.get("outcome"),
+            "active_observed": isinstance(active, dict),
+            "target_in_active": isinstance(active, dict) and target.session_id in active,
+            "inbox_observed": isinstance(inbox, list),
+            "inbox_count": len(inbox) if isinstance(inbox, list) else None,
+            "messages_observed": isinstance(messages, list),
+            "message_count": len(messages) if isinstance(messages, list) else None,
+            "part_count": (sum(len(item.get("content") or []) for item in messages
+                               if isinstance(item, dict)) if isinstance(messages, list) else None),
+            "pending_observed": isinstance(pending, list),
+            "pending_count": len(pending) if isinstance(pending, list) else None,
+        }
+        if catalog is not None:
+            provider_id, _, rest = evidence["session_model"].partition("/")
+            model_id, _, variant = rest.partition("#")
+            evidence["model_catalog_evidence"] = verify_model_catalog(
+                catalog, provider_id=provider_id, model_id=model_id,
+                variant=variant or "none", authorized_model=self.pilot.expected_model)
+        return evidence
 
     def prepare(self, envelope: cc.MissionEnvelope, authorization: cc.Authorization) -> cc.PreparedRequest:
         self.pilot.validate_for_pilot(self.clock(), require_real=self.is_real)
@@ -1332,7 +1401,8 @@ class PilotExecutor:
 
     def __init__(self, transport: OpenCodeTransport, store: PilotOperationStore,
                  approval: PilotApproval, *, endpoint: Optional[str] = None,
-                 allow_real: bool = False, clock=None):
+                 allow_real: bool = False, clock=None, observer=None,
+                 catalog: Optional[dict[str, Any]] = None):
         self.transport = transport
         self.store = store
         self.approval = approval
@@ -1344,6 +1414,10 @@ class PilotExecutor:
         self.endpoint = effective
         self.allow_real = allow_real
         self.clock = clock or cc.utc_now
+        self.catalog = catalog
+        self.observer = observer or (lambda: self.transport.fresh_evidence(
+            self.transport.pilot.target, catalog=self.catalog))
+        self.last_observation: Optional[dict[str, Any]] = None
 
     def _validate(self, mission: cc.MissionEnvelope, authorization: cc.Authorization,
                   prompt: str) -> None:
@@ -1369,6 +1443,7 @@ class PilotExecutor:
             "repository_source": approved.repository_source,
             "admission_authorized": approved.admission_authorized,
             "exclusive_consumer": approved.exclusive_consumer,
+            "exclusive_consumer_evidence_sha256": approved.exclusive_consumer_evidence_sha256,
         }
         if self.allow_real:
             # Nenhum default permissivo habilita transmissão real.
@@ -1385,9 +1460,49 @@ class PilotExecutor:
                 missing.append("autorização humana de admissão")
             if evidence["exclusive_consumer"] is not True:
                 missing.append("consumidor exclusivo")
+            if not cc.SHA256_PATTERN.fullmatch(evidence["exclusive_consumer_evidence_sha256"]):
+                missing.append("evidência verificável de exclusividade")
             if missing:
                 raise cc.AuthorizationError(
                     "evidências obrigatórias ausentes: " + ", ".join(missing))
+            # Igualdade de hash não é observação: reobservar imediatamente antes do POST.
+            fresh = self.observer()
+            self.last_observation = fresh
+            divergent = []
+            if fresh.get("permission_policy_sha256") != approved.permission_policy_sha256:
+                divergent.append("permission_policy_sha256")
+            if fresh.get("session_model") != approved.model:
+                divergent.append("model")
+            if fresh.get("instance_id") != approved.instance_id:
+                divergent.append("instance")
+            if fresh.get("target_key") != list(approved.target_key):
+                divergent.append("target")
+            tokens, cost = fresh.get("tokens"), fresh.get("cost")
+            if not (isinstance(tokens, dict)
+                    and all(isinstance(tokens.get(k), (int, float))
+                            for k in ("input", "output", "reasoning"))
+                    and tokens["input"] == tokens["output"] == tokens["reasoning"] == 0):
+                divergent.append("tokens")
+            if not (isinstance(cost, list) and cost
+                    and all(isinstance(item, dict) and item.get("input") == 0
+                            and item.get("output") == 0 for item in cost)):
+                divergent.append("cost")
+            catalog = fresh.get("model_catalog_evidence") or {}
+            if catalog.get("confirmed") is not True:
+                divergent.append("catalog")
+            if fresh.get("target_in_active") is True or fresh.get("inbox_observed") is not True \
+                    or fresh.get("inbox_count") != 0 or fresh.get("messages_observed") is not True \
+                    or fresh.get("message_count") != 0 or fresh.get("part_count") != 0 \
+                    or fresh.get("pending_observed") is not True or fresh.get("pending_count") != 0:
+                divergent.append("active/inbox/messages/pending")
+            exclusive_evidence = fresh.get("exclusive_consumer_evidence")
+            if (not isinstance(exclusive_evidence, dict)
+                    or canonical_policy_sha256(exclusive_evidence)
+                    != approved.exclusive_consumer_evidence_sha256):
+                divergent.append("exclusividade")
+            if divergent:
+                raise cc.AuthorizationError(
+                    "reobservação divergente: " + ", ".join(sorted(set(divergent))))
         runtime = build_runtime_manifest(mission, self.transport.pilot, prompt_sha256,
                                          self.endpoint, **evidence)
         if not self.approval.matches(runtime):

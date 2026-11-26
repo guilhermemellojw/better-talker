@@ -14,7 +14,7 @@
 | HEAD vigente | `bd14ad8a780c8d33e0114f06135e6ffe149712d8` |
 | HEAD do código | `8a35c9dcd1b28d792db6f699f8255f86dd0160d1` |
 | HEAD final | SHA corrente; documentação posterior não altera código |
-| Delta | 6 arquivos, **+168/−12**; `git diff --check` limpo; push sem force-push |
+| Delta | 6 arquivos, **+335/−12**; `git diff --check` limpo; push sem force-push |
 
 Digests operacionais publicados: `coord_pilot.py 01666d2b…`, `coord_pilot_cli.py 7935a0f4…`; fundação intacta.
 
@@ -48,7 +48,7 @@ Nenhuma alteração em PR #70 (ledger), PR #71 (política de modelos) ou PR #72 
 
 ## I. Bloqueadores residuais
 
-Enforcement runtime de permissões não comprovado; probe ainda não executado (exige autorização específica); cadastro legado com lacunas de evidência; catálogo real não verificado em operação; aprovação humana válida e manifesto final ausentes; nenhuma transmissão autorizada.
+Enforcement runtime de permissões não comprovado; probe ainda não executado (exige autorização específica); cadastro legado com lacunas de evidência; catálogo real não verificado em operação; aprovação humana válida e manifesto final ausentes; nenhuma transmissão autorizada. **Limitação:** `IDLE_TERMINAL` está implementado, mas é inalcançável na observação real — `classify_availability()` exige `idle_evidence=True` e nenhum chamador real fornece esse parâmetro; nenhuma heurística não comprovada foi criada para supri-lo.
 
 ## J. Parecer
 

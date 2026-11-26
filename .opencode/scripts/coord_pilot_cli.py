@@ -35,34 +35,47 @@ COMMANDS = ("preflight", "prepare", "execute", "reconcile", "closeout", "dry-run
             "session-register", "rebind-check", "permission-probe-plan")
 
 # Matriz fechada da futura avaliação de permissões (Agente E). Nenhum recurso é executado.
+PROBE_TEMP_RESOURCE = "/tmp/opencode/permission-probe-readonly"
 PERMISSION_PROBE_MATRIX = (
     ("shell", ("git status",), "deny"),
-    ("edit", ("docs/probe.txt",), "deny"),
-    ("write", ("docs/probe.txt",), "deny"),
-    ("read", ("/etc/passwd", ".env"), "deny"),
-    ("external_directory", ("/home/guilherme/Documentos/better-talker",), "deny"),
-    ("subagent", ("explore",), "deny"),
-    ("execute", ("code-mode",), "deny"),
+    ("edit", (PROBE_TEMP_RESOURCE,), "deny"),
+    ("read", (PROBE_TEMP_RESOURCE,), "deny"),
+    ("external_directory", (PROBE_TEMP_RESOURCE,), "deny"),
+    ("subagent", (PROBE_TEMP_RESOURCE,), "deny"),
+    ("skill", (PROBE_TEMP_RESOURCE,), "deny"),
+    ("browser", (PROBE_TEMP_RESOURCE,), "deny"),
+    ("execute", (PROBE_TEMP_RESOURCE,), "deny"),
     ("question", ("*",), "allow"),
 )
 
 
 def build_permission_probe_plan(*, session_id: str, policy_sha256: str) -> dict[str, Any]:
     """Plano sintético para futura avaliação; não executa nada e não autoriza transmissão."""
+    verified = bool(cc.SHA256_PATTERN.fullmatch(policy_sha256 or ""))
+    limits = {
+        "max_preflight_gets": 5,
+        "max_evaluation_posts": len(PERMISSION_PROBE_MATRIX),
+        "max_reply_posts": len(PERMISSION_PROBE_MATRIX),
+    }
     return {
         "command": "permission-probe-plan", "source": "fixture", "service_contacted": False,
+        "blocked": not verified,
+        "reason": None if verified else "hash da política ausente ou inválido; probe bloqueado",
         "endpoint": f"POST /api/session/{session_id}/permission",
         "reply_endpoint": f"POST /api/session/{session_id}/permission/{{requestID}}/reply",
         "session_id": session_id, "policy_sha256": policy_sha256,
-        "policy_preserved": True, "no_save": True, "no_prompt": True, "no_llm": True,
+        "policy_preserved": verified, "no_save": True, "no_prompt": True, "no_llm": True,
         "no_tool_execution": True, "no_new_session": True,
         "question_is_tool": True, "deny_is_not_exhaustive": True,
         "agent_omitted": True,  # usa o agente efetivo da sessão (build)
         "one_action_per_request": True,
-        "max_requests": len(PERMISSION_PROBE_MATRIX) + 2,
+        "limits": limits,
+        "max_requests": (limits["max_preflight_gets"] + limits["max_evaluation_posts"]
+                         + limits["max_reply_posts"]),
         "stop_on_unexpected": True,
         "ask_handling": {
             "effect": "ask", "action": "reply", "decision": "reject",
+            "requires_specific_authorization": True,
             "count_request": True, "record_sanitized": True,
         },
         "expected_results": [
@@ -316,9 +329,7 @@ def _validate_proposal_window(created_at: datetime, issued_at: datetime,
 
 def canonical_policy_sha256(policy: Any) -> str:
     """Hash canônico da política de permissões efetivamente observada."""
-    if policy is None:
-        return ""
-    return hashlib.sha256(cc.canonical_json(policy).encode("utf-8")).hexdigest()
+    return pilot.canonical_policy_sha256(policy)
 
 
 def observe_inbox(observed: dict[str, Any], payload: Optional[dict[str, Any]]) -> None:
@@ -721,8 +732,13 @@ def _observe_blockers(observed: dict[str, Any]) -> list[str]:
 
 
 def _manifest_readiness_blockers(observed: dict[str, Any],
-                                 session: Optional[dict[str, Any]]) -> list[str]:
-    """Prontidão: identidade confirmada ≠ admissão ≠ permissões ≠ repositório."""
+                                 session: Optional[dict[str, Any]], *,
+                                 for_proposal: bool = False) -> list[str]:
+    """Bloqueios técnicos da proposta; autorização externa é gate separado."""
+    authorization_only = {
+        "admissão operacional não autorizada externamente",
+        "enforcement de permissões não observado",
+    }
     blockers: list[str] = []
     for key, label in (("instance_confirmed", "instância não confirmada"),
                        ("identity_confirmed", "projeto/location não confirmados"),
@@ -732,7 +748,9 @@ def _manifest_readiness_blockers(observed: dict[str, Any],
         if observed.get(key) is not True:
             blockers.append(label)
     admission = observed.get("admission_state")
-    if admission != "new_experimental_session":
+    allowed_admission = (("new_experimental_session", "inactive_observed")
+                         if for_proposal else ("new_experimental_session",))
+    if admission not in allowed_admission:
         blockers.append(f"admissão={admission or 'unknown'}; não pronta para transmissão")
     if observed.get("availability_state") != "FRESH_UNEXECUTED":
         blockers.append(f"disponibilidade={observed.get('availability_state', 'UNKNOWN')}")
@@ -761,7 +779,8 @@ def _manifest_readiness_blockers(observed: dict[str, Any],
                                            ("session_location", "location")):
             if observed.get(observed_key) != session.get(expected_key):
                 blockers.append(f"{observed_key} divergente")
-    return list(dict.fromkeys(blockers))
+    unique = list(dict.fromkeys(blockers))
+    return [item for item in unique if not (for_proposal and item in authorization_only)]
 
 
 REBIND_EVIDENCE_FIELDS = ("permission_policy_sha256", "repository_source",
@@ -814,6 +833,8 @@ def prepare_rebind(registry: dict[str, Any], observed: dict[str, Any],
             "applied": False, "requires_replace": True, "requires_authorization": True,
             "preserved": {"session_id": registry.get("session_id"),
                           "project_id": registry.get("project_id"),
+                          "repository_id": registry.get("repository_id"),
+                          "authorization_reference": registry.get("authorization_reference"),
                           "agent_id": registry.get("agent_id"),
                           "model": registry.get("model"),
                           "location": registry.get("location")},
@@ -828,6 +849,43 @@ def prepare_rebind(registry: dict[str, Any], observed: dict[str, Any],
         "reason": ("mesma sessão revinculável após autorização" if allowed
                    else "divergência impede revinculação; não criar outra sessão"),
     }
+
+
+def apply_catalog_evidence(observed: dict[str, Any], path: Optional[str]) -> None:
+    """Catálogo atual é evidência de prepare e preflight; nunca é presumido."""
+    if not path:
+        observed["model_catalog_evidence"] = {"confirmed": False,
+                                              "reason": "catálogo não informado",
+                                              "source": "model-catalog"}
+        return
+    try:
+        with open(path, "rb") as handle:
+            catalog = json.loads(handle.read().decode("utf-8"))
+        model = observed.get("session_model", "")
+        provider_id, _, rest = model.partition("/")
+        model_id, _, variant = rest.partition("#")
+        observed["model_catalog_evidence"] = pilot.verify_model_catalog(
+            catalog, provider_id=provider_id, model_id=model_id,
+            variant=variant or "none")
+    except (OSError, ValueError, UnicodeError) as e:
+        observed["model_catalog_evidence"] = {
+            "confirmed": False, "reason": f"catálogo inválido: {type(e).__name__}",
+            "source": "model-catalog"}
+
+
+def external_approval_binding(proposal: dict[str, Any], *, approver_id: str,
+                              reference: str) -> dict[str, Any]:
+    """Vincula aprovação externa ao digest da proposta, sem alterar seu material."""
+    if proposal.get("approved") is not False or proposal.get("environment", "PROPOSED") != "PROPOSED":
+        raise ValueError("somente proposta não autorizada pode ser vinculada")
+    material = {k: v for k, v in proposal.items()
+                if k not in ("approved", "canonical_sha256")}
+    digest = hashlib.sha256(cc.canonical_json(material).encode("utf-8")).hexdigest()
+    if digest != proposal.get("canonical_sha256"):
+        raise ValueError("material da proposta alterado; aprovação inválida")
+    return {"approver_id": approver_id, "approver_type": "human",
+            "environment": "APPROVED", "approval_reference": reference,
+            "manifest_sha256": digest, "bound_material_sha256": digest}
 
 
 def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
@@ -887,7 +945,7 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
         "notice": "proposta não autorizada; nenhuma PilotApproval humana é emitida pela CLI",
     }
     blockers = _observe_blockers(observed)
-    blockers.extend(_manifest_readiness_blockers(observed, session))
+    blockers.extend(_manifest_readiness_blockers(observed, session, for_proposal=True))
     if not observed.get("authentication_succeeded") or not observed.get("metadata_available"):
         blockers.append("metadados reais incompletos")
     if session is None:
@@ -957,7 +1015,9 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
         inbox_evidence=f"{inbox.get('state', 'unobserved')}:{inbox.get('inbox_count')}",
         repository_source=observed.get("repository_source", "git-local"),
         admission_authorized=False,  # proposta nunca é autorização externa
-        exclusive_consumer=observed.get("exclusive_consumer") is True)
+        exclusive_consumer=observed.get("exclusive_consumer") is True,
+        exclusive_consumer_evidence_sha256=pilot.canonical_policy_sha256(
+            observed.get("exclusive_consumer_evidence")))
     result.update({
         "manifest": manifest.proposal(), "authorization": authorization.proposal(),
         "created_at": cc.iso(created_at), "issued_at": cc.iso(issued_at),
@@ -980,8 +1040,9 @@ def run(argv: list[str]) -> dict[str, Any]:
     store = pilot.PilotOperationStore(options["store_dir"])
     mode = "real" if options["real"] else "fixture"
     source = "real" if options["real"] else "fixture"
+    needs_session = options["real"] or command in ("permission-probe-plan", "rebind-check")
     try:
-        session = _resolve_session(options["store_dir"], options["session"]) if options["real"] else None
+        session = _resolve_session(options["store_dir"], options["session"]) if needs_session else None
     except ValueError as e:
         return {"command": command, "mode": "real", "source": "real",
                 "service_contacted": False, "recipient_authorized": False,
@@ -1033,19 +1094,7 @@ def run(argv: list[str]) -> dict[str, Any]:
         if options["real"]:
             observed = _real_observe(options["endpoint"], auth_env=options["auth_env"],
                                      session=session)
-            if options["catalog"]:
-                try:
-                    with open(options["catalog"], "rb") as handle:
-                        catalog = json.loads(handle.read().decode("utf-8"))
-                    model = observed.get("session_model", "")
-                    provider_id, _, rest = model.partition("/")
-                    model_id, _, variant = rest.partition("#")
-                    observed["model_catalog_evidence"] = pilot.verify_model_catalog(
-                        catalog, provider_id=provider_id, model_id=model_id,
-                        variant=variant or "none")
-                except (OSError, ValueError, UnicodeError) as e:
-                    observed["model_catalog_evidence"] = {
-                        "confirmed": False, "reason": f"catálogo inválido: {type(e).__name__}"}
+            apply_catalog_evidence(observed, options["catalog"])
             return {"command": command, "mode": "real", "source": "real",
                     "read_only": True, "service_contacted": observed["service_contacted"],
                     "connection_attempted": observed["connection_attempted"],
@@ -1088,6 +1137,7 @@ def run(argv: list[str]) -> dict[str, Any]:
         if options["real"]:
             observed = _real_observe(options["endpoint"], auth_env=options["auth_env"],
                                      session=session)
+            apply_catalog_evidence(observed, options["catalog"])
             return _prepare_real(observed, session=session)
         context = _fixture_context(store_dir=options["store_dir"])
         return {"command": command, "mode": "fixture", "source": "fixture",
