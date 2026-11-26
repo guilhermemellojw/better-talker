@@ -27,6 +27,7 @@ from coord_ledger import (
     LedgerStorageError,
     PROPOSED,
     RUNNING,
+    SCHEMA_VERSION,
     UnsafeReconciliation,
     UNKNOWN,
     iso,
@@ -654,6 +655,71 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(DISPATCHING, after.state)
         self.assertEqual(before, after.updated_at)
         self.assertEqual(0, len([t for t in self.ledger.history(record.mission_id) if t.to_state == COMPLETED]))
+
+
+    def test_p31_bootstrap_interrompido_e_recuperavel(self):
+        db = Path(self._tmp.name) / "bootstrap.sqlite3"
+        original_connect = Ledger._connect
+
+        class FaultyConnection:
+            def __init__(self, real):
+                self._real = real
+
+            def execute(self, sql, *args, **kwargs):
+                if "INTO meta" in sql and "schema_version" in sql:
+                    raise sqlite3.OperationalError("falha injetada na versão")
+                return self._real.execute(sql, *args, **kwargs)
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def __enter__(self):
+                self._real.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self._real.__exit__(*args)
+
+        def faulty_connect(ledger):
+            return FaultyConnection(original_connect(ledger))
+
+        with patch.object(Ledger, "_connect", faulty_connect):
+            with self.assertRaises(LedgerStorageError):
+                Ledger(db, project_id=PROJECT, repository_id=REPO)
+
+        reopened = Ledger(db, project_id=PROJECT, repository_id=REPO)
+        self.assertIsNone(reopened.get("MISSING"))
+        conn = sqlite3.connect(db)
+        names = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        conn.close()
+        self.assertTrue({"meta", "missions", "transitions", "reservations"} <= names)
+
+    def test_p31_inicializacao_parcial_com_versao_repara_tabelas(self):
+        db = Path(self._tmp.name) / "parcial.sqlite3"
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute("INSERT INTO meta VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
+        conn.commit()
+        conn.close()
+        Ledger(db, project_id=PROJECT, repository_id=REPO)
+        conn = sqlite3.connect(db)
+        names = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        version = conn.execute(
+            "SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+        conn.close()
+        self.assertTrue({"meta", "missions", "transitions", "reservations"} <= names)
+        self.assertEqual(SCHEMA_VERSION, version)
+
+    def test_p31_journal_quente_bloqueia_e_preserva(self):
+        register(self.ledger)
+        journal = Path(str(self.db) + "-journal")
+        journal.write_bytes(b"journal inconclusivo")
+        before = journal.read_bytes()
+        with self.assertRaises(LedgerStorageError):
+            Ledger(self.db, project_id=PROJECT, repository_id=REPO)
+        self.assertEqual(before, journal.read_bytes())
 
 if __name__ == "__main__":
     unittest.main()

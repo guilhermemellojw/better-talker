@@ -258,6 +258,21 @@ class Ledger:
         if not parent_existed:
             os.chmod(self.db_path.parent, 0o700)
         try:
+            if fresh:
+                # Meta e versão primeiro, em transação própria. Se a
+                # inicialização for interrompida, o rollback deixa um banco
+                # vazio (reconhecido como novo na reabertura). Se o commit
+                # ocorreu, o schema é reparado por CREATE IF NOT EXISTS.
+                with self._write() as conn:
+                    conn.execute(
+                        "CREATE TABLE IF NOT EXISTS meta "
+                        "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                    )
+                    conn.execute(
+                        "INSERT OR IGNORE INTO meta (key, value) "
+                        "VALUES ('schema_version', ?)",
+                        (SCHEMA_VERSION,),
+                    )
             with self._connect() as conn:
                 conn.executescript(
                     """
@@ -304,11 +319,6 @@ class Ledger:
                     );
                     """
                 )
-                if fresh:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
-                        (SCHEMA_VERSION,),
-                    )
             self._harden_files()
         except sqlite3.Error as exc:
             raise LedgerStorageError(f"falha ao inicializar banco: {exc}") from exc

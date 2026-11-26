@@ -87,6 +87,11 @@ componente futuro, com autorização registrada.
 - Compatibilidade: validação em modo somente leitura antes de DDL ou chmod.
   Banco sem `meta.schema_version` ou com versão diferente é rejeitado; nenhuma
   tabela é criada/eliminada, nenhum dado é alterado e nenhuma permissão é mudada.
+  Banco novo recebe `meta` + `schema_version` em transação antes do schema:
+  interrupção antes do commit deixa banco vazio (reconhecido como novo); após o
+  commit, tabelas ausentes são reparadas por `CREATE IF NOT EXISTS`.
+- Journal quente/recuperação inconclusiva: o ledger não tenta recuperar; conexão
+  em modo somente leitura falha e o arquivo é preservado. Na dúvida, bloqueia.
 - Política e projeto injetados; nenhum nome de agente ou regra de produto é embutido.
 
 ## Testes
