@@ -42,6 +42,24 @@ EXPECTED_PROJECT_ID = "better-talker"
 EXPECTED_REPOSITORY_ID = "guilhermemellojw/better-talker"
 EXPECTED_CANONICAL_DIR = "/home/guilherme/Documentos/better-talker"
 EXPERIMENTAL_WORKTREE = "/home/guilherme/Documentos/better-talker-coord-supervisor-shadow"
+# Modelo experimental aprovado pelo mantenedor (substitui hungerg-free).
+EXPERIMENTAL_MODEL = "opencode/hy4-flash-free"
+
+
+def canonical_model_ref(provider_id: Optional[str], model_id: Optional[str],
+                        variant: Optional[str] = None) -> str:
+    """Representação canônica observada em `Model.Ref` (id + providerID).
+
+    A API pode devolver `variant="none"`; isso não acrescenta sufixo. Variantes
+    explícitas diferentes de ``none`` são preservadas. ``default`` é mantido
+    como sufixo explícito quando informado, sem ser presumido pela ausência.
+    """
+    if not provider_id or not model_id:
+        return ""
+    base = f"{provider_id}/{model_id}"
+    if variant and variant != "none":
+        return f"{base}#{variant}"
+    return base
 PILOT_TRANSITIONS = {
     "AUTHORIZED": {"DISPATCHING", "UNKNOWN", "FAILED"},
     "DISPATCHING": {"UNKNOWN", "FAILED", "DELIVERED", "RUNNING", "COMPLETED"},
@@ -369,7 +387,7 @@ class PilotAuthorization:
     approved: bool = False
     environment: str = "PROPOSED"
     max_transmissions: int = 1
-    expected_model: str = "opencode-go/hungerg-free#default"
+    expected_model: str = EXPERIMENTAL_MODEL
     endpoint: str = DEFAULT_ENDPOINT
 
     def __post_init__(self) -> None:
@@ -750,8 +768,8 @@ class OpenCodeTransport(cc.Transport):
                                     phase="pre_transmit") from e
         session = (self._get(f"/api/session/{target.session_id}") or {}).get("data") or {}
         model = session.get("model") or {}
-        model_ref = f"{model.get('providerID')}/{model.get('id')}" + (
-            f"#{model.get('variant')}" if model.get("variant") else "")
+        model_ref = canonical_model_ref(model.get("providerID"), model.get("id"),
+                                        model.get("variant"))
         if (session.get("id") != target.session_id
                 or session.get("projectID") != identity.opencode_project_id
                 or session.get("agent") != target.agent_id

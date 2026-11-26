@@ -84,4 +84,6 @@ Nenhuma sessão, prompt, agente, modelo, credencial, mensagem, worktree, configu
 3. Validar metadados reais, corrigir os controles de disponibilidade/permissões com evidência observada e cadastrar a sessão sem `--permissions-confirmed`.
 4. Manter bloqueio de manifesto e transmissão até aprovação humana específica sobre o manifesto final.
 
+**Adendo P3B.3.1:** o mantenedor autorizou a substituição do modelo por `opencode/hy4-flash-free`. Correções documentais deste relatório: `POST /api/session` com `operationId=session.create`, **nenhum** parâmetro de query, `requestBody` obrigatório, nenhuma propriedade superior obrigatória (oito propriedades disponíveis ≠ obrigatórias), `location.directory` no corpo, `Model.Ref` com `id`/`providerID`, `Permission.Rule` com `action`/`resource`/`effect`, nenhum prompt inicial. Inventário real: 18 modelos — 11 `opencode` com custo listado zero e 7 `groq`. Payload mínimo do schema (`{}`) ≠ payload mínimo operacional (titulo/agente/modelo/location/permissions).
+
 **Parecer:** operação interrompida por bloqueio objetivo e documentado; submeter à revisão independente. PR permanece Draft.

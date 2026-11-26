@@ -38,8 +38,8 @@ SESSION_ABSENT = {"_tag": "SessionNotFoundError", "sessionID": SID,
 SESSION_META = {"data": {
     "id": SID, "projectID": OPCODE_PROJECT_ID,
     "repositoryID": pilot.EXPECTED_REPOSITORY_ID,
-    "agent": "agente-observado", "model": {"providerID": "opencode-go",
-    "id": "hungerg-free", "variant": "default"},
+    "agent": "agente-observado", "model": {"providerID": "opencode",
+    "id": "hy4-flash-free", "variant": "none"},
     "time": {"busy": 0, "idle": 9}, "outcome": "succeeded",
     "location": {"directory": pilot.EXPERIMENTAL_WORKTREE}}}
 

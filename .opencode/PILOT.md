@@ -14,7 +14,7 @@ autorização explícita do mantenedor e recertificação independente.
 | `session_id` | `ses_defc05853ffeej4fPXrp7frx4x` |
 | `instance_id` | a recalcular no preflight de P3B a partir de `GET /api/info` |
 | `location` | `/home/guilherme/Documentos/better-talker-coord-supervisor-shadow` |
-| `modelo` | `opencode-go/hungerg-free#default` (confirmar em P3B) |
+| `modelo` | `opencode/hy4-flash-free` (substituição autorizada pelo mantenedor em P3B.3.1) |
 
 A sessão experimental acima é a que recebeu os testes das missões anteriores. A outra sessão
 experimental permanece preservada e não é destino deste piloto. **Não presumir que
@@ -85,7 +85,7 @@ Nenhuma troca automática de modelo é autorizada.
   "approved": false,
   "environment": "PROPOSED",
   "max_transmissions": 1,
-  "expected_model": "opencode-go/hungerg-free#default",
+  "expected_model": "opencode/hy4-flash-free",
   "canonical_sha256": "<calculado após aprovação>"
 }
 ```
@@ -256,23 +256,29 @@ python3 .opencode/scripts/coord_pilot_cli.py prepare --real \
 
 ### Contrato real de criação da sessão (a confirmar no `/doc` da instância privada)
 
-Evidência do SDK instalado (`@opencode-ai/sdk/dist/gen`): a operação é `POST /session`
-**na base da API do SDK**; `directory` é parâmetro de **query**, não do corpo; o corpo
-documentado pelo SDK contém apenas `parentID`/`title`. O caminho HTTP efetivo pode incluir
-o prefixo `/api` — **confirmar** com `GET /doc` na instância v2.3.2 antes de qualquer escrita:
+Contrato **efetivamente observado** na instância v2.3.2 (P3B.3): `/doc` serve HTML da
+aplicação; a especificação real está em `GET /openapi.json` (OpenAPI 3.1.0, 142 paths):
 
-```sh
-opencode api --server <endpoint> get /doc
-```
+- **Caminho:** `POST /api/session`; **operationId:** `session.create` (confirmado no spec).
+- **Parâmetros de query:** **nenhum**. `requestBody` é **obrigatório**.
+- **Schema:** nenhuma propriedade de nível superior é obrigatória. O schema expõe oito
+  propriedades (`id`, `parentID`, `title`, `agent`, `model`, `location`, `metadata`,
+  `permissions`), mas **disponível ≠ obrigatório**. Payload mínimo aceito pelo schema é
+  `{}`; **payload mínimo operacional não é vazio**: deve vincular `title`, `agent`,
+  `model` e `location`, além da política `permissions`.
+- `location.directory` vai **no corpo** (`Location.PublicRef` com `directory` absoluto),
+  não em query.
+- `Model.Ref` exige **`id`** e `providerID` (não `modelID`); variante é opcional e
+  `variant="none"` não acrescenta sufixo à representação canônica `provider/id`.
+- `Permission.Ruleset` é uma **lista** de `Permission.Rule` com `action`, `resource` e
+  `effect` (`allow`/`deny`/`ask`) — **não** `{permission, pattern, action}`.
+- **Nenhum prompt inicial** é exigido nem executado; nenhuma inferência é feita para testar
+  modelo ou permissões. Modelo congelado: `opencode/hy4-flash-free`; ausência ou divergência
+  bloqueia, sem fallback pago.
 
-Na superfície HTTP v2, o contrato a confirmar é: `POST /api/session?directory=<worktree>`
-com corpo mínimo contendo `title`, `model: {"providerID":"opencode-go","id":"hungerg-free"}`
-(**`id`, não `modelID`**) e `permission` como **lista de objetos**
-`{"permission": ..., "pattern": ..., "action": ...}`. Não usar o operation ID
-`session.create` sem confirmação no `/doc`; não inventar payload. A sessão deve ser criada
-**sem prompt inicial e sem execução de LLM**, com política de ferramentas restritas
-verificável e modelo gratuito congelado. Se o ambiente isolado não disponibilizar o modelo
-autorizado, **bloquear** — sem fallback pago.
+Inventário real observado na instância isolada: **18 modelos — 11 `opencode` com custo
+listado zero e 7 `groq`**. Modelo contendo `free` no nome não é automaticamente autorizado;
+exige-se correspondência exata com o modelo aprovado.
 
 `project.id` do OpenCode é um ID interno (hash), distinto da identidade lógica `better-talker`,
 do repositório GitHub (lido de `git remote get-url origin` e validado pela política), do
@@ -331,6 +337,17 @@ python3 .opencode/scripts/coord_pilot_cli.py closeout
 - Relatório divergente não substitui resultado terminal.
 - Aceitação HTTP não prova leitura pelo agente; `session/active` ausente não prova disponibilidade.
 - Nenhuma garantia de exactly-once, entrega durável ou ordem global é afirmada.
+
+## Diretriz de produto do mantenedor — FREE FIRST / 1M PREFERRED
+
+Registrada para COORD-05/06/07: preferir modelos **gratuitos** com janela de contexto de
+aproximadamente **1 milhão de tokens ou superior**. Quando limites gratuitos são atingidos,
+o mantenedor atualmente troca manualmente para outro modelo gratuito disponível. A futura
+coordenação deverá automatizar descoberta dinâmica de modelos gratuitos, preferência por
+contexto ≥1M, rotação diante de indisponibilidade ou limite atingido, preservação de contexto
+e evidências, ausência de reenvio cego e proteção contra gastos não autorizados.
+**Não implementar rotação automática nesta missão**: o piloto permanece restrito a um modelo
+exato (`opencode/hy4-flash-free`).
 
 ## Reutilização futura
 

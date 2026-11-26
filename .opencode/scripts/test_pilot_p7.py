@@ -109,7 +109,7 @@ class TargetIdentityTests(unittest.TestCase):
             f"/api/session/{ax.SID}": (200, session or {"data": {
                 "id": ax.SID, "projectID": ax.OPCODE_PROJECT_ID,
                 "agent": "agente-observado",
-                "model": {"providerID": "opencode-go", "id": "hungerg-free", "variant": "default"},
+                "model": {"providerID": "opencode", "id": "hy4-flash-free", "variant": "none"},
                 "location": {"directory": pilot.EXPERIMENTAL_WORKTREE}}}),
         }
         client = ax.ScriptedClient(responses)
@@ -135,11 +135,11 @@ class TargetIdentityTests(unittest.TestCase):
         cases = {
             "hash interno": {"data": {"id": ax.SID, "projectID": "hash-outro",
                 "agent": "agente-observado",
-                "model": {"providerID": "opencode-go", "id": "hungerg-free", "variant": "default"},
+                "model": {"providerID": "opencode", "id": "hy4-flash-free", "variant": "none"},
                 "location": {"directory": pilot.EXPERIMENTAL_WORKTREE}}},
             "agente": {"data": {"id": ax.SID, "projectID": ax.OPCODE_PROJECT_ID,
                 "agent": "outro",
-                "model": {"providerID": "opencode-go", "id": "hungerg-free", "variant": "default"},
+                "model": {"providerID": "opencode", "id": "hy4-flash-free", "variant": "none"},
                 "location": {"directory": pilot.EXPERIMENTAL_WORKTREE}}},
             "modelo": {"data": {"id": ax.SID, "projectID": ax.OPCODE_PROJECT_ID,
                 "agent": "agente-observado",
@@ -147,7 +147,7 @@ class TargetIdentityTests(unittest.TestCase):
                 "location": {"directory": pilot.EXPERIMENTAL_WORKTREE}}},
             "location": {"data": {"id": ax.SID, "projectID": ax.OPCODE_PROJECT_ID,
                 "agent": "agente-observado",
-                "model": {"providerID": "opencode-go", "id": "hungerg-free", "variant": "default"},
+                "model": {"providerID": "opencode", "id": "hy4-flash-free", "variant": "none"},
                 "location": {"directory": "/tmp/outro"}}},
         }
         for label, session in cases.items():

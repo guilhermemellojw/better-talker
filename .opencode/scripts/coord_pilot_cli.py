@@ -62,7 +62,7 @@ class FixtureClient(pilot.HttpClient):
                             "canonical": target.location}}),
             ("GET", f"/api/session/{SESSION_ID}"): (200, {"data": {
                 "id": SESSION_ID, "projectID": target.project_id, "agent": target.agent_id,
-                "model": {"providerID": "opencode-go", "id": "hungerg-free", "variant": "default"},
+                "model": {"providerID": "opencode", "id": "hy4-flash-free", "variant": "none"},
                 "time": {"busy": 1, "idle": 2}, "outcome": "succeeded",
                 "location": {"directory": target.location}}}),
             ("GET", pilot.ACTIVE_PATH): (200, {"data": {}}),
@@ -127,7 +127,7 @@ def _fixture_context(*, store_dir: str, endpoint: Optional[str] = None,
         operation_id=mission.operation_id, prompt_sha256=prompt_sha256,
         scope=mission.scope, issued_at=NOW, expires_at=NOW + timedelta(hours=1),
         approved=True, environment="FIXTURE", max_transmissions=1,
-        expected_model="opencode-go/hungerg-free#default",
+        expected_model=pilot.EXPERIMENTAL_MODEL,
         endpoint=pilot.DEFAULT_ENDPOINT)
     transport = pilot.OpenCodeTransport(
         client, expected_instance_id=client.instance, registered_targets=(auth.target,),
@@ -149,7 +149,7 @@ def _fixture_context(*, store_dir: str, endpoint: Optional[str] = None,
             "approval": approval, "executor": executor}
 
 
-ALLOWED_FREE_MODEL = "opencode-go/hungerg-free#default"
+ALLOWED_FREE_MODEL = pilot.EXPERIMENTAL_MODEL  # fonte única da política experimental
 
 
 def _real_client(endpoint: str, *, auth_env: Optional[str] = None) -> pilot.ReadOnlyHttpClient:
@@ -417,9 +417,10 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
         observed["outcome"] = value.get("outcome")
         observed["time"] = dict(value.get("time") or {})
         model = value.get("model") or {}
+        observed["session_model"] = ""
         if all(model.get(k) for k in ("providerID", "id")):
-            observed["session_model"] = (f"{model['providerID']}/{model['id']}"
-                                         f"#{model.get('variant') or 'default'}")
+            observed["session_model"] = pilot.canonical_model_ref(
+                model.get("providerID"), model.get("id"), model.get("variant"))
         observed["session_location"] = (value.get("location") or {}).get("directory")
         reasons: list[str] = []
         if observed["session_id"] != session_id:
@@ -710,7 +711,7 @@ def run(argv: list[str]) -> dict[str, Any]:
                     "project_id": target.project_id, "repository_id": target.repository_id,
                     "location": target.location, "session_id": target.session_id,
                     "agent_id": target.agent_id,
-                    "model": "opencode-go/hungerg-free#default",
+                    "model": pilot.EXPERIMENTAL_MODEL,
                     "session_state": status.state, "inbox_count": status.inbox_count,
                     "api_version": "2.3.2", "endpoint": pilot.DEFAULT_ENDPOINT},
                 "assumptions": ["agent_id informado como A, pendente de confirmação em P3B"],
