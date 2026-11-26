@@ -3,9 +3,9 @@
 **Relatório gerado automaticamente com dados verificáveis da API do GitHub.** As alterações são propostas por PR; o planejamento estratégico não é modificado automaticamente.
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
-- `main` consultada: `b256b8d7a0f104f08b780177ca096c199652c15f`
-- Checks da `main` consultada: **Verde**
-- PRs encontrados na janela de consulta: **64** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
+- `main` consultada: `02b89856837d03cbaa11d2f30d5931b4d7e43bd3`
+- Checks da `main` consultada: **Não verificado**
+- PRs encontrados na janela de consulta: **64** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-26.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
 
@@ -13,7 +13,7 @@
 
 | Frente | Abertos | Integrados | Fechados sem merge |
 | --- | ---: | ---: | ---: |
-| Mentor | 1 | 21 | 0 |
+| Mentor | 0 | 22 | 0 |
 | Referências e UX | 0 | 12 | 0 |
 | TRUST | 0 | 11 | 0 |
 | Beta e infraestrutura | 0 | 5 | 0 |
@@ -25,13 +25,13 @@
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
 | [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `c7d873ea565a` | Verde |
-| [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `ff9c2543444a` | Pendente |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `be669824b63d` | Verde |
 
 ## Integrações recentes
 
 | PR | Frente inferida | Data UTC |
 | --- | --- | --- |
+| [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | 2026-11-26 00:54 |
 | [#67 — fix(beta-a11y): estado compreensível em Gerar ideias](https://github.com/guilhermemellojw/better-talker/pull/67) | Beta e infraestrutura | 2026-11-25 21:05 |
 | [#66 — fix(beta-a11y): rótulos acessíveis na jornada beta](https://github.com/guilhermemellojw/better-talker/pull/66) | Beta e infraestrutura | 2026-11-25 19:50 |
 | [#65 — docs(coord): ACTIVE_TASKS R07 — reconciliação operacional pós-#60](https://github.com/guilhermemellojw/better-talker/pull/65) | Documentação | 2026-11-25 19:17 |
@@ -56,7 +56,6 @@
 | [#42 — fix(mentor): gate oratorio recebe dossie resolvido, nao dossie do foco anterior (P4 1C.2.2B1a)](https://github.com/guilhermemellojw/better-talker/pull/42) | Mentor | 2026-11-24 12:37 |
 | [#43 — TRUST-2B3B-B1b — consistência transacional e proteção contra alterações concorrentes no índice TNM](https://github.com/guilhermemellojw/better-talker/pull/43) | TRUST | 2026-11-24 12:04 |
 | [#46 — docs(governance): coordenação colaborativa de cinco agentes e QA distribuído](https://github.com/guilhermemellojw/better-talker/pull/46) | Documentação | 2026-11-23 19:02 |
-| [#38 — test(trust): testes instrumentados da identidade do índice Room (TRUST-2B3B-B1a)](https://github.com/guilhermemellojw/better-talker/pull/38) | TRUST | 2026-11-23 16:29 |
 
 ## Interpretação e próximos gates
 
@@ -67,12 +66,12 @@
 
 ## Métricas operacionais observáveis
 
-- Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **3**; desses, Drafts: **2**.
-- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=61.
+- Janela efetiva da coleta: 2026-11-16 a 2026-11-26 (até 300 PRs, ordenados por `updated_at`).
+- PRs abertos: **2**; desses, Drafts: **1**.
+- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=62.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.4 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Pendente=1, Verde=2.
+- Mediana de idade dos PRs abertos: 4.2 dias (referência fixa: 2026-11-26).
+- Estados de check dos PRs abertos: Verde=2.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
