@@ -24,8 +24,8 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#68 — HOTFIX P0: compatibilidade ICU/Android das regex pedagógicas (Draft)](https://github.com/guilhermemellojw/better-talker/pull/68) | Outros | `497e4ad8b130` | Pendente |
-| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `65633bd1eb69` | Verde |
+| [#68 — HOTFIX P0: compatibilidade ICU/Android das regex pedagógicas (Draft)](https://github.com/guilhermemellojw/better-talker/pull/68) | Outros | `497e4ad8b130` | Verde |
+| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `c94eee529c57` | Pendente |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `be669824b63d` | Verde |
 
 ## Integrações recentes
