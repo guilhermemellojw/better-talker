@@ -7,6 +7,7 @@ explícita do mantenedor e recertificação independente.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -31,7 +32,7 @@ SESSION_ID = "ses_defc05853ffeej4fPXrp7frx4x"
 SESSION_REGISTRY_FILE = "experimental-session.json"
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)  # permitido exclusivamente em fixtures
 COMMANDS = ("preflight", "prepare", "execute", "reconcile", "closeout", "dry-run",
-            "session-register")
+            "session-register", "rebind-check")
 
 
 class FixtureClient(pilot.HttpClient):
@@ -195,8 +196,8 @@ def _validate_registry(value: Any) -> dict[str, Any]:
         raise ValueError("location cadastrada diverge da worktree experimental")
     if value["model"] != ALLOWED_FREE_MODEL:
         raise ValueError("modelo cadastrado não é o gratuito autorizado")
-    if "permissions_confirmed" in value and not isinstance(value["permissions_confirmed"], bool):
-        raise ValueError("confirmação de permissões inválida")
+    # flags de confirmação de permissões não são evidência e são ignoradas.
+    value.pop("permissions_confirmed", None)
     return value
 
 
@@ -242,9 +243,11 @@ def _register_session(store_dir: str, fields: dict[str, Any], *, replace: bool =
         "authorization_reference": fields["authorization_reference"],
         "registered_at": cc.iso(cc.utc_now()),
     }
-    for key in ("permissions_confirmed", "permission_policy"):
+    for key in ("permission_policy",):
         if key in fields:
             value[key] = fields[key]
+    if fields.get("permission_policy") is not None:
+        value["permission_policy_sha256"] = canonical_policy_sha256(fields["permission_policy"])
     value = _validate_registry(value)
     os.makedirs(store_dir, mode=0o700, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -273,8 +276,115 @@ def _validate_proposal_window(created_at: datetime, issued_at: datetime,
         raise ValueError("proposta expirada")
 
 
+def canonical_policy_sha256(policy: Any) -> str:
+    """Hash canônico da política de permissões efetivamente observada."""
+    if policy is None:
+        return ""
+    return hashlib.sha256(cc.canonical_json(policy).encode("utf-8")).hexdigest()
+
+
+def observe_inbox(observed: dict[str, Any], payload: Optional[dict[str, Any]]) -> None:
+    """Estado explícito do inbox: vazio observado ≠ ausente ≠ falha ≠ inválido ≠ ocupado."""
+    result: dict[str, Any] = {
+        "inbox_observed": False, "inbox_count": None,
+        "state": "not_queried", "source": "opencode-api",
+    }
+    path = f"/api/session/{observed.get('session_id')}{pilot.INBOX_SUFFIX}"
+    queried = any(call == f"GET {path}" for call in observed.get("calls", ()))
+    if queried:
+        kind = observed.get("status_kind")
+        if kind in {"connection_error", "http_error", "unauthorized"}:
+            result["state"] = "http_error"
+        elif kind == "session_absent":
+            result["state"] = "absent"
+        elif payload is None:
+            result["state"] = "absent"
+        elif (not isinstance(payload, dict) or not isinstance(payload.get("data"), list)):
+            result["state"] = "invalid_response"
+        else:
+            result["inbox_observed"] = True
+            result["inbox_count"] = len(payload["data"])
+            result["state"] = "empty" if result["inbox_count"] == 0 else "occupied"
+    observed["inbox_observation"] = result
+    observed["inbox_observed"] = result["inbox_observed"]
+    observed["inbox_count"] = result["inbox_count"]
+
+
+def assess_admission(observed: dict[str, Any], session: dict[str, Any]) -> dict[str, Any]:
+    """Admissão tri-state da sessão experimental recém-criada e de consumidor exclusivo.
+
+    Não é heurística de disponibilidade para agentes produtivos: só é chamada
+    depois de confirmada a identidade do destinatário experimental cadastrado.
+    """
+    basis: dict[str, Any] = {}
+    blockers: list[str] = []
+
+    def require(key: str, condition: bool, label: str) -> None:
+        basis[key] = bool(condition)
+        if not condition:
+            blockers.append(label)
+
+    require("authenticated_instance", observed.get("authentication_succeeded") is True
+            and observed.get("service_contacted") is True, "instância não autenticada")
+    require("authorized_endpoint", observed.get("endpoint") == session.get("endpoint"),
+            "endpoint não autorizado")
+    require("exactly_one_session", observed.get("session_count") == 1,
+            "inventário não contém exatamente uma sessão")
+    require("identity_complete", observed.get("identity_confirmed") is True
+            and observed.get("session_identity_confirmed") is True,
+            "identidade do destinatário incompleta")
+    require("active_observed", observed.get("active_observed") is True,
+            "active não observado")
+    require("absent_from_active", observed.get("session_in_active") is False,
+            "sessão presente em active")
+    inbox = observed.get("inbox_observation") or {}
+    require("inbox_observed_empty", inbox.get("state") == "empty",
+            "inbox não observado como vazio")
+    require("zero_messages_parts", observed.get("messages_observed") is True
+            and observed.get("message_count") == 0 and observed.get("part_count") == 0,
+            "mensagens/parts não observadas como zero")
+    created = (observed.get("time") or {}).get("created")
+    updated = (observed.get("time") or {}).get("updated")
+    require("time_untouched", created is not None and created == updated,
+            "time.created/updated divergentes ou ausentes")
+    tokens = observed.get("tokens") or {}
+    cost = observed.get("cost") or []
+    zero_cost = all(not item or all((item.get(k) or 0) == 0 for k in ("input", "output"))
+                    for item in cost) if isinstance(cost, list) else False
+    require("zero_cost_tokens", zero_cost and all((tokens.get(k) or 0) == 0
+            for k in ("input", "output", "reasoning")), "tokens/custo não zerados")
+    require("outcome_absent", observed.get("outcome") is None,
+            "outcome presente; execução anterior não excluída")
+    repo = observed.get("repository_evidence") or {}
+    require("repository_evidence", repo.get("confirmed") is True,
+            "evidência independente do repositório insuficiente")
+    require("permission_policy_resolved", bool(observed.get("permission_policy_sha256")),
+            "política de permissões não observada")
+    require("exclusive_consumer", observed.get("exclusive_consumer") is True,
+            "consumidor exclusivo não comprovado")
+    require("human_authorization", observed.get("human_authorization") is True,
+            "autorização humana para transmissão ausente")
+
+    if basis.get("identity_complete") and observed.get("session_in_active") is True:
+        state = "busy"
+    elif all(basis.get(k) for k in ("authenticated_instance", "authorized_endpoint",
+                                    "exactly_one_session", "identity_complete",
+                                    "active_observed", "absent_from_active",
+                                    "inbox_observed_empty", "zero_messages_parts",
+                                    "time_untouched", "zero_cost_tokens", "outcome_absent",
+                                    "repository_evidence", "permission_policy_resolved")):
+        state = "new_experimental_session"
+    elif basis.get("active_observed") and basis.get("absent_from_active"):
+        state = "inactive_observed"
+    else:
+        state = "unknown"
+    return {"admission_state": state, "admission_basis": basis,
+            "admission_blockers": blockers}
+
+
 def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
-                  session: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+                  session: Optional[dict[str, Any]] = None,
+                  expect_instance_change: bool = False) -> dict[str, Any]:
     """GETs ordenados: cadastro/endpoint → instância → projeto → sessão → inbox."""
     canonical = pilot.canonical_endpoint(endpoint)
     seen: list[str] = []
@@ -287,7 +397,7 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
         "http_status": None, "real_calls": 0, "calls": seen, "blockers": [],
         "fallback": "none", "instance_confirmed": False, "identity_confirmed": False,
         "session_identity_confirmed": False, "availability_confirmed": False,
-        "agent_confirmed": False, "model_confirmed": False, "permissions_confirmed": False,
+        "agent_confirmed": False, "model_confirmed": False,
         "limits": ["busy/idle não comprovam disponibilidade",
                    "conteúdo de mensagens não consultado nesta missão"],
         "hypotheses": [],
@@ -352,12 +462,17 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
     observed["urls"] = list(info.get("urls") or [])
     observed["instance_id"] = pilot.instance_identity(info)
     if session is not None and observed["instance_id"] != session["instance_id"]:
-        observed["status_kind"] = "instance_divergent"
+        if not expect_instance_change:
+            observed["status_kind"] = "instance_divergent"
+            observed["blockers"].append(
+                "instância observada diverge do cadastro; nenhum GET de sessão/inbox")
+            observed["real_calls"] = len(seen)
+            return observed
+        observed["instance_changed"] = True
         observed["blockers"].append(
-            "instância observada diverge do cadastro; nenhum GET de sessão/inbox")
-        observed["real_calls"] = len(seen)
-        return observed
-    observed["instance_confirmed"] = True
+            "instância mudou; revinculação exige proposta e autorização explícitas")
+    else:
+        observed["instance_confirmed"] = True
 
     # 2) projeto/location/repositório pela validação compartilhada.
     location = fetch(pilot.LOCATION_PATH, "location")
@@ -398,8 +513,10 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
     if active is None:
         observed["real_calls"] = len(seen)
         return observed
-    active_data = active.get("data") or {}
-    observed["active_sessions"] = len(active_data)
+    active_data = active.get("data") if isinstance(active.get("data"), dict) else None
+    observed["active_observed"] = active_data is not None
+    observed["active_sessions"] = len(active_data or {})
+    observed["active_session_ids"] = sorted(str(k) for k in (active_data or {}))
 
     # 3) somente após instância e projeto confirmados, metadados da sessão.
     if session is not None:
@@ -416,12 +533,17 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
         observed["session_repository_id"] = value.get("repositoryID")
         observed["outcome"] = value.get("outcome")
         observed["time"] = dict(value.get("time") or {})
+        observed["tokens"] = dict(value.get("tokens") or {})
+        observed["cost"] = value.get("cost")
+        observed["session_in_active"] = session_id in (active_data or {})
         model = value.get("model") or {}
         observed["session_model"] = ""
         if all(model.get(k) for k in ("providerID", "id")):
             observed["session_model"] = pilot.canonical_model_ref(
                 model.get("providerID"), model.get("id"), model.get("variant"))
         observed["session_location"] = (value.get("location") or {}).get("directory")
+
+        # J8: identidade é confirmada isoladamente de disponibilidade/permissões.
         reasons: list[str] = []
         if observed["session_id"] != session_id:
             reasons.append("session_id divergente")
@@ -431,32 +553,61 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
             reasons.append("projeto interno divergente")
         if observed["session_location"] != observed["location_directory"]:
             reasons.append("location da sessão divergente")
-        if observed["session_repository_id"] not in (None, identity.repository_id):
-            reasons.append("repositório divergente")
         if observed["session_model"] != session["model"]:
             reasons.append("modelo divergente")
-        observed["model_confirmed"] = observed["session_model"] == ALLOWED_FREE_MODEL
-        observed["agent_confirmed"] = observed["agent_id"] == session["agent_id"]
-        observed["availability_confirmed"] = bool(observed["outcome"]) and bool(observed["time"])
-        observed["permissions_confirmed"] = session.get("permissions_confirmed") is True
-        if not observed["availability_confirmed"]:
-            reasons.append("disponibilidade desconhecida")
-        if not observed["model_confirmed"]:
-            reasons.append("modelo gratuito não confirmado")
-        if not observed["permissions_confirmed"]:
-            reasons.append("permissões efetivas não confirmadas")
+        repository_field = observed["session_repository_id"]
+        if repository_field not in (None, identity.repository_id):
+            reasons.append("repositório divergente")
+        observed["session_identity_confirmed"] = not reasons
         if reasons:
             observed["status_kind"] = "session_identity_divergent"
             observed["blockers"].extend(reasons)
             observed["real_calls"] = len(seen)
             return observed
-        observed["session_identity_confirmed"] = True
-        # 4) inbox somente após identidade efetiva confirmada.
+
+        # J9: ausência de repositoryID é aceita somente com evidência Git local.
+        observed["repository_evidence"] = {
+            "session_repository_id": repository_field,
+            "validated_repository_id": identity.repository_id,
+            "source": "session-field" if repository_field else identity.repository_source,
+            "confirmed": identity.repository_id == pilot.EXPECTED_REPOSITORY_ID,
+        }
+        observed["repository_source"] = observed["repository_evidence"]["source"]
+
+        # J6: política é evidência observada; registry/flag nunca prova enforcement.
+        policy = value.get("permissions")
+        observed["permission_policy"] = policy
+        observed["permission_policy_sha256"] = canonical_policy_sha256(policy)
+        observed["permissions_evidence"] = {
+            "returned": policy, "sha256": observed["permission_policy_sha256"],
+            "documented_precedence": "last-match-wins (documentação pública; não observada em runtime)",
+            "enforcement_observed": False,
+            "restricted_scope_without_tools": False,
+        }
+        observed["model_confirmed"] = observed["session_model"] == ALLOWED_FREE_MODEL
+        observed["agent_confirmed"] = observed["agent_id"] == session["agent_id"]
+        observed["availability_confirmed"] = False  # nunca inferido de outcome/time
+
+        # J7/J8: inbox observado após a identidade, antes de admissão/permissões.
         inbox = fetch(f"/api/session/{session_id}{pilot.INBOX_SUFFIX}", "inbox")
-        if inbox is not None:
-            observed["inbox_count"] = len(inbox.get("data") or [])
-            if observed["inbox_count"] > 0:
-                observed["blockers"].append("inbox ocupado")
+        observe_inbox(observed, inbox)
+        if observed["inbox_observation"]["state"] == "occupied":
+            observed["blockers"].append("inbox ocupado")
+
+        # Evidência de zero mensagens/parts (somente contagem; conteúdo não registrado).
+        messages = fetch(f"/api/session/{session_id}{pilot.MESSAGE_SUFFIX}?limit=20&order=desc",
+                         "mensagens")
+        if isinstance(messages, dict) and isinstance(messages.get("data"), list):
+            items = messages["data"]
+            observed["messages_observed"] = True
+            observed["message_count"] = len(items)
+            observed["part_count"] = sum(len(item.get("content") or [])
+                                         if isinstance(item, dict) else 0 for item in items)
+        else:
+            observed["messages_observed"] = False
+            observed["message_count"] = None
+            observed["part_count"] = None
+        observed.update(assess_admission(observed, session))
     else:
         observed["recipient_authorized"] = False
         observed["blockers"].append(
@@ -488,40 +639,87 @@ def _observe_blockers(observed: dict[str, Any]) -> list[str]:
 
 def _manifest_readiness_blockers(observed: dict[str, Any],
                                  session: Optional[dict[str, Any]]) -> list[str]:
-    """Exige correspondência explícita entre cadastro (esperado) e API (observado)."""
+    """Prontidão: identidade confirmada ≠ admissão ≠ permissões ≠ repositório."""
     blockers: list[str] = []
     for key, label in (("instance_confirmed", "instância não confirmada"),
                        ("identity_confirmed", "projeto/location não confirmados"),
                        ("session_found", "sessão não encontrada"),
                        ("session_identity_confirmed", "identidade da sessão não confirmada"),
-                       ("availability_confirmed", "disponibilidade desconhecida"),
-                       ("model_confirmed", "modelo gratuito não confirmado"),
-                       ("permissions_confirmed", "permissões efetivas não confirmadas")):
+                       ("model_confirmed", "modelo gratuito não confirmado")):
         if observed.get(key) is not True:
             blockers.append(label)
-    if observed.get("inbox_count", 0) > 0:
-        blockers.append("inbox ocupado")
+    admission = observed.get("admission_state")
+    if admission != "new_experimental_session":
+        blockers.append(f"admissão={admission or 'unknown'}; não pronta para transmissão")
+    if not observed.get("permission_policy_sha256"):
+        blockers.append("hash da política de permissões ausente")
+    elif observed.get("permissions_evidence", {}).get("enforcement_observed") is not True:
+        blockers.append("enforcement de permissões não observado")
+    inbox = observed.get("inbox_observation") or {}
+    if inbox.get("state") != "empty":
+        blockers.append(f"inbox {inbox.get('state', 'não observado')}")
     if observed.get("opencode_project_id") != observed.get("session_project_id"):
         blockers.append("projeto interno divergente")
-    if observed.get("repository_id") != pilot.EXPECTED_REPOSITORY_ID:
-        blockers.append("repositório divergente")
+    repo = observed.get("repository_evidence") or {}
+    if repo.get("confirmed") is not True:
+        blockers.append("evidência independente do repositório insuficiente")
+    if observed.get("session_repository_id") not in (None, pilot.EXPECTED_REPOSITORY_ID):
+        blockers.append("repositório declarado pela API divergente")
     if session is not None:
         for observed_key, expected_key in (("session_id", "session_id"),
                                            ("agent_id", "agent_id"),
                                            ("session_model", "model"),
-                                           ("session_location", "location"),
-                                           ("session_repository_id", "repository_id")):
+                                           ("session_location", "location")):
             if observed.get(observed_key) != session.get(expected_key):
                 blockers.append(f"{observed_key} divergente")
     return blockers
+
+
+def prepare_rebind(registry: dict[str, Any], observed: dict[str, Any],
+                   *, endpoint: str) -> dict[str, Any]:
+    """Prepara proposta de revinculação da MESMA sessão; nunca aplica nem cria outra."""
+    checks: dict[str, bool] = {
+        "endpoint_authorized": observed.get("endpoint") == pilot.canonical_endpoint(endpoint),
+        "authenticated_instance": observed.get("authentication_succeeded") is True,
+        "same_session": observed.get("session_id") == registry.get("session_id"),
+        "same_project": observed.get("project_id") == registry.get("project_id"),
+        "same_internal_project": observed.get("session_project_id") == observed.get("opencode_project_id"),
+        "same_agent": observed.get("agent_id") == registry.get("agent_id"),
+        "same_model": observed.get("session_model") == registry.get("model"),
+        "same_location": observed.get("session_location") == registry.get("location"),
+        "repository_evidence": (observed.get("repository_evidence") or {}).get("confirmed") is True,
+        "inbox_observed_empty": (observed.get("inbox_observation") or {}).get("state") == "empty",
+        "no_prior_messages": observed.get("message_count") == 0
+                             and observed.get("part_count") == 0,
+        "permission_policy_preserved": bool(observed.get("permission_policy_sha256"))
+                                       and observed.get("permission_policy_sha256")
+                                       == registry.get("permission_policy_sha256"),
+        "identity_confirmed": observed.get("session_identity_confirmed") is True,
+    }
+    previous = registry.get("instance_id")
+    current = observed.get("instance_id")
+    allowed = all(checks.values())
+    return {
+        "command": "rebind-check", "source": "fixture", "service_contacted": False,
+        "proposal_only": True, "applied": False, "requires_authorization": True,
+        "blocked": not allowed,
+        "checks": checks,
+        "session_id": registry.get("session_id"),
+        "previous_instance_id": previous, "new_instance_id": current,
+        "instance_changed": previous != current,
+        "registry_sha256": hashlib.sha256(
+            cc.canonical_json(registry).encode("utf-8")).hexdigest(),
+        "permission_policy_sha256": observed.get("permission_policy_sha256", ""),
+        "reason": ("mesma sessão revinculável após autorização" if allowed
+                   else "divergência impede revinculação; não criar outra sessão"),
+    }
 
 
 def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
     options: dict[str, Any] = {"store_dir": pilot.DEFAULT_PILOT_DIR,
                                "endpoint": DEFAULT_ENDPOINT, "activate": False,
                                "approval": None, "real": False, "session": None,
-                               "auth_env": None, "replace": False,
-                               "permissions_confirmed": False,
+                               "auth_env": None, "replace": False, "evidence": None,
                                "instance_id": None, "agent_id": None,
                                "authorization_reference": None}
     command = None
@@ -529,7 +727,7 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
     while index < len(argv):
         arg = argv[index]
         if arg in {"--store-dir", "--endpoint", "--approval", "--session", "--auth-env",
-                   "--instance-id", "--agent-id", "--authorization-reference"}:
+                   "--instance-id", "--agent-id", "--authorization-reference", "--evidence"}:
             index += 1
             if index >= len(argv):
                 raise ValueError(f"{arg} sem valor")
@@ -538,8 +736,6 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
             options["activate"] = True
         elif arg == "--replace":
             options["replace"] = True
-        elif arg == "--permissions-confirmed":
-            options["permissions_confirmed"] = True
         elif arg == "--real":
             options["real"] = True
             if options["store_dir"] == pilot.DEFAULT_PILOT_DIR:
@@ -636,14 +832,22 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
         issued_at=issued_at, expires_at=expires_at, approved=False,
         environment="PROPOSED", max_transmissions=1, expected_model=session["model"],
         endpoint=observed["endpoint"])
-    manifest = pilot.build_runtime_manifest(mission, authorization, prompt_sha256,
-                                            observed["endpoint"])
+    inbox = observed.get("inbox_observation") or {}
+    manifest = pilot.build_runtime_manifest(
+        mission, authorization, prompt_sha256, observed["endpoint"],
+        permission_policy_sha256=observed.get("permission_policy_sha256", ""),
+        admission_basis=observed.get("admission_state", "unknown"),
+        inbox_evidence=f"{inbox.get('state', 'unobserved')}:{inbox.get('inbox_count')}",
+        repository_source=observed.get("repository_source", "git-local"))
     result.update({
         "manifest": manifest.proposal(), "authorization": authorization.proposal(),
         "created_at": cc.iso(created_at), "issued_at": cc.iso(issued_at),
         "expires_at": cc.iso(expires_at),
         "opencode_project_id": observed.get("opencode_project_id"),
-        "repository_source": "git-local",
+        "repository_source": observed.get("repository_source", "git-local"),
+        "permission_policy_sha256": observed.get("permission_policy_sha256", ""),
+        "admission_basis": observed.get("admission_state", "unknown"),
+        "inbox_evidence": f"{inbox.get('state', 'unobserved')}:{inbox.get('inbox_count')}",
         "assumptions": ["maintainer_id e approval_reference dependem de decisão humana"],
         "limits": ["HEAD e digests recalculados no momento desta proposta",
                    "alterar arquivos operacionais invalida o manifesto"],
@@ -675,7 +879,6 @@ def run(argv: list[str]) -> dict[str, Any]:
                 "agent_id": options["agent_id"], "model": ALLOWED_FREE_MODEL,
                 "location": pilot.EXPERIMENTAL_WORKTREE,
                 "authorization_reference": options["authorization_reference"],
-                "permissions_confirmed": options["permissions_confirmed"],
             }, replace=options["replace"])
         except (ValueError, cc.ContractError) as e:
             return {"command": command, "source": "fixture", "service_contacted": False,
@@ -684,6 +887,20 @@ def run(argv: list[str]) -> dict[str, Any]:
                 "registered": True, "session": registered["session_id"],
                 "endpoint": registered["endpoint"],
                 "notice": "cadastro local; nenhuma sessão real foi criada"}
+
+    if command == "rebind-check":
+        if not options["evidence"] or session is None:
+            return {"command": command, "source": "fixture", "service_contacted": False,
+                    "blocked": True, "applied": False,
+                    "reason": "--evidence e destinatário cadastrado são obrigatórios"}
+        try:
+            with open(options["evidence"], "rb") as handle:
+                evidence = json.loads(handle.read().decode("utf-8"))
+        except (OSError, ValueError, UnicodeError) as e:
+            return {"command": command, "source": "fixture", "service_contacted": False,
+                    "blocked": True, "applied": False,
+                    "reason": f"evidência inválida: {type(e).__name__}"}
+        return prepare_rebind(session, evidence, endpoint=options["endpoint"])
 
     if command == "preflight":
         if options["real"]:
@@ -698,6 +915,12 @@ def run(argv: list[str]) -> dict[str, Any]:
                     "session_found": observed["session_found"],
                     "recipient_authorized": observed["recipient_authorized"],
                     "status_kind": observed["status_kind"], "http_status": observed["http_status"],
+                    "admission_state": observed.get("admission_state", "unknown"),
+                    "admission_basis": observed.get("admission_basis", {}),
+                    "admission_blockers": observed.get("admission_blockers", []),
+                    "permission_policy_sha256": observed.get("permission_policy_sha256", ""),
+                    "repository_source": observed.get("repository_source", ""),
+                    "inbox_observation": observed.get("inbox_observation", {}),
                     "real_calls": observed["real_calls"], "observed": observed,
                     "blockers": _observe_blockers(observed),
                     "limits": observed["limits"], "fallback": observed.get("fallback", "none")}

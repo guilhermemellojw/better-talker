@@ -59,6 +59,7 @@ class ModelPolicyTests(unittest.TestCase):
             observed = observed_for(session, model_variant("opencode", "hy4-flash-free", "none"))
             self.assertTrue(observed["model_confirmed"])
             self.assertTrue(observed["session_identity_confirmed"])
+            ax.make_synthetic_ready(observed)  # manifesto sintético apenas em teste
             with patch.object(pilot, "repository_identity_from_git",
                               return_value=pilot.EXPECTED_REPOSITORY_ID), \
                  patch.object(pilot, "executed_head_sha", return_value="a" * 40), \

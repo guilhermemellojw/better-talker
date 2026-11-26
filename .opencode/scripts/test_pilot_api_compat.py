@@ -37,10 +37,14 @@ SESSION_ABSENT = {"_tag": "SessionNotFoundError", "sessionID": SID,
                   "message": f"Session not found: {SID}"}
 SESSION_META = {"data": {
     "id": SID, "projectID": OPCODE_PROJECT_ID,
-    "repositoryID": pilot.EXPECTED_REPOSITORY_ID,
     "agent": "agente-observado", "model": {"providerID": "opencode",
     "id": "hy4-flash-free", "variant": "none"},
-    "time": {"busy": 0, "idle": 9}, "outcome": "succeeded",
+    "time": {"created": 1795695114726, "updated": 1795695114726},
+    "tokens": {"input": 0, "output": 0, "reasoning": 0,
+               "cache": {"read": 0, "write": 0}},
+    "cost": [{"input": 0, "output": 0, "cache": {"read": 0, "write": 0}}],
+    "permissions": [{"action": "*", "resource": "*", "effect": "deny"},
+                    {"action": "question", "resource": "*", "effect": "allow"}],
     "location": {"directory": pilot.EXPERIMENTAL_WORKTREE}}}
 
 
@@ -60,13 +64,25 @@ def full_responses(*, with_session=True):
     values = {
         pilot.INFO_PATH: (200, INFO),
         pilot.LOCATION_PATH: (200, LOCATION),
-        "/api/session": (200, INVENTORY),
+        "/api/session": (200, {"data": [SESSION_META["data"]] if with_session else [],
+                               "cursor": {"previous": None, "next": None}}),
         pilot.ACTIVE_PATH: (200, ACTIVE),
     }
     if with_session:
         values[f"/api/session/{SID}"] = (200, SESSION_META)
         values[f"/api/session/{SID}{pilot.INBOX_SUFFIX}"] = (200, {"data": []})
+        values[f"/api/session/{SID}{pilot.MESSAGE_SUFFIX}?limit=20&order=desc"] = (
+            200, {"data": []})
     return values
+
+
+def make_synthetic_ready(observed):
+    """Evidência sintética apenas em teste: satisfaz admissão e enforcement."""
+    observed["exclusive_consumer"] = True
+    observed["human_authorization"] = True
+    observed["permissions_evidence"]["enforcement_observed"] = True
+    observed["admission_state"] = "new_experimental_session"
+    return observed
 
 
 def registered(store_dir):
@@ -146,7 +162,7 @@ class ResponseCompatibilityTests(unittest.TestCase):
         self.assertEqual(observed["opencode_project_id"], OPCODE_PROJECT_ID)
         self.assertEqual(observed["project_canonical"], pilot.EXPECTED_CANONICAL_DIR)
         self.assertEqual(observed["location_directory"], pilot.EXPERIMENTAL_WORKTREE)
-        self.assertEqual(observed["session_count"], 0)
+        self.assertEqual(observed["session_count"], 1)
         self.assertEqual(observed["inventory_cursor"], {"previous": None, "next": None})
         self.assertEqual(observed["active_sessions"], 0)
         self.assertTrue(observed["session_found"])
@@ -219,6 +235,7 @@ class ProposalWindowTests(unittest.TestCase):
             session = registered(td)
             with patch.object(cli, "_real_client", return_value=client):
                 observed = cli._real_observe(EP, session=session)
+            make_synthetic_ready(observed)  # manifesto sintético apenas em teste
             result = cli._prepare_real(observed, session=session, clock=CLOCK)
         self.assertFalse(result.get("blocked", False))
         self.assertEqual(result["created_at"], cc.iso(CLOCK))

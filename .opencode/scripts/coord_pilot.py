@@ -510,6 +510,11 @@ class PilotManifest:
     issued_at: datetime
     expires_at: datetime
     max_transmissions: int
+    # Evidências P3B.4 entram no material canônico: alteração invalida aprovação.
+    permission_policy_sha256: str = ""
+    admission_basis: str = "unavailable"
+    inbox_evidence: str = "unobserved"
+    repository_source: str = "git-local"
 
     def __post_init__(self) -> None:
         # Nenhum endpoint externo/divergente entra no manifesto aprovado.
@@ -535,6 +540,10 @@ class PilotManifest:
             "issued_at": cc.iso(self.issued_at),
             "expires_at": cc.iso(self.expires_at),
             "max_transmissions": self.max_transmissions,
+            "permission_policy_sha256": self.permission_policy_sha256,
+            "admission_basis": self.admission_basis,
+            "inbox_evidence": self.inbox_evidence,
+            "repository_source": self.repository_source,
         }
 
     def canonical(self) -> str:
@@ -545,7 +554,11 @@ class PilotManifest:
 
 
 def build_runtime_manifest(mission: cc.MissionEnvelope, authorization: PilotAuthorization,
-                           prompt_sha256: str, endpoint: str) -> PilotManifest:
+                           prompt_sha256: str, endpoint: str, *,
+                           permission_policy_sha256: str = "",
+                           admission_basis: str = "unavailable",
+                           inbox_evidence: str = "unobserved",
+                           repository_source: str = "git-local") -> PilotManifest:
     """Manifesto reconstruído do estado real, sem confiar em campos informados."""
     return PilotManifest(
         reviewed_head_sha=executed_head_sha(),
@@ -564,6 +577,10 @@ def build_runtime_manifest(mission: cc.MissionEnvelope, authorization: PilotAuth
         issued_at=authorization.issued_at,
         expires_at=authorization.expires_at,
         max_transmissions=authorization.max_transmissions,
+        permission_policy_sha256=permission_policy_sha256,
+        admission_basis=admission_basis,
+        inbox_evidence=inbox_evidence,
+        repository_source=repository_source,
     )
 
 

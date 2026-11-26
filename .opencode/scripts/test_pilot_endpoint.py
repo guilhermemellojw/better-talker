@@ -150,7 +150,10 @@ class FixtureRealSeparationTests(unittest.TestCase):
                         self.assertEqual(out["mode"], "fixture")
 
     def test_real_preflight_failure_has_no_fixture_fallback(self):
-        out = cli.run(["preflight", "--real", "--endpoint", "http://127.0.0.1:51111"])
+        # Isolamento: nunca ler o registry real persistente.
+        with tempfile.TemporaryDirectory() as isolated_store:
+            out = cli.run(["--store-dir", isolated_store, "preflight", "--real",
+                           "--endpoint", "http://127.0.0.1:51111"])
         self.assertEqual(out["source"], "real")
         self.assertEqual(out["mode"], "real")
         self.assertFalse(out["service_contacted"])
@@ -160,7 +163,9 @@ class FixtureRealSeparationTests(unittest.TestCase):
         self.assertNotIn("agent_id", out["observed"])
 
     def test_real_prepare_without_service_does_not_emit_manifest(self):
-        out = cli.run(["prepare", "--real", "--endpoint", "http://127.0.0.1:51111"])
+        with tempfile.TemporaryDirectory() as isolated_store:
+            out = cli.run(["--store-dir", isolated_store, "prepare", "--real",
+                           "--endpoint", "http://127.0.0.1:51111"])
         self.assertEqual(out["source"], "real")
         self.assertTrue(out["blocked"])
         self.assertNotIn("manifest", out)

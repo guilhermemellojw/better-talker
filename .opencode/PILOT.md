@@ -10,16 +10,16 @@ autorização explícita do mantenedor e recertificação independente.
 | --- | --- |
 | `project_id` | `better-talker` |
 | `repository_id` | `guilhermemellojw/better-talker` |
-| `agent_id` | `A` (pressuposição — confirmar por metadados em P3B) |
-| `session_id` | `ses_defc05853ffeej4fPXrp7frx4x` |
+| `agent_id` | `build` (agente efetivo observado na sessão experimental real) |
+| `session_id` | `ses_de83b0620ffeMIQP5tvH7MLFEx` (sessão real persistida) |
 | `instance_id` | a recalcular no preflight de P3B a partir de `GET /api/info` |
 | `location` | `/home/guilherme/Documentos/better-talker-coord-supervisor-shadow` |
 | `modelo` | `opencode/hy4-flash-free` (substituição autorizada pelo mantenedor em P3B.3.1) |
 
-A sessão experimental acima é a que recebeu os testes das missões anteriores. A outra sessão
-experimental permanece preservada e não é destino deste piloto. **Não presumir que
-`agent_id="A"` corresponde ao agente efetivamente configurado.** Em P3B, confirmar todos os
-metadados autorizados; se qualquer campo divergir, interromper o piloto. A sessão não deve
+O destinatário operacional real é `ses_de83b0620ffeMIQP5tvH7MLFEx` com agente `build`.
+O ID histórico `ses_defc05853ffeej4fPXrp7frx4x` e `agent_id="A"` existem **somente em
+fixtures** e não são destinatários autorizados. Se qualquer metadado divergir, interromper.
+A sessão não deve
 possuir acesso operacional desnecessário a ferramentas; instrução textual não substitui
 restrição efetiva.
 
@@ -34,7 +34,7 @@ restrição efetiva.
   "operation_id": "OP-COORD04-PILOT-001",
   "coordinator_id": "supervisor-shadow-experimental",
   "target_agent": "A",
-  "target_session_id": "ses_defc05853ffeej4fPXrp7frx4x",
+  "target_session_id": "ses_de83b0620ffeMIQP5tvH7MLFEx",
   "target_instance_id": "<preenchido no preflight P3B>",
   "target_location": "/home/guilherme/Documentos/better-talker-coord-supervisor-shadow",
   "objective": "Validar comunicação bidirecional real em sessão experimental",
@@ -61,8 +61,8 @@ da envelope da mensagem devolvida pela API, não de uma afirmação do modelo. N
 evidências fictícias de testes, HEAD ou alterações de código de uma missão puramente textual;
 resposta textual não é certificação de código.
 
-O modelo selecionado deve permanecer o gratuito já existente, preferencialmente Hungerg Free.
-Nenhuma troca automática de modelo é autorizada.
+Modelo congelado e autorizado: `opencode/hy4-flash-free` (variante observada `none`).
+Diretriz futura de produto: FREE FIRST / 1M PREFERRED. Nenhuma rotação automática é autorizada.
 
 ## Autorização necessária (proposta, não aprovada)
 
@@ -74,7 +74,7 @@ Nenhuma troca automática de modelo é autorizada.
   "project_id": "better-talker",
   "repository_id": "guilhermemellojw/better-talker",
   "instance_id": "<preenchido no preflight P3B>",
-  "target": ["better-talker", "guilhermemellojw/better-talker", "A", "ses_defc05853ffeej4fPXrp7frx4x", "<instance_id>", "/home/guilherme/Documentos/better-talker-coord-supervisor-shadow"],
+  "target": ["better-talker", "guilhermemellojw/better-talker", "build", "ses_de83b0620ffeMIQP5tvH7MLFEx", "<instance_id>", "/home/guilherme/Documentos/better-talker-coord-supervisor-shadow"],
   "mission_id": "MISS-COORD04-PILOT-001",
   "mission_identity": "<hash canônico calculado no preflight>",
   "operation_id": "OP-COORD04-PILOT-001",
@@ -135,7 +135,7 @@ python3 .opencode/scripts/coord_pilot_cli.py --endpoint http://127.0.0.1:49999 p
 ```
 
  Produz a identidade observada do ambiente a partir de metadados autorizados: instância,
- projeto, location, sessão, agente, modelo, estado da sessão e inbox. `agent_id=A` é
+ projeto, location, sessão, agente, modelo, estado da sessão e inbox. `agent_id=A` na fixture é
  **pressuposição** explicitamente listada em `assumptions`; permissões efetivas e
  disponibilidade permanecem em `limits`. Ausência de `busy` e ausência em `session/active`
  **não** provam disponibilidade.
@@ -199,7 +199,7 @@ estado, evidências e limitações sem alterar estados terminais.
 ```text
 1. Confirmar aprovação humana do manifesto exato e autorização APPROVED não expirada.
 2. Confirmar preflight real e destinatário exato (instância, projeto, location, sessão,
-   agente efetivo, modelo gratuito), sem presumir agent_id=A.
+   agente efetivo `build`, modelo `opencode/hy4-flash-free`), sem presumir agent_id=A.
 3. Criar registro persistente em AUTHORIZED ANTES de qualquer transmissão.
 4. Adquirir reserva exclusiva local e vincular a guarda à autorização consumida.
 5. Persistir DISPATCHING e confirmar a escrita ANTES do POST.
@@ -240,15 +240,16 @@ python3 .opencode/scripts/coord_pilot_cli.py preflight --real \
   --endpoint <endpoint-local-autorizado> --auth-env COORD_PILOT_AUTH
 ```
 
-O ID fixo `ses_defc05853ffeej4fPXrp7frx4x` existe somente em fixtures. O caminho real exige
+O ID `ses_de83b0620ffeMIQP5tvH7MLFEx` (agente `build`) é o destinatário real cadastrado.
+O ID `ses_defc05853ffeej4fPXrp7frx4x` existe somente em fixtures. O caminho real exige
 destino previamente cadastrado e autorizado (cadastro local, sem criar sessão real):
 
 ```sh
 python3 .opencode/scripts/coord_pilot_cli.py session-register \
   --store-dir ~/.local/state/better-talker/coord-pilot/real \
   --session <ses-efetiva> --endpoint <endpoint> --instance-id <instancia> \
-  --agent-id <agente-observado> --authorization-reference <decisao> \
-  --permissions-confirmed
+  --agent-id <agente-observado> --authorization-reference <decisao>
+# A flag --permissions-confirmed foi removida: não prova enforcement.
 # Para substituir um cadastro existente é exigida ação explícita: --replace
 python3 .opencode/scripts/coord_pilot_cli.py prepare --real \
   --endpoint <endpoint> --session <ses-efetiva> --auth-env COORD_PILOT_AUTH
@@ -306,8 +307,9 @@ conferentes. Nenhuma `PilotApproval` é emitida pela CLI; nenhuma sessão é cri
 4. **Cliente COORD-04:** `preflight --real` **sem destinatário**; exigir `source=real`,
    `service_contacted=true`, `authentication_succeeded=true`, endpoint e instância
    coerentes, nenhum fallback e zero POST. Falha de autenticação bloqueia a criação.
-5. **Contrato real:** `GET /doc` na instância; confirmar caminho HTTP, método, query
-   `directory`, corpo, agente, modelo, estrutura de permissões e ausência de prompt inicial
+5. **Contrato real:** `GET /openapi.json` na instância (`/doc` serve HTML); confirmar
+   `POST /api/session`, sem query, `location.directory` no corpo, agente, modelo,
+   estrutura `action/resource/effect` e ausência de prompt inicial
    obrigatório. SDK não é prova suficiente; divergência material bloqueia.
 6. **Criação:** registrar intenção, endpoint/instância e hash do payload sanitizado; **uma**
    tentativa de POST no caminho confirmado. Sem prompt, `resume`, edição ou operação
@@ -315,8 +317,9 @@ conferentes. Nenhuma `PilotApproval` é emitida pela CLI; nenhuma sessão é cri
    evidências autorizadas e aguardar decisão humana.
 7. **Validação/cadastro:** recuperar somente metadados da sessão criada; cadastrar o ID
    efetivo no store real com endpoint, instância, agente, projeto, repositório, location,
-   modelo e referência humana. **`--permissions-confirmed` não comprova permissões
-   observadas e não deve ser utilizado nesta operação.** Novo preflight somente leitura;
+   modelo e referência humana. Permissões são evidência observada: política retornada pela
+   API + hash canônico; declaração local, flag de cadastro ou instrução textual **não**
+   comprovam enforcement. Novo preflight somente leitura;
    **não** executar `prepare --real` para manifesto apresentável.
 8. **Encerramento:** `kill <pid>` exclusivamente no PID criado, sem `pkill`/`killall`;
    confirmar listener indisponível, serviço compartilhado/processos produtivos inalterados
@@ -337,6 +340,36 @@ python3 .opencode/scripts/coord_pilot_cli.py closeout
 - Relatório divergente não substitui resultado terminal.
 - Aceitação HTTP não prova leitura pelo agente; `session/active` ausente não prova disponibilidade.
 - Nenhuma garantia de exactly-once, entrega durável ou ordem global é afirmada.
+
+## Controles P3B.4 — admissão, admissão separada da identidade e manifesto
+
+- **Identidade** (`session_identity_confirmed`) é confirmada somente por ID, agente, modelo,
+  projeto interno, location e repositório. Disponibilidade e permissões **não** entram nela.
+- **Admissão** é tri-state: `busy`, `inactive_observed`, `new_experimental_session`,
+  `unknown`. Ausência em `active` **não** implica `idle`; `outcome`/`time` não provam
+  disponibilidade. Para a sessão experimental recém-criada e de consumidor exclusivo exigem-se,
+  cumulativamente: instância autenticada, endpoint autorizado, banco experimental esperado,
+  exatamente uma sessão, identidade coerente, `active` observado sem a sessão, inbox observado
+  e vazio, zero mensagens/parts, `time.created==time.updated`, tokens/custo zero, sem
+  `outcome`, política de permissões resolvida, exclusividade e autorização humana posterior.
+  Falta de evidência ⇒ `UNKNOWN` e bloqueio. Nenhuma heurística permissiva se aplica a A–E.
+- **Inbox**: `inbox_observed=true` e `inbox_count=0`. Inbox ausente, falha HTTP, resposta
+  inválida, ocupado e não consultado são estados distintos — ausência nunca vira zero.
+- **Permissões são evidência, não declaração**: separar política solicitada, retornada pela
+  API, precedência documentada (last-match-wins, não observada em runtime), enforcement
+  observado e restrição operacional adicional. O hash canônico da política volta ao manifesto.
+- **Repositório**: a sessão não retorna `repositoryID`. Ausência é aceita somente com
+  `repository_source="git-local"` e validação de `projectID`, canonical, worktree e
+  `git remote get-url origin`. Se o campo aparecer, exige-se igualdade exata; nunca fabricá-lo.
+- **Revinculação:** mudança de PID altera `instance_id`, nunca autoriza nova sessão. Preparar
+  proposta offline com `coord_pilot_cli.py rebind-check --evidence <json>`; valida os mesmos
+  campos, exige autorização e **não aplica** nada. Cadastro existente não é substituído
+  silenciosamente.
+- **Manifesto:** vincula HEAD, digests, endpoint, instância, projeto, repositório,
+  `repository_source`, sessão, agente, modelo, location, `permission_policy_sha256`,
+  `admission_basis`, evidência de inbox, payload/hash, critérios, validade UTC e uma transmissão.
+  Qualquer alteração material invalida a aprovação anterior. Nenhuma `PilotApproval` é emitida
+  e nenhum manifesto real apresentável é gerado enquanto restarem lacunas.
 
 ## Diretriz de produto do mantenedor — FREE FIRST / 1M PREFERRED
 

@@ -215,7 +215,7 @@ class RegistryOrderTests(unittest.TestCase):
 
 
 class ManifestEvidenceTests(unittest.TestCase):
-    def _result(self, mutation=None):
+    def _result(self, mutation=None, *, ready=False):
         td = tempfile.TemporaryDirectory()
         session = ax.registered(td.name)
         responses = ax.full_responses()
@@ -224,6 +224,8 @@ class ManifestEvidenceTests(unittest.TestCase):
         client = ax.ScriptedClient(responses)
         with patch.object(cli, "_real_client", return_value=client):
             observed = cli._real_observe(A, session=session)
+        if ready:
+            ax.make_synthetic_ready(observed)  # manifesto sintético apenas em teste
         with patch.object(pilot, "repository_identity_from_git",
                           return_value=pilot.EXPECTED_REPOSITORY_ID), \
              patch.object(pilot, "executed_head_sha", return_value="a" * 40), \
@@ -260,7 +262,7 @@ class ManifestEvidenceTests(unittest.TestCase):
                 self.assertNotIn("manifest", result)
 
     def test_legitimate_complete_proposal_is_unauthorized(self):
-        result = self._result()
+        result = self._result(ready=True)
         self.assertFalse(result.get("blocked", False))
         self.assertFalse(result["approved"])
         self.assertEqual(result["environment"], "PROPOSED")
