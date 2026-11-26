@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""COORD-05B/P2.1 — deterministic model selection and recommendation.
+"""COORD-05B/P3 — deterministic model selection and recommendation.
 
 This module is deliberately offline and side-effect free:
 
@@ -148,6 +148,12 @@ def _digest(value: Any, field: str) -> str:
     if len(text) != 64 or any(char not in "0123456789abcdef" for char in text):
         raise ValueError(f"{field}: sha256 hexadecimal required")
     return text
+
+
+def _decimal_text(value: Decimal | None) -> str | None:
+    if value is None:
+        return None
+    return format(value.normalize(), "f")
 
 
 def _text(value: Any, field: str, *, allow_empty: bool = False) -> str:
@@ -466,10 +472,11 @@ class Inventory:
 
 @dataclass(frozen=True)
 class ExternalValidation:
-    """Structured external-validation record bound to scope and mission.
+    """Structured external-validation record bound to the full material digest.
 
-    The engine verifies contract binding only; it does not authenticate the
-    issuer or contact the authority.  A plain textual reference is not enough.
+    The engine verifies contract binding and tamper evidence only; it does not
+    authenticate the issuer or contact the authority. A plain textual reference
+    is not enough, and the digest is not a signature.
     """
 
     authority: str
@@ -482,6 +489,7 @@ class ExternalValidation:
     # de autoridade autenticada — apenas vinculação contratual.
     material_sha256: str
     estimated_cost_ceiling_usd: Decimal | None = None
+    estimated_extra_cost_usd: Decimal | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "ExternalValidation":
@@ -523,6 +531,10 @@ class ExternalValidation:
                 value.get("estimated_cost_ceiling_usd"),
                 "paid_authorization.external_validation.estimated_cost_ceiling_usd",
             ),
+            estimated_extra_cost_usd=_decimal(
+                value.get("estimated_extra_cost_usd"),
+                "paid_authorization.external_validation.estimated_extra_cost_usd",
+            ),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -536,6 +548,9 @@ class ExternalValidation:
             "estimated_cost_ceiling_usd": None
             if self.estimated_cost_ceiling_usd is None
             else str(self.estimated_cost_ceiling_usd),
+            "estimated_extra_cost_usd": None
+            if self.estimated_extra_cost_usd is None
+            else str(self.estimated_extra_cost_usd),
         }
 
 
@@ -682,40 +697,51 @@ class PaidAuthorization:
             return False, "authorization_external_mission_mismatch"
         if external.validated_at > now:
             return False, "authorization_external_validation_future"
-        # P3: a prova externa precisa ser a do MATERIAL financeiro integral.
+        # P3: a prova externa precisa ser a do MATERIAL financeiro integral,
+        # incluindo o custo estimado efetivamente usado na avaliação.
         if external.reference != self.evidence:
             return False, "authorization_external_reference_mismatch"
-        if external.material_sha256 != authorization_material_sha256(self):
+        if estimated_extra_cost_usd is None:
+            return False, "authorization_estimated_cost_unknown"
+        if external.material_sha256 != authorization_material_sha256(
+            self, estimated_extra_cost_usd
+        ):
             return False, "authorization_external_material_mismatch"
+        if external.estimated_extra_cost_usd is None:
+            return False, "authorization_external_estimated_cost_missing"
+        if external.estimated_extra_cost_usd != estimated_extra_cost_usd:
+            return False, "authorization_external_estimated_cost_mismatch"
         if candidate.cost_category not in self.categories:
             return False, "authorization_category_not_covered"
         if candidate.ref not in self.model_refs:
             return False, "authorization_model_not_covered"
         if self.expires_at is None or now >= self.expires_at:
             return False, "authorization_expired"
-        if estimated_extra_cost_usd is None:
-            return False, "authorization_estimated_cost_unknown"
         if self.max_cost_usd is None:
             return False, "authorization_max_cost_missing"
         if estimated_extra_cost_usd > self.max_cost_usd:
             return False, "authorization_cost_exceeds_max"
         if external.estimated_cost_ceiling_usd is not None:
-            if estimated_extra_cost_usd is None:
-                return False, "authorization_estimated_cost_unknown"
             if estimated_extra_cost_usd > external.estimated_cost_ceiling_usd:
                 return False, "authorization_estimated_cost_above_external_ceiling"
         return True, "authorization_valid"
 
 
-def canonical_authorization_material(authorization: "PaidAuthorization") -> str:
+def canonical_authorization_material(
+    authorization: "PaidAuthorization",
+    estimated_extra_cost_usd: Decimal | None = None,
+) -> str:
     """Material financeiro canônico, serializado de forma determinística.
 
     Inclui missão, escopo, autoridade, referência, categorias, modelos/variantes,
-    teto, validade e condições de custo. O custo estimado é vinculado pela
-    evidência externa (`estimated_cost_ceiling_usd`) e registrado na decisão.
+    teto, validade e condições de custo. O custo estimado efetivamente usado na
+    avaliação entra no material; a evidência externa o repete e o digest o
+    vincula. O digest não é assinatura nem prova de autoridade.
     """
     categories = sorted(category.value for category in authorization.categories)
     refs = sorted(str(ref) for ref in authorization.model_refs)
+    max_cost = _decimal_text(authorization.max_cost_usd)
+    estimated_cost = _decimal_text(estimated_extra_cost_usd)
     material = {
         "authority": authorization.authorized_by,
         "reference": authorization.evidence,
@@ -723,35 +749,47 @@ def canonical_authorization_material(authorization: "PaidAuthorization") -> str:
         "scope": authorization.scope,
         "categories": categories,
         "model_refs": refs,
-        "max_cost_usd": None
-        if authorization.max_cost_usd is None
-        else str(authorization.max_cost_usd),
+        "max_cost_usd": max_cost,
         "expires_at": _iso(authorization.expires_at),
         "cost_conditions": {
             "categories": categories,
             "model_refs": refs,
-            "max_cost_usd": None
-            if authorization.max_cost_usd is None
-            else str(authorization.max_cost_usd),
+            "max_cost_usd": max_cost,
             "expires_at": _iso(authorization.expires_at),
+            "estimated_extra_cost_usd": estimated_cost,
         },
+        "estimated_extra_cost_usd": estimated_cost,
     }
     return json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def authorization_material_sha256(authorization: "PaidAuthorization") -> str:
+def authorization_material_sha256(
+    authorization: "PaidAuthorization",
+    estimated_extra_cost_usd: Decimal | None = None,
+) -> str:
     """Digest de integridade do material — NÃO é assinatura nem autoridade."""
     return hashlib.sha256(
-        canonical_authorization_material(authorization).encode("utf-8")
+        canonical_authorization_material(
+            authorization, estimated_extra_cost_usd
+        ).encode("utf-8")
     ).hexdigest()
 
 
-def authorization_material_sha256_from_mapping(value: Mapping[str, Any]) -> str:
+def authorization_material_sha256_from_mapping(
+    value: Mapping[str, Any],
+    estimated_extra_cost_usd: Decimal | str | None = None,
+) -> str:
     """Mesmo digest a partir do mapping bruto, para construção de fixtures."""
     if not isinstance(value, Mapping):
         raise ValueError("authorization material: mapping required")
     raw = {key: item for key, item in value.items() if key != "external_validation"}
-    return authorization_material_sha256(PaidAuthorization.from_mapping(raw))
+    estimate = _decimal(
+        estimated_extra_cost_usd,
+        "authorization_material.estimated_extra_cost_usd",
+    )
+    return authorization_material_sha256(
+        PaidAuthorization.from_mapping(raw), estimate
+    )
 
 
 @dataclass(frozen=True)

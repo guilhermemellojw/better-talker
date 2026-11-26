@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline tests for coord_model_policy.py (COORD-05B/P2.1).
+"""Offline tests for coord_model_policy.py (COORD-05B/P3).
 
 No network, LLM, OpenCode API, session, credential, ADB or Android is used.
 Run: python3 .opencode/scripts/test_coord_model_policy.py -v
@@ -117,7 +117,8 @@ def mission(**overrides) -> dict:
     return value
 
 
-def auth(*refs: dict, **overrides) -> dict:
+def auth(*refs: dict, estimated_extra_cost_usd: str = "0.10",
+         **overrides) -> dict:
     value = {
         "authorized": True,
         "authorized_by": "maintainer",
@@ -141,13 +142,17 @@ def auth(*refs: dict, **overrides) -> dict:
     external = value.get("external_validation")
     if isinstance(external, dict):
         external = dict(external)
-        # P3: a prova externa carrega o material financeiro integral.
+        # P3: a prova externa carrega o material financeiro integral e o
+        # custo estimado efetivamente usado na avaliação.
         external["authority"] = value["authorized_by"]
         external["reference"] = value["evidence"]
         external["scope"] = value["scope"]
         external["mission_id"] = value["mission_id"]
         external["estimated_cost_ceiling_usd"] = value["max_cost_usd"]
-        external["material_sha256"] = authorization_material_sha256_from_mapping(value)
+        external["estimated_extra_cost_usd"] = estimated_extra_cost_usd
+        external["material_sha256"] = authorization_material_sha256_from_mapping(
+            value, estimated_extra_cost_usd
+        )
         value["external_validation"] = external
     return value
 
@@ -468,7 +473,10 @@ class ModelPolicyTests(unittest.TestCase):
             mis=mission(estimated_extra_cost_usd="0"),
             pol=policy(
                 allow_included_franchise=True,
-                paid_authorization=auth(ref("opencode-go", "deepseek-v4.1-flash")),
+                paid_authorization=auth(
+                    ref("opencode-go", "deepseek-v4.1-flash"),
+                    estimated_extra_cost_usd="0",
+                ),
             ),
             ev=[evidence(included)],
         )
@@ -1065,6 +1073,11 @@ class ModelPolicyTests(unittest.TestCase):
              "authorization_external_material_mismatch"),
             ("expires_at", lambda a: a.update(expires_at="2026-12-01T00:00:00Z"), {},
              "authorization_external_material_mismatch"),
+            ("external_estimated_extra_cost_usd",
+             lambda a: a["external_validation"].__setitem__(
+                 "estimated_extra_cost_usd", "0.50"
+             ), {},
+             "authorization_external_estimated_cost_mismatch"),
             ("authority", lambda a: a.update(authorized_by="other"), {},
              "authorization_external_authority_mismatch"),
             ("reference", lambda a: a.update(evidence="outra-referencia"), {},
@@ -1088,6 +1101,45 @@ class ModelPolicyTests(unittest.TestCase):
                 self.assertFalse(result.authorized)
                 self.assertEqual(expected, result.authorization_reason)
 
+    def test_p3_actual_estimated_cost_must_be_bound_to_proof(self):
+        inv, availability, base = self._paid_fixture()
+        result = select(
+            inv,
+            mis=mission(estimated_extra_cost_usd="0.04"),
+            pol=policy(
+                allow_additional_consumption=True,
+                paid_authorization=base,
+            ),
+            ev=availability,
+        )
+        self.assertEqual(Decision.NEEDS_AUTHORIZATION, result.decision)
+        self.assertFalse(result.authorized)
+        self.assertEqual(
+            "authorization_external_material_mismatch",
+            result.authorization_reason,
+        )
+
+    def test_p3_external_estimated_cost_is_required(self):
+        inv, availability, base = self._paid_fixture()
+        changed = dict(base)
+        external = dict(base["external_validation"])
+        del external["estimated_extra_cost_usd"]
+        changed["external_validation"] = external
+        result = select(
+            inv,
+            mis=mission(estimated_extra_cost_usd="0.10"),
+            pol=policy(
+                allow_additional_consumption=True,
+                paid_authorization=changed,
+            ),
+            ev=availability,
+        )
+        self.assertEqual(Decision.NEEDS_AUTHORIZATION, result.decision)
+        self.assertEqual(
+            "authorization_external_estimated_cost_missing",
+            result.authorization_reason,
+        )
+
     def test_p3_custo_estimado_vinculado_e_registrado(self):
         inv, availability, base = self._paid_fixture()
         changed = dict(base)
@@ -1106,10 +1158,17 @@ class ModelPolicyTests(unittest.TestCase):
         self.assertEqual("0.10", blocked.authorization_estimated_cost_usd)
         self.assertIn("authorization_estimated_cost_usd", blocked.as_dict())
 
+        allowed_auth = auth(
+            ref("opencode-go", "premium"),
+            estimated_extra_cost_usd="0.04",
+        )
+        allowed_external = dict(allowed_auth["external_validation"])
+        allowed_external["estimated_cost_ceiling_usd"] = "0.05"
+        allowed_auth["external_validation"] = allowed_external
         allowed = select(
             inv,
             mis=mission(estimated_extra_cost_usd="0.04"),
-            pol=policy(allow_additional_consumption=True, paid_authorization=changed),
+            pol=policy(allow_additional_consumption=True, paid_authorization=allowed_auth),
             ev=availability,
         )
         self.assertEqual(Decision.RECOMMEND_AUTHORIZED_FALLBACK, allowed.decision)
