@@ -349,3 +349,19 @@ Revisão focal sobre o HEAD `4e6986f71f1d36b4ff7a70c3f185d391baea321e` do PR #71
 A correspondência é apenas documental. Nenhum código, esquema ou estado do PR #70 é importado, alterado ou integrado.
 
 Invariantes mantidas: `executed=False`, `selection_only=True`, `execution_performed=False`, `session_change_performed=False`. ASSISTED e DELEGATED continuam desativados. Aguardando certificação independente; nenhum merge.
+
+## 15. COORD-05B/P3 — vinculação integral da autorização financeira
+
+Correção focal do P1 do parecer QA-COORD-71 (`7193729654`). Delta restrito aos três arquivos próprios do PR #71.
+
+**Fail-first:** no HEAD certificado `8fb26b64`, a mesma `external_validation` acompanhava `max_cost_usd=0.50` e `max_cost_usd=5.00`; o segundo contrato era aceito (`RECOMMEND_AUTHORIZED_FALLBACK`). Após a correção, a alteração material com prova inalterada resulta em `NEEDS_AUTHORIZATION / authorization_external_material_mismatch`.
+
+**Material canônico:** `canonical_authorization_material()` serializa de forma determinística (JSON com chaves ordenadas) autoridade, referência, missão, escopo, categorias autorizadas, modelos/variantes canônicos, teto financeiro, validade e condições de custo. `authorization_material_sha256()` é o digest SHA-256 dessa serialização — **integridade contratual, não assinatura e não autoridade autenticada**.
+
+**Evidência externa:** `ExternalValidation` passa a exigir `material_sha256` (digest do material integral) e pode declarar `estimated_cost_ceiling_usd`. O motor compara ambos e rejeita: prova divergente (`authorization_external_material_mismatch`), referência divergente, autoridade/escopo/missão divergentes, validade futura, custo acima do teto aprovado ou acima do teto externo declarado. O custo estimado efetivamente usado é registrado em `authorization_estimated_cost_usd` na recomendação e em `as_dict()`, permanecendo verificável na decisão.
+
+**Preservação:** os 58 testes certificados permanecem intactos como métodos; apenas o helper de fixture foi estendido para construir a prova vinculada. Cinco regressões P3 cobrem teto alterado com prova inalterada, adulteração de cada campo material, teto do custo estimado, digest ≠ assinatura e objeto tipado que não contorna a vinculação. Total: **63 testes host-only, rede bloqueada, sem LLM**.
+
+**Integração futura com PR #72 (não implementada):** o validador `coord_authority.py` injeta um `TrustContract` com pins de autoridade externa e produz uma decisão consultiva sem efeito. Antes de qualquer uso operacional pago, o motor deve consumir essa decisão — verificando que o pin corresponde ao `material_sha256` aqui definido e que a operação está elegível — em vez de criar outra âncora de confiança, outro ledger ou autenticar criptograficamente por conta própria. Nenhuma infraestrutura de confiança externa foi duplicada neste PR.
+
+**Limitações:** digest não é assinatura; nenhuma autoridade externa é contatada; inventário/disponibilidade/custo permanecem entradas declaradas; execução, troca de sessão, faturamento e transmissão continuam desativados; ciência da disponibilidade real depende de D. Sem merge, release, bump, provider, schema, ADB, sessão, credencial ou HealthAgentForms.

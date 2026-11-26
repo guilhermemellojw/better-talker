@@ -18,6 +18,7 @@ the same injected ``evaluated_at`` instant.  See ``.opencode/MODEL_POLICY.md``.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections.abc import Mapping, Sequence
@@ -137,6 +138,16 @@ def _bool(value: Any, field: str) -> bool | None:
     if isinstance(value, bool):
         return value
     raise ValueError(f"{field}: boolean required")
+
+
+def _digest(value: Any, field: str) -> str:
+    """Digest canônico de 64 hex — não é assinatura nem prova de autoridade."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field}: string required")
+    text = value.strip().lower()
+    if len(text) != 64 or any(char not in "0123456789abcdef" for char in text):
+        raise ValueError(f"{field}: sha256 hexadecimal required")
+    return text
 
 
 def _text(value: Any, field: str, *, allow_empty: bool = False) -> str:
@@ -466,6 +477,11 @@ class ExternalValidation:
     scope: str
     mission_id: str
     validated_at: datetime
+    # P3: digest do material canônico integral da autorização financeira e
+    # teto do custo estimado usado na avaliação. Não é assinatura nem prova
+    # de autoridade autenticada — apenas vinculação contratual.
+    material_sha256: str
+    estimated_cost_ceiling_usd: Decimal | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "ExternalValidation":
@@ -499,6 +515,14 @@ class ExternalValidation:
                 "paid_authorization.external_validation.mission_id",
             ),
             validated_at=validated_at,
+            material_sha256=_digest(
+                value.get("material_sha256"),
+                "paid_authorization.external_validation.material_sha256",
+            ),
+            estimated_cost_ceiling_usd=_decimal(
+                value.get("estimated_cost_ceiling_usd"),
+                "paid_authorization.external_validation.estimated_cost_ceiling_usd",
+            ),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -508,6 +532,10 @@ class ExternalValidation:
             "scope": self.scope,
             "mission_id": self.mission_id,
             "validated_at": _iso(self.validated_at),
+            "material_sha256": self.material_sha256,
+            "estimated_cost_ceiling_usd": None
+            if self.estimated_cost_ceiling_usd is None
+            else str(self.estimated_cost_ceiling_usd),
         }
 
 
@@ -654,6 +682,11 @@ class PaidAuthorization:
             return False, "authorization_external_mission_mismatch"
         if external.validated_at > now:
             return False, "authorization_external_validation_future"
+        # P3: a prova externa precisa ser a do MATERIAL financeiro integral.
+        if external.reference != self.evidence:
+            return False, "authorization_external_reference_mismatch"
+        if external.material_sha256 != authorization_material_sha256(self):
+            return False, "authorization_external_material_mismatch"
         if candidate.cost_category not in self.categories:
             return False, "authorization_category_not_covered"
         if candidate.ref not in self.model_refs:
@@ -666,7 +699,59 @@ class PaidAuthorization:
             return False, "authorization_max_cost_missing"
         if estimated_extra_cost_usd > self.max_cost_usd:
             return False, "authorization_cost_exceeds_max"
+        if external.estimated_cost_ceiling_usd is not None:
+            if estimated_extra_cost_usd is None:
+                return False, "authorization_estimated_cost_unknown"
+            if estimated_extra_cost_usd > external.estimated_cost_ceiling_usd:
+                return False, "authorization_estimated_cost_above_external_ceiling"
         return True, "authorization_valid"
+
+
+def canonical_authorization_material(authorization: "PaidAuthorization") -> str:
+    """Material financeiro canônico, serializado de forma determinística.
+
+    Inclui missão, escopo, autoridade, referência, categorias, modelos/variantes,
+    teto, validade e condições de custo. O custo estimado é vinculado pela
+    evidência externa (`estimated_cost_ceiling_usd`) e registrado na decisão.
+    """
+    categories = sorted(category.value for category in authorization.categories)
+    refs = sorted(str(ref) for ref in authorization.model_refs)
+    material = {
+        "authority": authorization.authorized_by,
+        "reference": authorization.evidence,
+        "mission_id": authorization.mission_id,
+        "scope": authorization.scope,
+        "categories": categories,
+        "model_refs": refs,
+        "max_cost_usd": None
+        if authorization.max_cost_usd is None
+        else str(authorization.max_cost_usd),
+        "expires_at": _iso(authorization.expires_at),
+        "cost_conditions": {
+            "categories": categories,
+            "model_refs": refs,
+            "max_cost_usd": None
+            if authorization.max_cost_usd is None
+            else str(authorization.max_cost_usd),
+            "expires_at": _iso(authorization.expires_at),
+        },
+    }
+    return json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def authorization_material_sha256(authorization: "PaidAuthorization") -> str:
+    """Digest de integridade do material — NÃO é assinatura nem autoridade."""
+    return hashlib.sha256(
+        canonical_authorization_material(authorization).encode("utf-8")
+    ).hexdigest()
+
+
+def authorization_material_sha256_from_mapping(value: Mapping[str, Any]) -> str:
+    """Mesmo digest a partir do mapping bruto, para construção de fixtures."""
+    if not isinstance(value, Mapping):
+        raise ValueError("authorization material: mapping required")
+    raw = {key: item for key, item in value.items() if key != "external_validation"}
+    return authorization_material_sha256(PaidAuthorization.from_mapping(raw))
 
 
 @dataclass(frozen=True)
@@ -1058,6 +1143,8 @@ class Recommendation:
     selection_only: bool = True
     execution_performed: bool = False
     session_change_performed: bool = False
+    # P3: custo estimado efetivamente usado na avaliação da autorização.
+    authorization_estimated_cost_usd: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -1086,6 +1173,7 @@ class Recommendation:
             "selection_only": self.selection_only,
             "execution_performed": self.execution_performed,
             "session_change_performed": self.session_change_performed,
+            "authorization_estimated_cost_usd": self.authorization_estimated_cost_usd,
             "session_change_intent": None
             if self.session_change_intent is None
             else self.session_change_intent.as_dict(),
@@ -1783,6 +1871,9 @@ class ModelPolicyEngine:
                 requires_authorization=True,
                 authorized=True,
                 authorization_reason=auth_reason,
+                authorization_estimated_cost_usd=None
+                if mission.estimated_extra_cost_usd is None
+                else str(mission.estimated_extra_cost_usd),
                 ranked=eligible,
                 excluded=excluded,
                 reason_codes=tuple(sorted(set(reasons))),
@@ -1825,6 +1916,9 @@ class ModelPolicyEngine:
             requires_authorization=True,
             authorized=False,
             authorization_reason=auth_reason,
+            authorization_estimated_cost_usd=None
+            if mission.estimated_extra_cost_usd is None
+            else str(mission.estimated_extra_cost_usd),
             ranked=eligible,
             excluded=excluded,
             reason_codes=tuple(sorted(set(reasons))),

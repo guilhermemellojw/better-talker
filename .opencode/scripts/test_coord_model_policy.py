@@ -11,6 +11,8 @@ import json
 import os
 import sys
 import unittest
+from dataclasses import replace
+from decimal import Decimal
 
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +31,7 @@ from coord_model_policy import (  # noqa: E402
     ModelRef,
     PaidAuthorization,
     Policy,
+    authorization_material_sha256_from_mapping,
     canonical_model_ref,
     recommend,
 )
@@ -138,9 +141,13 @@ def auth(*refs: dict, **overrides) -> dict:
     external = value.get("external_validation")
     if isinstance(external, dict):
         external = dict(external)
+        # P3: a prova externa carrega o material financeiro integral.
         external["authority"] = value["authorized_by"]
+        external["reference"] = value["evidence"]
         external["scope"] = value["scope"]
         external["mission_id"] = value["mission_id"]
+        external["estimated_cost_ceiling_usd"] = value["max_cost_usd"]
+        external["material_sha256"] = authorization_material_sha256_from_mapping(value)
         value["external_validation"] = external
     return value
 
@@ -1021,6 +1028,123 @@ class ModelPolicyTests(unittest.TestCase):
             Policy.from_value(Policy(free_first=False))
         with self.assertRaises(ValueError):
             Policy.from_value(Policy(coordination_mode="ASSISTED"))
+
+
+    # ---- P3: vinculação integral da autorização financeira -----------------
+
+    def _paid_fixture(self):
+        paid = model(provider_id="opencode-go", model_id="premium", cost="additional")
+        inventory_value = inventory(paid)
+        availability = [evidence(paid)]
+        authorization_value = auth(ref("opencode-go", "premium"))
+        return inventory_value, availability, authorization_value
+
+    def test_p3_fail_first_prova_inalterada_com_teto_alterado(self):
+        inv, availability, base = self._paid_fixture()
+        tampered = dict(base)
+        tampered["max_cost_usd"] = "5.00"  # prova externa permanece a mesma
+        result = select(
+            inv,
+            mis=mission(estimated_extra_cost_usd="4.00"),
+            pol=policy(allow_additional_consumption=True, paid_authorization=tampered),
+            ev=availability,
+        )
+        self.assertEqual(Decision.NEEDS_AUTHORIZATION, result.decision)
+        self.assertFalse(result.authorized)
+        self.assertEqual("authorization_external_material_mismatch", result.authorization_reason)
+
+    def test_p3_adulteracao_de_cada_campo_material(self):
+        inv, availability, base = self._paid_fixture()
+        cases = (
+            ("max_cost_usd", lambda a: a.update(max_cost_usd="5.00"), {},
+             "authorization_external_material_mismatch"),
+            ("categories", lambda a: a.update(categories=["included"]), {},
+             "authorization_external_material_mismatch"),
+            ("model_refs_variant",
+             lambda a: a.update(model_refs=[dict(a["model_refs"][0], variant="alt")]), {},
+             "authorization_external_material_mismatch"),
+            ("expires_at", lambda a: a.update(expires_at="2026-12-01T00:00:00Z"), {},
+             "authorization_external_material_mismatch"),
+            ("authority", lambda a: a.update(authorized_by="other"), {},
+             "authorization_external_authority_mismatch"),
+            ("reference", lambda a: a.update(evidence="outra-referencia"), {},
+             "authorization_external_reference_mismatch"),
+            ("mission_id", lambda a: a.update(mission_id="m2"), {"mission_id": "m2"},
+             "authorization_external_mission_mismatch"),
+            ("scope", lambda a: a.update(scope="coord05b:other"), {"scope": "coord05b:other"},
+             "authorization_external_scope_mismatch"),
+        )
+        for label, mutate, mission_overrides, expected in cases:
+            with self.subTest(field=label):
+                changed = dict(base)
+                mutate(changed)
+                result = select(
+                    inv,
+                    mis=mission(estimated_extra_cost_usd="0.10", **mission_overrides),
+                    pol=policy(allow_additional_consumption=True, paid_authorization=changed),
+                    ev=availability,
+                )
+                self.assertEqual(Decision.NEEDS_AUTHORIZATION, result.decision)
+                self.assertFalse(result.authorized)
+                self.assertEqual(expected, result.authorization_reason)
+
+    def test_p3_custo_estimado_vinculado_e_registrado(self):
+        inv, availability, base = self._paid_fixture()
+        changed = dict(base)
+        external = dict(base["external_validation"])
+        external["estimated_cost_ceiling_usd"] = "0.05"
+        changed["external_validation"] = external
+
+        blocked = select(
+            inv,
+            mis=mission(estimated_extra_cost_usd="0.10"),
+            pol=policy(allow_additional_consumption=True, paid_authorization=changed),
+            ev=availability,
+        )
+        self.assertEqual("authorization_estimated_cost_above_external_ceiling",
+                         blocked.authorization_reason)
+        self.assertEqual("0.10", blocked.authorization_estimated_cost_usd)
+        self.assertIn("authorization_estimated_cost_usd", blocked.as_dict())
+
+        allowed = select(
+            inv,
+            mis=mission(estimated_extra_cost_usd="0.04"),
+            pol=policy(allow_additional_consumption=True, paid_authorization=changed),
+            ev=availability,
+        )
+        self.assertEqual(Decision.RECOMMEND_AUTHORIZED_FALLBACK, allowed.decision)
+        self.assertEqual("0.04", allowed.authorization_estimated_cost_usd)
+
+    def test_p3_digest_nao_e_assinatura_nem_autoridade_autenticada(self):
+        inv, availability, base = self._paid_fixture()
+        changed = dict(base)
+        external = dict(base["external_validation"])
+        external["material_sha256"] = "0" * 64
+        changed["external_validation"] = external
+        result = select(
+            inv,
+            mis=mission(estimated_extra_cost_usd="0.10"),
+            pol=policy(allow_additional_consumption=True, paid_authorization=changed),
+            ev=availability,
+        )
+        self.assertEqual("authorization_external_material_mismatch", result.authorization_reason)
+        self.assertFalse(any("signature" in key for key in result.as_dict()))
+
+    def test_p3_objeto_tipado_nao_contorna_vinculacao(self):
+        inv, availability, base = self._paid_fixture()
+        typed = PaidAuthorization.from_mapping(base)
+        changed = replace(typed, max_cost_usd=Decimal("5.00"))
+        typed_policy = Policy.from_value(Policy(
+            allow_additional_consumption=True, paid_authorization=changed,
+        ))
+        result = select(
+            inv,
+            mis=mission(estimated_extra_cost_usd="0.10"),
+            pol=typed_policy,
+            ev=availability,
+        )
+        self.assertEqual(Decision.NEEDS_AUTHORIZATION, result.decision)
+        self.assertEqual("authorization_external_material_mismatch", result.authorization_reason)
 
 
 if __name__ == "__main__":
