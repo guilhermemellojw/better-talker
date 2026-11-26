@@ -58,12 +58,13 @@ internal fun planPedagogicalAction(
 // Rótulos de proveniência TRUST, aspas (retas/tipográficas) e referências são
 // identificados uma única vez e copiados byte a byte. Nenhum token interno é
 // inserido no texto: o mecanismo de aninhamento/NUL foi eliminado.
-// HOTFIX P0 — NENHUM flag embutido: o ICU/Android aceita apenas `ismwx`.
-// Case folding é explícito por classes de caracteres ([Éé], [Cc], ...) e as
-// fronteiras usam `[\p{L}\p{N}_]` (limites portáteis revisados do patch de D,
-// suportados por JVM e ICU) — sem depender de `\b` ou do flag Java `U`.
+// HOTFIX-68/P0.1 — `(?i)` é a única flag embutida comum a JVM e ICU
+// (documentação ICU: ismwx). `u`/`U` continuam proibidos: são flags Java
+// que quebram o `<clinit>` no Android. Letras acentuadas são explícitas
+// ([Éé], [Ãã], [Çç], [Óó]) porque o case folding ASCII da JVM não as cobre.
+// Fronteiras portáteis: `[\p{L}\p{N}_]` (revisadas do patch de D).
 private val PEDAGOGICAL_PROTECTED = Regex(
-    """[Tt]recho [Rr]ecuperado[^\n]*|“[^”\n]*”|"[^"\n]*"|«[^»\n]*»|(?<![\p{L}\p{N}_])[A-Za-zÀ-ÿ]+\s+\d{1,3}(?::\d{1,3})?(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])\d{1,3}:\d{1,3}(?![\p{L}\p{N}_])""",
+    """(?i)[Tt]recho [Rr]ecuperado[^\n]*|“[^”\n]*”|"[^"\n]*"|«[^»\n]*»|(?<![\p{L}\p{N}_])[A-Za-zÀ-ÿ]+\s+\d{1,3}(?::\d{1,3})?(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])\d{1,3}:\d{1,3}(?![\p{L}\p{N}_])""",
 )
 
 // F7 — marcadores com peso discursivo só no início do texto ou da frase.
@@ -71,7 +72,7 @@ private val PEDAGOGICAL_PROTECTED = Regex(
 // qualificador e preserva a pontuação; `(?![\p{L}\p{N}_])` substitui `\b`.
 private val PEDAGOGICAL_SENTENCE_FILLERS = listOf(
     Regex(
-        """(^|[.!?\n]\s+)([Éé] importante ([Rr]essaltar|[Nn]otar|[Ss]alientar|[Dd]estacar) que|[Ii]mporta ([Rr]essaltar|[Nn]otar|[Ss]alientar) que|[Vv]ale ([Rr]essaltar|[Nn]otar|[Ll]embrar) que|[Cc]abe destacar que)(?![\p{L}\p{N}_])[,\s]*""",
+        """(?i)(^|[.!?\n]\s+)([Éé] importante ([Rr]essaltar|[Nn]otar|[Ss]alientar|[Dd]estacar) que|[Ii]mporta ([Rr]essaltar|[Nn]otar|[Ss]alientar) que|[Vv]ale ([Rr]essaltar|[Nn]otar|[Ll]embrar) que|[Cc]abe destacar que)(?![\p{L}\p{N}_])[,\s]*""",
     ) to "$1",
 )
 
@@ -85,19 +86,19 @@ private val PEDAGOGICAL_SENTENCE_FILLERS = listOf(
 // todo conectivo lógico (se, porque, portanto, mas, exceto, não, talvez).
 private val PEDAGOGICAL_SAFE_FILLERS = listOf(
     Regex(
-        """(?<![\p{L}\p{N}_])([Oo]u seja|[Ee]m outras palavras|[Dd]ito de outra forma|[Ee]m outros termos)(?![\p{L}\p{N}_])[,\s]*""",
+        """(?i)(?<![\p{L}\p{N}_])([Oo]u seja|[Ee]m outras palavras|[Dd]ito de outra forma|[Ee]m outros termos)(?![\p{L}\p{N}_])[,\s]*""",
     ) to "",
 )
 
 private val PEDAGOGICAL_PHRASES = listOf(
-    Regex("""(?<![\p{L}\p{N}_])[Cc]om o objetivo de(?![\p{L}\p{N}_])""") to "para",
-    Regex("""(?<![\p{L}\p{N}_])[Aa] fim de(?![\p{L}\p{N}_])""") to "para",
-    Regex("""(?<![\p{L}\p{N}_])[Nn]o que diz respeito a(?![\p{L}\p{N}_])""") to "sobre",
-    Regex("""(?<![\p{L}\p{N}_])[Ll]evando em consideração(?![\p{L}\p{N}_])""") to "considerando",
+    Regex("""(?i)(?<![\p{L}\p{N}_])[Cc]om o objetivo de(?![\p{L}\p{N}_])""") to "para",
+    Regex("""(?i)(?<![\p{L}\p{N}_])[Aa] fim de(?![\p{L}\p{N}_])""") to "para",
+    Regex("""(?i)(?<![\p{L}\p{N}_])[Nn]o que diz respeito a(?![\p{L}\p{N}_])""") to "sobre",
+    Regex("""(?i)(?<![\p{L}\p{N}_])[Ll]evando em considera[Çç][Ãã]o(?![\p{L}\p{N}_])""") to "considerando",
 )
 
 private val PEDAGOGICAL_RISK_PREFIX = Regex(
-    """(?<![\p{L}\p{N}_])([Nn]ão|[Nn]unca|[Nn]em|[Ss]e|[Cc]aso|[Aa]penas|[Ss]ó|[Ss]omente|[Tt]alvez)\s*$""",
+    """(?i)(?<![\p{L}\p{N}_])([Nn][Ãã]o|[Nn]unca|[Nn]em|[Ss]e|[Cc]aso|[Aa]penas|[Ss][Óó]|[Ss]omente|[Tt]alvez)\s*$""",
 )
 
 private fun simplifySegment(segment: String): String {

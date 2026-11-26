@@ -10,8 +10,9 @@ import org.junit.Test
  * O motor ICU do Android aceita apenas as flags embutidas `ismwx`; `U`
  * (UNICODE_CHARACTER_CLASS) e `u` (UNICODE_CASE) do Java lançam
  * `PatternSyntaxException` em `PedagogicalIntegrationKt.<clinit>`.
- * Este teste falha no baseline `02b89856` (7 ocorrências de `(?iuU)`)
- * e passa quando a implementação usa apenas construtos portáveis.
+ * `(?i)` é portátil e necessário para caixa alta (F1/F2). O teste detecta
+ * ESPECIFICAMENTE `u`/`U` em qualquer combinação: falha no baseline
+ * `02b89856` (7× `(?iuU)`) e aceita `(?i)` na solução portátil.
  */
 class PedagogicalAndroidPatternCompatibilityTest {
 
@@ -19,8 +20,8 @@ class PedagogicalAndroidPatternCompatibilityTest {
         if (value == null || !seen.add(value)) return
         when (value) {
             is Regex -> assertFalse(
-                "flag embutido incompatível com ICU/Android: ${value.pattern}",
-                Regex("""\(\?[a-zA-Z-]+\)""").containsMatchIn(value.pattern),
+                "flag u/U incompatível com ICU/Android: ${value.pattern}",
+                Regex("""\(\?[a-zA-Z-]*[uU][a-zA-Z-]*\)""").containsMatchIn(value.pattern),
             )
             is Pair<*, *> -> {
                 check(value.first, seen)
@@ -32,7 +33,7 @@ class PedagogicalAndroidPatternCompatibilityTest {
     }
 
     @Test
-    fun p0_todasAsExpressoesSemFlagsEmbutidos() {
+    fun p0_todasAsExpressoesSemFlagsUOuU() {
         val classe = Class.forName("com.bettertalker.app.ui.copilot.PedagogicalIntegrationKt")
         val campos = classe.declaredFields.filter {
             it.type == Regex::class.java || List::class.java.isAssignableFrom(it.type)

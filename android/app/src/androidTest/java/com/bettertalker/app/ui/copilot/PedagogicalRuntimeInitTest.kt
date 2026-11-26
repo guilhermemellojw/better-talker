@@ -136,4 +136,34 @@ class PedagogicalRuntimeInitTest {
         )
         assertEquals(PedagogicalAction.PositiveFeedback, feedback)
     }
+
+    @Test
+    fun p0g_provenienciaCaixaAltaEMistaLiteralNoAndroid() {
+        listOf(
+            "TRECHO RECUPERADO: em outras palavras, o texto diz amor.",
+            "TRECHO RECUPERADO: ou seja, o texto diz amor.",
+            "Trecho Recuperado: em outras palavras, o texto diz amor.",
+            "tRECHO rECUPERADO: em outras palavras, o texto diz amor.",
+        ).forEach { raw ->
+            val out = simplifyPedagogicalText(raw)
+            assertEquals("F1 Android: $raw", raw, out)
+            assertFalse(out.contains('\u0000'))
+        }
+    }
+
+    @Test
+    fun p0h_guardasCaixaAltaEMistaNoAndroid() {
+        listOf(
+            "NÃO em outras palavras concordo.",
+            "NEM em outras palavras concordo.",
+            "SE em outras palavras chover ficamos.",
+            "CASO em outras palavras chova ficamos.",
+            "SOMENTE em outras palavras funciona.",
+            "NUNCA em outras palavras concordo.",
+            "APENAS em outras palavras funciona.",
+            "SÓ em outras palavras funciona.",
+            "TALVEZ em outras palavras funcione.",
+            "nÃo em outras palavras concordo.",
+        ).forEach { raw -> assertEquals("F2 Android: $raw", raw, simplifyPedagogicalText(raw)) }
+    }
 }
