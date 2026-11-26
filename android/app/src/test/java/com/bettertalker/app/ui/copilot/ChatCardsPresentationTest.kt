@@ -17,4 +17,11 @@ class ChatCardsPresentationTest {
         assertEquals("Gerando ideias…", generateIdeasActionLabel(true))
     }
 
+
+    @Test
+    fun destinoUsaRotuloTextual() {
+        assertEquals("Destino: Ponto 2", destinationActionLabel("Ponto 2"))
+        assertEquals("Destino: abcdefghijklmnopqrstuvwxyz12", destinationActionLabel("abcdefghijklmnopqrstuvwxyz1234"))
+    }
+
 }
