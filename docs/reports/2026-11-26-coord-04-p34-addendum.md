@@ -52,7 +52,7 @@ Fixtures Hungerg em `test_pilot_executor.py`/`test_pilot_closure.py` rotuladas c
 
 ## J. CI e diff
 
-Check `propose` a conferir no SHA do código; o workflow é verificação de roadmap, não execução da suíte (executada localmente). Diff sem Android; fundação preservada; PR Draft.
+Check `propose` concluiu `success` no run `45827338028` (`head_sha=4e2885af`); commits posteriores são somente documentação. O workflow é verificação de roadmap, não execução da suíte (executada localmente). Diff sem Android; fundação preservada; PR Draft.
 
 ## K. Preservação dos componentes certificados
 
