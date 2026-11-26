@@ -360,6 +360,10 @@ def assess_admission(observed: dict[str, Any], session: dict[str, Any]) -> dict[
             "evidência independente do repositório insuficiente")
     require("permission_policy_resolved", bool(observed.get("permission_policy_sha256")),
             "política de permissões não observada")
+    require("fresh_unexecuted", observed.get("availability_state") == "FRESH_UNEXECUTED",
+            "estado não é FRESH_UNEXECUTED")
+    require("model_catalog_confirmed", (observed.get("model_catalog_evidence") or {}).get("confirmed") is True,
+            "catálogo do modelo não verificado")
     require("exclusive_consumer", observed.get("exclusive_consumer") is True,
             "consumidor exclusivo não comprovado")
     require("human_authorization", observed.get("human_authorization") is True,
@@ -372,14 +376,16 @@ def assess_admission(observed: dict[str, Any], session: dict[str, Any]) -> dict[
                                     "active_observed", "absent_from_active",
                                     "inbox_observed_empty", "zero_messages_parts",
                                     "time_untouched", "zero_cost_tokens", "outcome_absent",
-                                    "repository_evidence", "permission_policy_resolved")):
+                                    "repository_evidence", "permission_policy_resolved",
+                                    "fresh_unexecuted", "model_catalog_confirmed")):
         state = "new_experimental_session"
     elif basis.get("active_observed") and basis.get("absent_from_active"):
         state = "inactive_observed"
     else:
         state = "unknown"
     return {"admission_state": state, "admission_basis": basis,
-            "admission_blockers": blockers}
+            "availability_state": observed.get("availability_state", "UNKNOWN"),
+            "admission_blockers": list(dict.fromkeys(blockers))}
 
 
 def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
@@ -566,11 +572,17 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
             return observed
 
         # J9: ausência de repositoryID é aceita somente com evidência Git local.
+        observed["session_repository_status"] = (
+            "returned" if repository_field else "not_returned")
         observed["repository_evidence"] = {
             "session_repository_id": repository_field,
+            "session_repository_status": observed["session_repository_status"],
             "validated_repository_id": identity.repository_id,
+            "binding": identity.repository_binding,
             "source": "session-field" if repository_field else identity.repository_source,
-            "confirmed": identity.repository_id == pilot.EXPECTED_REPOSITORY_ID,
+            "confirmed": identity.repository_id == pilot.EXPECTED_REPOSITORY_ID
+                         and (identity.repository_binding is not None
+                              or identity.repository_source == "indisponivel-fixture"),
         }
         observed["repository_source"] = observed["repository_evidence"]["source"]
 
@@ -607,6 +619,28 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
             observed["messages_observed"] = False
             observed["message_count"] = None
             observed["part_count"] = None
+
+        # Permissões pendentes vazias não provam enforcement (J5 do adendo).
+        pending = fetch(f"/api/session/{session_id}/permission", "permissões pendentes")
+        pending_data = pending.get("data") if isinstance(pending, dict) else None
+        observed["pending_permissions_observed"] = isinstance(pending_data, list)
+        observed["pending_permission_count"] = (
+            len(pending_data) if isinstance(pending_data, list) else None)
+        observed["permissions_evidence"]["pending_observed"] = observed["pending_permissions_observed"]
+        observed["permissions_evidence"]["pending_count"] = observed["pending_permission_count"]
+
+        availability = pilot.classify_availability(
+            active_observed=observed.get("active_observed") is True,
+            target_in_active=observed.get("session_in_active") is True,
+            session=observed.get("time") and {"time": observed["time"], "outcome": observed["outcome"]},
+            inbox_observed=observed["inbox_observation"]["inbox_observed"],
+            inbox_count=observed["inbox_observation"]["inbox_count"],
+            messages_observed=observed["messages_observed"],
+            message_count=observed["message_count"], part_count=observed["part_count"],
+            pending_observed=observed["pending_permissions_observed"],
+            pending_count=observed["pending_permission_count"])
+        observed["availability_state"] = availability["state"]
+        observed["availability_reasons"] = list(availability["reasons"])
         observed.update(assess_admission(observed, session))
     else:
         observed["recipient_authorized"] = False
@@ -634,7 +668,7 @@ def _observe_blockers(observed: dict[str, Any]) -> list[str]:
         blockers.append("sessão cadastrada ausente no banco isolado; não criar automaticamente")
     if not observed.get("recipient_authorized"):
         blockers.append("destinatário experimental não autorizado")
-    return blockers
+    return list(dict.fromkeys(blockers))
 
 
 def _manifest_readiness_blockers(observed: dict[str, Any],
@@ -651,6 +685,10 @@ def _manifest_readiness_blockers(observed: dict[str, Any],
     admission = observed.get("admission_state")
     if admission != "new_experimental_session":
         blockers.append(f"admissão={admission or 'unknown'}; não pronta para transmissão")
+    if observed.get("availability_state") != "FRESH_UNEXECUTED":
+        blockers.append(f"disponibilidade={observed.get('availability_state', 'UNKNOWN')}")
+    if (observed.get("model_catalog_evidence") or {}).get("confirmed") is not True:
+        blockers.append("catálogo do modelo não verificado")
     if not observed.get("permission_policy_sha256"):
         blockers.append("hash da política de permissões ausente")
     elif observed.get("permissions_evidence", {}).get("enforcement_observed") is not True:
@@ -672,7 +710,7 @@ def _manifest_readiness_blockers(observed: dict[str, Any],
                                            ("session_location", "location")):
             if observed.get(observed_key) != session.get(expected_key):
                 blockers.append(f"{observed_key} divergente")
-    return blockers
+    return list(dict.fromkeys(blockers))
 
 
 def prepare_rebind(registry: dict[str, Any], observed: dict[str, Any],
@@ -720,6 +758,7 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
                                "endpoint": DEFAULT_ENDPOINT, "activate": False,
                                "approval": None, "real": False, "session": None,
                                "auth_env": None, "replace": False, "evidence": None,
+                               "catalog": None,
                                "instance_id": None, "agent_id": None,
                                "authorization_reference": None}
     command = None
@@ -727,7 +766,8 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
     while index < len(argv):
         arg = argv[index]
         if arg in {"--store-dir", "--endpoint", "--approval", "--session", "--auth-env",
-                   "--instance-id", "--agent-id", "--authorization-reference", "--evidence"}:
+                   "--instance-id", "--agent-id", "--authorization-reference", "--evidence",
+                   "--catalog"}:
             index += 1
             if index >= len(argv):
                 raise ValueError(f"{arg} sem valor")
@@ -906,6 +946,19 @@ def run(argv: list[str]) -> dict[str, Any]:
         if options["real"]:
             observed = _real_observe(options["endpoint"], auth_env=options["auth_env"],
                                      session=session)
+            if options["catalog"]:
+                try:
+                    with open(options["catalog"], "rb") as handle:
+                        catalog = json.loads(handle.read().decode("utf-8"))
+                    model = observed.get("session_model", "")
+                    provider_id, _, rest = model.partition("/")
+                    model_id, _, variant = rest.partition("#")
+                    observed["model_catalog_evidence"] = pilot.verify_model_catalog(
+                        catalog, provider_id=provider_id, model_id=model_id,
+                        variant=variant or "none")
+                except (OSError, ValueError, UnicodeError) as e:
+                    observed["model_catalog_evidence"] = {
+                        "confirmed": False, "reason": f"catálogo inválido: {type(e).__name__}"}
             return {"command": command, "mode": "real", "source": "real",
                     "read_only": True, "service_contacted": observed["service_contacted"],
                     "connection_attempted": observed["connection_attempted"],
@@ -915,6 +968,9 @@ def run(argv: list[str]) -> dict[str, Any]:
                     "session_found": observed["session_found"],
                     "recipient_authorized": observed["recipient_authorized"],
                     "status_kind": observed["status_kind"], "http_status": observed["http_status"],
+                    "availability_state": observed.get("availability_state", "UNKNOWN"),
+                    "availability_reasons": observed.get("availability_reasons", []),
+                    "model_catalog_evidence": observed.get("model_catalog_evidence", {}),
                     "admission_state": observed.get("admission_state", "unknown"),
                     "admission_basis": observed.get("admission_basis", {}),
                     "admission_blockers": observed.get("admission_blockers", []),

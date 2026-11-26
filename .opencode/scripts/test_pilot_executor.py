@@ -58,7 +58,7 @@ def pilot_auth(m=None, **changes):
               "operation_id": m.operation_id, "prompt_sha256": pilot.sha256_text(PROMPT),
               "scope": m.scope, "issued_at": NOW, "expires_at": NOW + timedelta(hours=1),
               "approved": True, "environment": "FIXTURE", "max_transmissions": 1,
-              "expected_model": "opencode-go/hungerg-free#default"}
+              "expected_model": "opencode-go/hungerg-free#default"}  # fixture histórica sintética; não é a política HY4
     values.update(changes)
     return pilot.PilotAuthorization(**values)
 

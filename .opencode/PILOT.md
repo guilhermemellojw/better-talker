@@ -371,6 +371,29 @@ python3 .opencode/scripts/coord_pilot_cli.py closeout
   Qualquer alteração material invalida a aprovação anterior. Nenhuma `PilotApproval` é emitida
   e nenhum manifesto real apresentável é gerado enquanto restarem lacunas.
 
+### Adendo P10 — contrato unificado e higiene
+
+- `OpenCodeTransport.status()` e a preparação do manifesto usam a mesma classificação:
+  **`FRESH_UNEXECUTED`**, **`IDLE_TERMINAL`**, **`BUSY`**, **`UNKNOWN`**. Sessão presente em
+  `active` ou `busy>idle` ⇒ `BUSY`; `outcome` fora do enum documentado ⇒ `UNKNOWN`. A primeira
+  transmissão só admite `FRESH_UNEXECUTED` com evidências cumulativas (active observado sem a
+  sessão, inbox/mensagens/permissões pendentes observados e vazios, `created==updated`,
+  tokens/custo zero, sem `outcome`/`busy`/`idle`). Nunca declarar `idle` por `time.idle>=time.busy`.
+- Respostas 200 sem `data`, `inbox_count` ausente, inbox ocupado, `active` sem `data` e
+  `busy>idle` são bloqueios explícitos — ausência de evidência não é resposta vazia.
+- Vínculo Git independente inclui **canonical + worktree + common-dir + origin + projectID**;
+  `repositoryID` continua ausente na API e não é fabricado. `repository_source=git-local`.
+- Catálogo do modelo deve ser verificado antes da futura transmissão (`--catalog`): provider
+  e ID exatos, variante autorizada `none`, custos conhecidos/compatíveis e disponibilidade.
+  Custo desconhecido ou divergente bloqueia; sem seleção dinâmica/fallback (PR #71 cuida da
+  política geral).
+- `GET /api/session/{id}/permission` vazio não prova enforcement: separar regras solicitadas,
+  devolvidas, pendentes, política efetiva e enforcement comprovado. Manter bloqueio sem
+  evidência de runtime.
+- Fixtures Hungerg em `test_pilot_executor.py`/`test_pilot_closure.py` estão rotuladas como
+  históricas/sintéticas e não exercitam a política HY4. Bloqueios duplicados são deduplicados.
+  A evidência de inbox vazio veio da leitura separada `verify-inbox.json`, não do preflight.
+
 ## Diretriz de produto do mantenedor — FREE FIRST / 1M PREFERRED
 
 Registrada para COORD-05/06/07: preferir modelos **gratuitos** com janela de contexto de

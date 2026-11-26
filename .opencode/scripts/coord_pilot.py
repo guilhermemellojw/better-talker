@@ -44,6 +44,100 @@ EXPECTED_CANONICAL_DIR = "/home/guilherme/Documentos/better-talker"
 EXPERIMENTAL_WORKTREE = "/home/guilherme/Documentos/better-talker-coord-supervisor-shadow"
 # Modelo experimental aprovado pelo mantenedor (substitui hungerg-free).
 EXPERIMENTAL_MODEL = "opencode/hy4-flash-free"
+# Estados de disponibilidade/admissão do contrato unificado (P10 adendo).
+AVAILABILITY_STATES = ("FRESH_UNEXECUTED", "IDLE_TERMINAL", "BUSY", "UNKNOWN")
+OUTCOME_VALUES = ("succeeded", "failed", "interrupted")
+
+
+def verify_model_catalog(models: Any, *, provider_id: str, model_id: str,
+                         variant: str, authorized_model: str = EXPERIMENTAL_MODEL) -> dict[str, Any]:
+    """Verifica o catálogo atual sem escolher modelos: identidade, variante e custo."""
+    rows = models.get("data") if isinstance(models, dict) else None
+    if not isinstance(rows, list):
+        return {"confirmed": False, "reason": "catálogo inválido", "source": "model-catalog"}
+    match = None
+    for row in rows:
+        if (isinstance(row, dict) and row.get("providerID") == provider_id
+                and row.get("id") == model_id):
+            match = row
+            break
+    if match is None:
+        return {"confirmed": False, "reason": "modelo ausente do catálogo", "source": "model-catalog"}
+    canonical = canonical_model_ref(provider_id, model_id, variant)
+    variants = {item.get("id") for item in (match.get("variants") or []) if isinstance(item, dict)}
+    costs = match.get("cost") or []
+    known_costs = isinstance(costs, list) and all(
+        isinstance(item, dict) and all(item.get(k) is not None
+                                       for k in ("input", "output")) for item in costs)
+    zero_cost = known_costs and all(
+        (item.get("input") or 0) == 0 and (item.get("output") or 0) == 0
+        and all((item.get("cache") or {}).get(k, 0) == 0 for k in ("read", "write"))
+        for item in costs)
+    reasons = []
+    if canonical != authorized_model:
+        reasons.append("modelo canônico divergente do autorizado")
+    if variant not in variants:
+        reasons.append("variante autorizada ausente do catálogo")
+    if not known_costs or not zero_cost:
+        reasons.append("custo desconhecido ou divergente da gratuidade autorizada")
+    if not match.get("active", True) or match.get("enabled") is False:
+        reasons.append("modelo indisponível no catálogo")
+    return {"confirmed": not reasons, "reasons": tuple(dict.fromkeys(reasons)),
+            "provider_id": provider_id, "model_id": model_id, "variant": variant,
+            "canonical": canonical, "source": "model-catalog"}
+
+
+def classify_availability(*, active_observed: bool, target_in_active: bool,
+                          session: Optional[dict[str, Any]] = None,
+                          inbox_observed: bool = False, inbox_count: Optional[int] = None,
+                          messages_observed: bool = False, message_count: Optional[int] = None,
+                          part_count: Optional[int] = None,
+                          pending_observed: bool = False, pending_count: Optional[int] = None,
+                          idle_evidence: bool = False) -> dict[str, Any]:
+    """Classificação conservadora; ausência de evidência nunca é resposta vazia."""
+    reasons: list[str] = []
+    session = session or {}
+    times = session.get("time") or {}
+    busy, idle = times.get("busy"), times.get("idle")
+    if target_in_active:
+        return {"state": "BUSY", "reasons": ("sessão presente em active",)}
+    if (isinstance(busy, (int, float)) and isinstance(idle, (int, float)) and busy > idle):
+        return {"state": "BUSY", "reasons": ("busy > idle",)}
+    if not active_observed:
+        reasons.append("active não observado")
+    if not inbox_observed or inbox_count is None:
+        reasons.append("inbox não observado como lista")
+    elif inbox_count != 0:
+        reasons.append("inbox ocupado")
+    if not messages_observed or message_count is None or part_count is None:
+        reasons.append("mensagens/parts não observados")
+    elif message_count or part_count:
+        reasons.append("mensagens/parts presentes")
+    if not pending_observed or pending_count is None:
+        reasons.append("permissões pendentes não observadas")
+    elif pending_count:
+        reasons.append("permissão pendente")
+    if target_in_active:
+        reasons.append("sessão presente em active")
+    session = session or {}
+    times = session.get("time") or {}
+    busy, idle = times.get("busy"), times.get("idle")
+    created, updated = times.get("created"), times.get("updated")
+    if busy is not None and idle is not None and isinstance(busy, (int, float)) \
+            and isinstance(idle, (int, float)) and busy > idle:
+        reasons.append("busy > idle")
+    outcome = session.get("outcome")
+    if outcome is not None and outcome not in OUTCOME_VALUES:
+        reasons.append("outcome fora do enum documentado")
+    if reasons:
+        return {"state": "UNKNOWN", "reasons": tuple(dict.fromkeys(reasons))}
+    fresh = (created is not None and created == updated and outcome is None
+             and busy is None and idle is None and idle_evidence is False)
+    if fresh:
+        return {"state": "FRESH_UNEXECUTED", "reasons": ()}
+    if idle_evidence and outcome in OUTCOME_VALUES:
+        return {"state": "IDLE_TERMINAL", "reasons": ()}
+    return {"state": "UNKNOWN", "reasons": ("evidência insuficiente para estado terminal",)}
 
 
 def canonical_model_ref(provider_id: Optional[str], model_id: Optional[str],
@@ -240,6 +334,36 @@ class ObservedProjectIdentity:
     project_canonical: str
     location: str
     repository_source: str = "git-local"
+    repository_binding: Optional[dict[str, Any]] = None
+
+
+def git_binding_evidence(root: Optional[str] = None) -> dict[str, Any]:
+    """Vínculo Git independente: canonical + worktree + common-dir + origin + projeto."""
+    import subprocess
+    directory = root or EXPERIMENTAL_WORKTREE
+    try:
+        completed = subprocess.run(
+            ["git", "-C", directory, "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise cc.ContractError("common-dir Git indisponível") from e
+    raw = completed.stdout.strip() if completed.returncode == 0 else ""
+    if not raw:
+        raise cc.ContractError("common-dir Git ausente")
+    common_dir = raw if os.path.isabs(raw) else os.path.join(directory, raw)
+    expected = os.path.join(EXPECTED_CANONICAL_DIR, ".git")
+    if os.path.realpath(common_dir) != os.path.realpath(expected):
+        raise cc.ContractError("common-dir Git divergente do repositório canônico")
+    repository_id = repository_identity_from_git(root=directory)
+    return {
+        "canonical": EXPECTED_CANONICAL_DIR,
+        "worktree": directory,
+        "common_dir": os.path.realpath(common_dir),
+        "origin_repository_id": repository_id,
+        "project_id": EXPECTED_PROJECT_ID,
+        "repository_id": repository_id,
+        "source": "git-local",
+    }
 
 
 def validate_observed_identity(location: dict[str, Any], *, project_id: str,
@@ -261,12 +385,14 @@ def validate_observed_identity(location: dict[str, Any], *, project_id: str,
     if project.get("canonical") not in allowed_canonical:
         raise cc.ContractError("diretório canônico divergente")
     expected_repository = repository_id or EXPECTED_REPOSITORY_ID
+    binding: Optional[dict[str, Any]] = None
     try:
-        observed_repository = repository_identity_from_git(root=directory)
+        binding = git_binding_evidence(root=directory)
+        observed_repository = binding["repository_id"]
         repository_source = "git-local"
     except cc.ContractError:
         # Somente em fixtures sintéticas (fora da worktree experimental) o
-        # repositório não é derivável; na worktree real isso é bloqueante.
+        # vínculo não é derivável; na worktree real isso é bloqueante.
         if expected_location == EXPERIMENTAL_WORKTREE:
             raise
         observed_repository = expected_repository
@@ -276,7 +402,8 @@ def validate_observed_identity(location: dict[str, Any], *, project_id: str,
     return ObservedProjectIdentity(
         project_id=project_id, opencode_project_id=internal,
         repository_id=observed_repository, project_canonical=project["canonical"],
-        location=directory, repository_source=repository_source)
+        location=directory, repository_source=repository_source,
+        repository_binding=binding)
 
 
 class LocalHttpClient(HttpClient):
@@ -804,18 +931,51 @@ class OpenCodeTransport(cc.Transport):
 
     def status(self, target: cc.TargetIdentity) -> cc.SessionStatus:
         self._confirm_target(target)
-        active = (self._get(ACTIVE_PATH) or {}).get("data") or {}
-        if target.session_id in active:
-            return cc.SessionStatus(target, "busy", 0,
-                                    {"active_observed": True, "availability_claimed": False})
-        inbox = (self._get(f"/api/session/{target.session_id}{INBOX_SUFFIX}") or {}).get("data") or []
-        session = (self._get(f"/api/session/{target.session_id}") or {}).get("data") or {}
-        times = session.get("time") or {}
-        idle_confirmed = isinstance(times.get("idle"), (int, float)) and times.get("idle", 0) >= times.get("busy", 0)
-        state = "idle" if idle_confirmed else "unknown"
-        return cc.SessionStatus(target, state, len(inbox),
-                                {"active_observed": False, "availability_claimed": False,
-                                 "idle_metadata": idle_confirmed, "source": "opencode-api"})
+        active_payload = self._get(ACTIVE_PATH)
+        active = active_payload.get("data") if isinstance(active_payload, dict) else None
+        active_observed = isinstance(active, dict)
+        target_in_active = active_observed and target.session_id in active
+        inbox_payload = self._get(f"/api/session/{target.session_id}{INBOX_SUFFIX}")
+        inbox = inbox_payload.get("data") if isinstance(inbox_payload, dict) else None
+        inbox_observed = isinstance(inbox, list)
+        inbox_count = len(inbox) if inbox_observed else None
+        session_payload = self._get(f"/api/session/{target.session_id}")
+        session = session_payload.get("data") if isinstance(session_payload, dict) else None
+        session = session if isinstance(session, dict) else {}
+
+        assessment = {"state": "UNKNOWN", "reasons": ("status não classificado",)}
+        if self.is_real:
+            messages_payload = self._get(
+                f"/api/session/{target.session_id}{MESSAGE_SUFFIX}?limit=20&order=desc")
+            message_data = messages_payload.get("data") if isinstance(messages_payload, dict) else None
+            messages_observed = isinstance(message_data, list)
+            message_count = len(message_data) if messages_observed else None
+            part_count = (sum(len(item.get("content") or []) for item in message_data
+                              if isinstance(item, dict)) if messages_observed else None)
+            pending_payload = self._get(f"/api/session/{target.session_id}/permission")
+            pending_data = pending_payload.get("data") if isinstance(pending_payload, dict) else None
+            assessment = classify_availability(
+                active_observed=active_observed, target_in_active=target_in_active,
+                session=session, inbox_observed=inbox_observed, inbox_count=inbox_count,
+                messages_observed=messages_observed, message_count=message_count,
+                part_count=part_count, pending_observed=isinstance(pending_data, list),
+                pending_count=len(pending_data) if isinstance(pending_data, list) else None)
+            legacy = ("busy" if target_in_active or assessment["state"] == "BUSY"
+                      else "idle" if assessment["state"] in {"FRESH_UNEXECUTED", "IDLE_TERMINAL"}
+                      else "unknown")
+        else:
+            # Compatibilidade com fixtures certificadas: sem inferência nova para A–E.
+            times = session.get("time") or {}
+            idle_confirmed = (isinstance(times.get("idle"), (int, float))
+                              and times.get("idle", 0) >= times.get("busy", 0))
+            legacy = "busy" if target_in_active else ("idle" if idle_confirmed else "unknown")
+            assessment = {"state": "UNKNOWN", "reasons": ("modo fixture; sem admissão real",)}
+        return cc.SessionStatus(target, legacy, inbox_count or 0, {
+            "active_observed": active_observed, "target_in_active": target_in_active,
+            "inbox_observed": inbox_observed, "inbox_count": inbox_count,
+            "availability_state": assessment["state"],
+            "availability_reasons": list(assessment["reasons"]),
+            "availability_claimed": False, "source": "opencode-api"})
 
     def prepare(self, envelope: cc.MissionEnvelope, authorization: cc.Authorization) -> cc.PreparedRequest:
         self.pilot.validate_for_pilot(self.clock(), require_real=self.is_real)

@@ -73,6 +73,7 @@ def full_responses(*, with_session=True):
         values[f"/api/session/{SID}{pilot.INBOX_SUFFIX}"] = (200, {"data": []})
         values[f"/api/session/{SID}{pilot.MESSAGE_SUFFIX}?limit=20&order=desc"] = (
             200, {"data": []})
+        values[f"/api/session/{SID}/permission"] = (200, {"data": []})
     return values
 
 
@@ -82,6 +83,8 @@ def make_synthetic_ready(observed):
     observed["human_authorization"] = True
     observed["permissions_evidence"]["enforcement_observed"] = True
     observed["admission_state"] = "new_experimental_session"
+    observed["availability_state"] = "FRESH_UNEXECUTED"
+    observed["model_catalog_evidence"] = {"confirmed": True, "source": "model-catalog"}
     return observed
 
 
