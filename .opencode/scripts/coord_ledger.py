@@ -876,4 +876,3 @@ class Ledger:
         if record is None or record.state != AUTHORIZED:
             return False
         return not self.is_reserved(mission_id)
-
