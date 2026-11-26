@@ -123,7 +123,7 @@ Somente Python offline, nenhuma instância OpenCode iniciada nesta rodada, nenhu
 
 ## K. CI e preservação de A–E
 
-CI a conferir no SHA final; `propose` certificado nos SHAs anteriores. Worktree certificado alterado apenas nos arquivos acima; PR #64 permanece Draft. Nenhuma sessão, prompt, agente, modelo, credencial, mensagem, worktree, configuração global, Android, HealthAgentForms ou serviço de A–E foi tocado; serviço compartilhado e processos preexistentes preservados.
+Check `propose` concluiu `success` no run `45736202168`, `head_sha=6ebf66ed192f05540007ffd502f30d0cc03b8bf7`; commits posteriores a este são somente documentação. Worktree certificado alterado apenas nos arquivos acima; PR #64 permanece Draft. Nenhuma sessão, prompt, agente, modelo, credencial, mensagem, worktree, configuração global, Android, HealthAgentForms ou serviço de A–E foi tocado; serviço compartilhado e processos preexistentes preservados.
 
 ## L. Limitações remanescentes
 
