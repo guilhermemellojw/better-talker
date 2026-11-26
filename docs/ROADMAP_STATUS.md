@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#68 — HOTFIX P0: compatibilidade ICU/Android das regex pedagógicas (Draft)](https://github.com/guilhermemellojw/better-talker/pull/68) | Outros | `497e4ad8b130` | Pendente |
+| [#68 — HOTFIX P0: compatibilidade ICU/Android das regex pedagógicas (Draft)](https://github.com/guilhermemellojw/better-talker/pull/68) | Outros | `497e4ad8b130` | Verde |
 | [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `65633bd1eb69` | Verde |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `be669824b63d` | Verde |
 
@@ -72,7 +72,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=62.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.7 dias (referência fixa: 2026-11-26).
-- Estados de check dos PRs abertos: Pendente=1, Verde=2.
+- Estados de check dos PRs abertos: Verde=3.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
