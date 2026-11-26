@@ -58,16 +58,19 @@ internal fun planPedagogicalAction(
 // Rótulos de proveniência TRUST, aspas (retas/tipográficas) e referências são
 // identificados uma única vez e copiados byte a byte. Nenhum token interno é
 // inserido no texto: o mecanismo de aninhamento/NUL foi eliminado.
+// HOTFIX P0 — NENHUM flag embutido: o ICU/Android aceita apenas `ismwx`.
+// Case folding é explícito por classes de caracteres ([Éé], [Cc], ...) e as
+// fronteiras usam `\p{L}` (propriedade Unicode suportada por JVM e ICU).
 private val PEDAGOGICAL_PROTECTED = Regex(
-    """(?iu)Trecho recuperado[^\n]*|“[^”\n]*”|"[^"\n]*"|«[^»\n]*»|\b[A-Za-zÀ-ÿ]+\s+\d{1,3}(?::\d{1,3})?\b|\b\d{1,3}:\d{1,3}\b""",
+    """[Tt]recho [Rr]ecuperado[^\n]*|“[^”\n]*”|"[^"\n]*"|«[^»\n]*»|(?<!\p{L})[A-Za-zÀ-ÿ]+\s+\d{1,3}(?::\d{1,3})?(?!\p{L})|(?<!\p{L})\d{1,3}:\d{1,3}(?!\p{L})""",
 )
 
 // F7 — marcadores com peso discursivo só no início do texto ou da frase.
-// `(?U)` torna `\b` Unicode-aware; o prefixo capturado impede a remoção
-// depois de negação/condição/qualificador e preserva a pontuação.
+// O prefixo capturado impede a remoção depois de negação/condição/
+// qualificador e preserva a pontuação; `(?!\p{L})` substitui `\b`.
 private val PEDAGOGICAL_SENTENCE_FILLERS = listOf(
     Regex(
-        """(?iuU)(^|[.!?\n]\s+)(é importante (ressaltar|notar|salientar|destacar) que|importa (ressaltar|notar|salientar) que|vale (ressaltar|notar|lembrar) que|cabe destacar que)\b[,\s]*""",
+        """(^|[.!?\n]\s+)([Éé] importante ([Rr]essaltar|[Nn]otar|[Ss]alientar|[Dd]estacar) que|[Ii]mporta ([Rr]essaltar|[Nn]otar|[Ss]alientar) que|[Vv]ale ([Rr]essaltar|[Nn]otar|[Ll]embrar) que|[Cc]abe destacar que)(?!\p{L})[,\s]*""",
     ) to "$1",
 )
 
@@ -81,19 +84,19 @@ private val PEDAGOGICAL_SENTENCE_FILLERS = listOf(
 // todo conectivo lógico (se, porque, portanto, mas, exceto, não, talvez).
 private val PEDAGOGICAL_SAFE_FILLERS = listOf(
     Regex(
-        """(?iuU)\b(ou seja|em outras palavras|dito de outra forma|em outros termos)\b[,\s]*""",
+        """(?<!\p{L})([Oo]u seja|[Ee]m outras palavras|[Dd]ito de outra forma|[Ee]m outros termos)(?!\p{L})[,\s]*""",
     ) to "",
 )
 
 private val PEDAGOGICAL_PHRASES = listOf(
-    Regex("""(?iuU)\bcom o objetivo de\b""") to "para",
-    Regex("""(?iuU)\ba fim de\b""") to "para",
-    Regex("""(?iuU)\bno que diz respeito a\b""") to "sobre",
-    Regex("""(?iuU)\blevando em consideração\b""") to "considerando",
+    Regex("""(?<!\p{L})[Cc]om o objetivo de(?!\p{L})""") to "para",
+    Regex("""(?<!\p{L})[Aa] fim de(?!\p{L})""") to "para",
+    Regex("""(?<!\p{L})[Nn]o que diz respeito a(?!\p{L})""") to "sobre",
+    Regex("""(?<!\p{L})[Ll]evando em consideração(?!\p{L})""") to "considerando",
 )
 
 private val PEDAGOGICAL_RISK_PREFIX = Regex(
-    """(?iuU)\b(não|nunca|nem|se|caso|apenas|só|somente|talvez)\s*$""",
+    """(?<!\p{L})([Nn]ão|[Nn]unca|[Nn]em|[Ss]e|[Cc]aso|[Aa]penas|[Ss]ó|[Ss]omente|[Tt]alvez)\s*$""",
 )
 
 private fun simplifySegment(segment: String): String {
