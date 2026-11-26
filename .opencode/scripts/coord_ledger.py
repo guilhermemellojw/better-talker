@@ -187,22 +187,25 @@ class Ledger:
             conn.close()
 
     def _harden_files(self) -> None:
-        """Permissões privadas; nunca altera diretório produtivo preexistente."""
+        """Permissões privadas; nunca segue links nem altera diretórios alheios."""
         for path in (
             self.db_path,
             Path(str(self.db_path) + "-wal"),
             Path(str(self.db_path) + "-shm"),
         ):
             try:
+                if path.is_symlink():
+                    raise LedgerStorageError(f"arquivo auxiliar simbólico: {path}")
                 if path.exists():
-                    os.chmod(path, 0o600)
+                    os.chmod(path, 0o600, follow_symlinks=False)
             except OSError as exc:
                 raise LedgerStorageError(f"falha ao proteger {path}: {exc}") from exc
 
     def _validate_paths(self) -> bool:
-        """Rejeita caminhos incompatíveis; retorna se o diretório já existia."""
-        if self.db_path.is_symlink() or self.db_path.parent.is_symlink():
-            raise LedgerStorageError("caminho simbólico não é permitido")
+        """Valida caminhos em modo somente leitura; retorna se o pai já existia."""
+        for path in (self.db_path, *self.db_path.parents):
+            if path.is_symlink():
+                raise LedgerStorageError("caminho simbólico não é permitido")
         parent_existed = self.db_path.parent.exists()
         if parent_existed:
             mode = self.db_path.parent.stat().st_mode
@@ -210,43 +213,58 @@ class Ledger:
                 raise LedgerStorageError(
                     "diretório preexistente não é privado; não será modificado"
                 )
-        if self.db_path.exists() and self.db_path.stat().st_mode & 0o077:
-            os.chmod(self.db_path, 0o600)
         return parent_existed
 
-    def _initialize(self) -> None:
-        parent_existed = self._validate_paths()
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        if not parent_existed:
-            os.chmod(self.db_path.parent, 0o700)
+    def _check_compatibility(self) -> bool:
+        """Verifica esquema antes de DDL/chmod. True = banco novo."""
+        if not self.db_path.exists():
+            return True
         try:
-            with self._connect() as conn:
+            uri = self.db_path.resolve().as_uri() + "?mode=ro"
+            conn = sqlite3.connect(uri, uri=True)
+            try:
+                conn.row_factory = sqlite3.Row
                 tables = {
                     row["name"]
                     for row in conn.execute(
                         "SELECT name FROM sqlite_master WHERE type='table'"
                     )
                 }
-                conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-                version_row = conn.execute(
+                if not tables:
+                    return True
+                if "meta" not in tables:
+                    raise LedgerStorageError(
+                        "banco preexistente sem versão: migração não implementada"
+                    )
+                version = conn.execute(
                     "SELECT value FROM meta WHERE key='schema_version'"
                 ).fetchone()
-                if version_row is None:
-                    if tables and tables - {"meta"}:
-                        raise LedgerStorageError(
-                            "banco preexistente sem versão: migração não implementada"
-                        )
-                    conn.execute(
-                        "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
-                        (SCHEMA_VERSION,),
-                    )
-                elif version_row["value"] != SCHEMA_VERSION:
+                if version is None or version["value"] != SCHEMA_VERSION:
                     raise LedgerStorageError(
-                        f"esquema incompatível: {version_row['value']}"
+                        f"esquema incompatível: {version['value'] if version else 'ausente'}"
                     )
+            finally:
+                conn.close()
+            return False
+        except LedgerStorageError:
+            raise
+        except sqlite3.Error as exc:
+            raise LedgerStorageError(f"falha ao validar banco: {exc}") from exc
+
+    def _initialize(self) -> None:
+        parent_existed = self._validate_paths()
+        fresh = self._check_compatibility()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not parent_existed:
+            os.chmod(self.db_path.parent, 0o700)
+        try:
+            with self._connect() as conn:
                 conn.executescript(
                     """
                     PRAGMA journal_mode=WAL;
+                    CREATE TABLE IF NOT EXISTS meta (
+                        key TEXT PRIMARY KEY, value TEXT NOT NULL
+                    );
                     CREATE TABLE IF NOT EXISTS missions (
                         mission_id TEXT PRIMARY KEY,
                         operation_id TEXT NOT NULL UNIQUE,
@@ -286,6 +304,11 @@ class Ledger:
                     );
                     """
                 )
+                if fresh:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
+                        (SCHEMA_VERSION,),
+                    )
             self._harden_files()
         except sqlite3.Error as exc:
             raise LedgerStorageError(f"falha ao inicializar banco: {exc}") from exc
@@ -687,33 +710,54 @@ class Ledger:
         actor: str,
         human_decision: bool = False,
     ) -> MissionRecord:
-        """Reconcilia UNKNOWN com autoridade externa; nunca reenvia."""
-        record = self.get(mission_id)
-        if record is None:
-            raise LedgerError("missão inexistente")
-        if record.state != UNKNOWN:
-            raise InvalidTransition("reconciliação exige UNKNOWN")
+        """Reconcilia UNKNOWN dentro da mesma transação que aplica o resultado.
+
+        Nenhuma leitura fora da transação é usada como decisão; uma observação
+        defasada não pode liberar a reserva nem rebaixar um estado mais adiante.
+        """
+        if target not in STATES:
+            raise InvalidTransition(f"estado desconhecido: {target}")
+        if target == DISPATCHING:
+            raise InvalidTransition("reenvio automático é proibido em UNKNOWN")
         if not authority_reference.strip():
             raise UnsafeReconciliation(
                 "referência de autoridade externa é obrigatória"
             )
         if not evidence.strip() and not human_decision:
             raise UnsafeReconciliation("evidência ou decisão humana é obrigatória")
-        if target == DISPATCHING:
-            raise InvalidTransition("reenvio automático é proibido em UNKNOWN")
         detail = (
             f"{evidence} | autoridade={authority_reference}"
             f" | ator={actor}"
             + (" | decisão humana registrada" if human_decision else "")
         )
-        return self._transition(
-            mission_id,
-            target,
-            evidence=detail,
-            actor=actor,
-            allow_unknown=True,
-            clear_reservation=target in TERMINAL,
-        )
+        with self._write() as conn:
+            row = conn.execute(
+                """SELECT * FROM missions
+                   WHERE mission_id=? AND project_id=? AND repository_id=?""",
+                (mission_id, self.project_id, self.repository_id),
+            ).fetchone()
+            if row is None:
+                raise LedgerError("missão inexistente")
+            current = row["state"]
+            if current != UNKNOWN:
+                raise InvalidTransition(
+                    f"reconciliação exige UNKNOWN (observado: {current})"
+                )
+            if target not in ALLOWED_TRANSITIONS[UNKNOWN]:
+                raise InvalidTransition(f"UNKNOWN -> {target} não permitido")
+            now = iso(utc_now())
+            conn.execute(
+                "UPDATE missions SET state=?, updated_at=? WHERE mission_id=?",
+                (target, now, mission_id),
+            )
+            if target in TERMINAL:
+                conn.execute(
+                    "DELETE FROM reservations WHERE mission_id=?", (mission_id,)
+                )
+            self._append(conn, mission_id, current, target, detail, actor, now)
+        record = self.get(mission_id)
+        assert record is not None
+        return record
 
     RECOVERY_CAUSES = frozenset({"timeout", "process_loss", "restart_confirmed"})
 
@@ -779,9 +823,11 @@ class Ledger:
             with self._connect() as conn:
                 return (
                     conn.execute(
-                        """SELECT 1 FROM reservations
-                           WHERE project_id=? AND mission_id=?""",
-                        (self.project_id, mission_id),
+                        """SELECT 1 FROM reservations r
+                           JOIN missions m ON m.mission_id=r.mission_id
+                           WHERE r.project_id=? AND m.repository_id=?
+                             AND r.mission_id=?""",
+                        (self.project_id, self.repository_id, mission_id),
                     ).fetchone()
                     is not None
                 )

@@ -9,6 +9,7 @@ import stat
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -554,6 +555,105 @@ class LedgerTest(unittest.TestCase):
             cause="restart_confirmed", actor="synthetic")
         self.assertEqual(UNKNOWN, self.ledger.get(record.mission_id).state)
         self.assertTrue(self.ledger.is_reserved(record.mission_id))
+
+
+    def test_f1_reconciliacao_atomica_estado_defasado(self):
+        record = reserved(self.ledger)
+        self.ledger.mark_unknown(record.mission_id, evidence="timeout", actor="S")
+        self.ledger.reconcile(
+            record.mission_id,
+            target=DELIVERED,
+            evidence="inbox",
+            authority_reference="AUTH-RACE",
+            actor="human",
+        )
+        stale = self.ledger.get(record.mission_id)
+        self.assertEqual(DELIVERED, stale.state)
+        with patch.object(type(self.ledger), "get", return_value=stale.__class__(
+            **{**stale.__dict__, "state": UNKNOWN}
+        )):
+            with self.assertRaises(InvalidTransition):
+                self.ledger.reconcile(
+                    record.mission_id,
+                    target=FAILED,
+                    evidence="stale read",
+                    authority_reference="AUTH-STALE",
+                    actor="S",
+                )
+        self.assertEqual(DELIVERED, self.ledger.get(record.mission_id).state)
+        self.assertTrue(self.ledger.is_reserved(record.mission_id))
+
+    def test_f2_banco_sem_versao_nao_cria_meta_nem_altera_permissao(self):
+        old = Path(self._tmp.name) / "semversao.sqlite3"
+        conn = sqlite3.connect(old)
+        conn.execute("CREATE TABLE missions (mission_id TEXT PRIMARY KEY)")
+        conn.execute(
+            "INSERT INTO reservations (agent, session_id, mission_id) VALUES ('B','s','M')"
+            if False else "CREATE TABLE reservations (agent TEXT, session_id TEXT, mission_id TEXT)"
+        )
+        conn.commit()
+        conn.close()
+        os.chmod(old, 0o666)
+        before = stat.S_IMODE(old.stat().st_mode)
+        with self.assertRaises(LedgerStorageError):
+            Ledger(old, project_id=PROJECT, repository_id=REPO)
+        conn = sqlite3.connect(old)
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        conn.close()
+        self.assertNotIn("meta", names)
+        self.assertIn("reservations", names)
+        self.assertEqual(before, stat.S_IMODE(old.stat().st_mode))
+
+    def test_f2_versao_incompativel_rejeitada(self):
+        db = Path(self._tmp.name) / "versao.sqlite3"
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute("INSERT INTO meta VALUES ('schema_version','outra')")
+        conn.commit()
+        conn.close()
+        with self.assertRaises(LedgerStorageError):
+            Ledger(db, project_id=PROJECT, repository_id=REPO)
+
+    def test_f3_ancestro_simbolico_rejeitado(self):
+        real = Path(self._tmp.name) / "real-root"
+        real.mkdir()
+        link = Path(self._tmp.name) / "link-root"
+        link.symlink_to(real, target_is_directory=True)
+        nested = link / "nested"
+        nested.mkdir()
+        with self.assertRaises(LedgerStorageError):
+            Ledger(nested / "ledger.sqlite3", project_id=PROJECT, repository_id=REPO)
+
+    def test_f3_wal_simbolico_rejeitado(self):
+        target = Path(self._tmp.name) / "alvo-wal"
+        target.write_text("x")
+        wal = Path(str(self.db) + "-wal")
+        if wal.exists() or wal.is_symlink():
+            wal.unlink()
+        wal.symlink_to(target)
+        with self.assertRaises(LedgerStorageError):
+            self.ledger._harden_files()
+
+    def test_f3_is_reserved_isolado_por_repositorio(self):
+        record = reserved(self.ledger)
+        self.assertTrue(self.ledger.is_reserved(record.mission_id))
+        other = Ledger(
+            self.db,
+            project_id=PROJECT,
+            repository_id="outro/repo",
+        )
+        self.assertFalse(other.is_reserved(record.mission_id))
+
+    def test_f4_rollback_apos_mutacao_na_transacao(self):
+        record = reserved(self.ledger)
+        before = self.ledger.get(record.mission_id).updated_at
+        with patch.object(type(self.ledger), "_append", side_effect=LedgerError("falha injetada")):
+            with self.assertRaises(LedgerError):
+                self.ledger.complete(record.mission_id, evidence="x", actor="S")
+        after = self.ledger.get(record.mission_id)
+        self.assertEqual(DISPATCHING, after.state)
+        self.assertEqual(before, after.updated_at)
+        self.assertEqual(0, len([t for t in self.ledger.history(record.mission_id) if t.to_state == COMPLETED]))
 
 if __name__ == "__main__":
     unittest.main()
