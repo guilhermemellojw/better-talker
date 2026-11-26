@@ -25,7 +25,7 @@
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
 | [#76 — fix(beta-a15): barra inferior adaptativa a largura e fonte (Draft)](https://github.com/guilhermemellojw/better-talker/pull/76) | Beta e infraestrutura | `85a26517e7c0` | Pendente |
-| [#75 — BETA-HOTFIX-J05: leitura biblia explicita sem materia tematica (Draft)](https://github.com/guilhermemellojw/better-talker/pull/75) | Beta e infraestrutura | `70b01829abc3` | Pendente |
+| [#75 — BETA-HOTFIX-J05: leitura biblia explicita sem materia tematica (Draft)](https://github.com/guilhermemellojw/better-talker/pull/75) | Beta e infraestrutura | `70b01829abc3` | Verde |
 | [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `83316bd24aae` | Verde |
 | [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `5d7791388842` | Verde |
 | [#69 — docs(coord): transferência operacional e prontidão do supervisor (COORD-08/09 PREP) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/69) | Documentação | `db58380af3b3` | Verde |
@@ -75,7 +75,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=67.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-26).
-- Estados de check dos PRs abertos: Pendente=2, Verde=4.
+- Estados de check dos PRs abertos: Pendente=1, Verde=5.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
