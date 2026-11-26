@@ -21,6 +21,7 @@ from coord_model_policy import (  # noqa: E402
     Decision,
     ModelPolicyEngine,
     ModelRef,
+    canonical_model_ref,
     recommend,
 )
 
@@ -639,6 +640,63 @@ class ModelPolicyTests(unittest.TestCase):
         after = json.dumps({"inventory": inv, "policy": policy_value, "evidence": ev}, sort_keys=True)
         self.assertEqual(before, after)
         self.assertEqual(first.as_dict(), second.as_dict())
+
+
+    # ---- COORD-05B/P2 — F1/F3/F4/F5 -------------------------------------
+
+    def test_f1_rotation_disabled_never_auto_replaces_current(self):
+        current = model(model_id="current-free")
+        other = model(model_id="other-free")
+        result = select(
+            inventory(current, other),
+            mis=mission(current_model=ref("opencode", "current-free")),
+            pol=policy(rotation_enabled=False),
+            ev=[evidence(current, status="unavailable"), evidence(other)],
+        )
+        self.assertEqual(Decision.NEEDS_AUTHORIZATION, result.decision)
+        self.assertIsNone(result.selected)
+        self.assertEqual("opencode/other-free#default", str(result.fallback_candidate))
+
+    def test_f1_current_available_with_small_context_is_preserved(self):
+        current = model(model_id="current-free", context=200_000)
+        big = model(model_id="big-free", context=2_000_000)
+        result = select(
+            inventory(current, big),
+            mis=mission(current_model=ref("opencode", "current-free")),
+            ev=[evidence(current), evidence(big)],
+        )
+        self.assertEqual(Decision.KEEP_CURRENT, result.decision)
+        self.assertEqual("opencode/current-free#default", selected_string(result))
+        self.assertTrue(any("kept_current" in code for code in result.reason_codes))
+
+    def test_f3_textual_authorization_reference_is_not_financial_approval(self):
+        paid = model(provider_id="opencode-go", model_id="paid-model", cost="additional")
+        with self.assertRaises(ValueError):
+            select(
+                inventory(paid),
+                mis=mission(estimated_extra_cost_usd="0"),
+                pol=policy(allow_additional_consumption=True,
+                           paid_authorization="D-007/aprovado"),
+                ev=[evidence(paid)],
+            )
+
+    def test_f4_contradictory_cost_entries_never_enable_permissive_selection(self):
+        free = model(model_id="contradictory", cost="free")
+        paid = model(model_id="contradictory", cost="additional")
+        with self.assertRaises(ValueError):
+            select(inventory(free, paid), ev=[evidence(free)])
+
+    def test_f5_canonical_ref_none_and_absent_variants(self):
+        self.assertEqual("opencode/hy4-flash-free", canonical_model_ref(
+            ModelRef("opencode", "hy4-flash-free", "none")))
+        self.assertEqual("opencode/hy4-flash-free", canonical_model_ref(
+            ModelRef("opencode", "hy4-flash-free", None)))
+        self.assertEqual("opencode/hy4-flash-free#high", canonical_model_ref(
+            ModelRef("opencode", "hy4-flash-free", "high")))
+        self.assertNotEqual(
+            canonical_model_ref(ModelRef("opencode", "hy4-flash-free", None)),
+            canonical_model_ref(ModelRef("opencode", "hy4-flash-free", "default")),
+        )
 
 
 if __name__ == "__main__":

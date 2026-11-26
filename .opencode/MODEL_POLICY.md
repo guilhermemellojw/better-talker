@@ -292,3 +292,16 @@ Cobertura (32 testes):
 - Capacidades são campos declarados; não há teste de inferência real.
 - Benchmark é interface futura; sem observação verificada, não há score.
 - Não há exactly-once, troca de sessão, transmissão, ledger ou autorização automática.
+
+## 14. COORD-05B/P2 — reconciliação de continuidade, estado e custo
+
+Revisão focal sobre o HEAD ampliado do PR #71 (o commit compacto `270b9a85` permanece no histórico). Delta desta etapa: **motor + testes + este documento**, nenhum outro arquivo, nenhuma mudança em PR #64/#70, governança compartilhada, sessões, configuração real ou Android. 37 testes offline PASS; fail-first executado com ImportError para `canonical_model_ref` e falha de rotação sem justificativa antes das correções.
+
+- **F1 — rotação somente justificada:** modelo gratuito atual, disponível e adequado é preservado (`KEEP_CURRENT`, motivo `kept_current`) mesmo quando outro gratuito tem contexto maior — sem redução desnecessária de contexto; rotação ocorre somente quando o atual está indisponível, em limite ou inadequado; `policy.rotation_enabled=false` produz `NEEDS_AUTHORIZATION` com `fallback_candidate`, `selected=None` e nenhum `SessionChangeIntent`. Missão UNKNOWN continua bloqueando qualquer troca.
+- **F2 — estado real da missão:** `MissionState` explícito, compatível com o futuro ledger COORD-05A; `mission_id` é identificador único e imutável e **não** é usado como estado; estado ausente/inválido falha de forma segura (`MISSION_UNKNOWN`/`INSUFFICIENT_EVIDENCE`), sem reenvio ou rotação.
+- **F3 — franquia e autorização:** `free` confirmado ≠ `included` na franquia ≠ `additional` ≠ custo desconhecido. Modelo incluído não é automaticamente autorizado: sem `PaidAuthorization` válida resulta `NEEDS_AUTHORIZATION`. A autorização exige `authorized_by`, `scope`, `mission_id`, `model_refs`, `categories`, `max_cost_usd`, `expires_at` e `evidence` vinculados; uma referência textual isolada é rejeitada (`ValueError`). Piloto de custo extraordinário zero não recomenda consumo incluído sem política compatível; nenhum faturamento é implementado.
+- **F4 — inventário e evidências:** identidades duplicadas e custo/disponibilidade contraditórios são rejeitados na origem; categoria inválida, contexto negativo/incompleto e evidência desconhecida não habilitam a entrada mais permissiva; disponibilidade desconhecida só aparece como incerteza/consultiva, nunca como confirmada.
+- **F5 — identidade canônica:** `canonical_model_ref()` adota `provider/id`, `variant="none"` sem sufixo, variante ausente sem `#default` implícito e variante explícita distinta preservada; contrato documentado do PR #64, sem importar código daquele PR.
+- **F6 — justificativa e 1M:** Free First / preferência por >=1M preservados em seleção inicial e substituição justificada; alternativas condicionais explícitas; sem opção permitida → solicitação de autorização; janela de contexto não é capacidade comprovada; nenhuma renovação de cota é inventada; `decision` registra manutenção, seleção, rotação ou espera de autorização.
+
+`executed=False`/`selection_only=True`/`execution_performed=False`/`session_change_performed=False` permanecem invariáveis. ASSISTED e DELEGATED continuam desativados. Aguardando recertificação independente.

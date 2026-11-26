@@ -222,8 +222,10 @@ class ModelRef:
         }
 
     def __str__(self) -> str:
+        # COORD-05B/P2 F5: variant="none" is the canonical absence marker;
+        # an absent variant never implies "#default".
         base = f"{self.provider_id}/{self.model_id}"
-        return f"{base}#{self.variant}" if self.variant else base
+        return base if self.variant is None or self.variant.lower() == "none" else f"{base}#{self.variant}"
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "ModelRef":
@@ -239,6 +241,29 @@ class ModelRef:
             model_id=_text(model, "model_id"),
             variant=None if variant is None else _text(variant, "variant"),
         )
+
+
+def canonical_model_ref(value: ModelRef | Mapping[str, Any] | str) -> str:
+    """Canonical identity: provider/id, without suffix for absent or 'none' variant.
+
+    Explicit variants other than 'none' remain distinct. Contract aligned with
+    the documented PR #64 convention; no code from that PR is imported.
+    """
+    if isinstance(value, ModelRef):
+        ref = value
+    elif isinstance(value, str):
+        base, separator, variant = value.partition("#")
+        provider, slash, model = base.partition("/")
+        if not slash or not provider or not model:
+            raise ValueError("model ref: 'provider/model[#variant]' required")
+        if separator and variant.lower() == "none":
+            variant = ""
+        ref = ModelRef(provider, model, variant or None)
+    elif isinstance(value, Mapping):
+        ref = ModelRef.from_mapping(value)
+    else:
+        raise ValueError("model ref: ModelRef, mapping or string required")
+    return str(ref)
 
 
 @dataclass(frozen=True)
@@ -473,6 +498,7 @@ class Policy:
     allow_unknown_availability: bool = False
     allow_included_franchise: bool = True
     allow_additional_consumption: bool = False
+    rotation_enabled: bool = True
     paid_authorization: PaidAuthorization | None = None
     benchmark_suite: str | None = None
     use_verified_benchmark: bool = True
@@ -507,6 +533,9 @@ class Policy:
             value.get("allow_additional_consumption", False),
             "policy.allow_additional_consumption",
         )
+        rotation_enabled = _bool(
+            value.get("rotation_enabled", True), "policy.rotation_enabled"
+        )
         mode_raw = _text(value.get("coordination_mode", "SHADOW"), "policy.coordination_mode")
         try:
             mode = CoordinationMode(mode_raw.upper())
@@ -525,6 +554,7 @@ class Policy:
             allow_unknown_availability=bool(allow_unknown_availability),
             allow_included_franchise=bool(allow_included),
             allow_additional_consumption=bool(allow_additional),
+            rotation_enabled=bool(rotation_enabled),
             paid_authorization=None
             if auth is None
             else PaidAuthorization.from_mapping(auth),
@@ -1137,9 +1167,44 @@ class ModelPolicyEngine:
     ) -> Recommendation:
         top = free[0]
         current = mission.current_model
+        # F1 — preserve an adequate, available free current model even when a
+        # larger context is ranked higher: no unnecessary context reduction.
+        current_free = next((item for item in free if item.ref == current), None)
+        if current_free is not None and current_free.availability == "available":
+            top = current_free
         keep = current is not None and current == top.ref
+        if not self.policy.rotation_enabled and current is not None and current != top.ref:
+            # Rotation disabled: never auto-replace; ask for authorization.
+            return Recommendation(
+                decision=Decision.NEEDS_AUTHORIZATION,
+                selected=None,
+                current_model=current,
+                change_required=False,
+                fallback_candidate=top.ref,
+                requires_authorization=True,
+                authorized=False,
+                authorization_reason="rotation_disabled",
+                ranked=eligible,
+                excluded=excluded,
+                reason_codes=("automatic_rotation_disabled", "rotation_requires_authorization"),
+                uncertainties=tuple(top.uncertainties),
+                explanation=(
+                    f"rotation_disabled:current={canonical_model_ref(current)};"
+                    f"fallback={canonical_model_ref(top.ref)}"
+                ),
+                mission_id=mission.mission_id,
+                mission_state=mission.state.value,
+                policy_summary=policy_summary,
+                inventory_source=inv.source,
+                inventory_observed_at=inv.observed_at,
+                evaluated_at=now,
+                benchmark_used=benchmark_used,
+                session_change_intent=None,
+            )
         decision = Decision.KEEP_CURRENT if keep else Decision.RECOMMEND_FREE
         reasons: list[str] = []
+        if keep:
+            reasons.append("kept_current")
         uncertainties = list(top.uncertainties)
         reasons.append(
             "selected_free_preferred_context"
