@@ -47,8 +47,8 @@ Ledger(db_path, project_id=..., repository_id=..., policy={...})
   .complete(mid, evidence=...)
   .fail(mid, evidence=...)
   .mark_unknown(mid, evidence=...)
-  .reconcile(mid, target=..., evidence=..., human_decision=False)
-  .recover_stale_dispatching(timeout_seconds=...)
+  .reconcile(mid, target=..., evidence=..., authority_reference=..., actor=..., human_decision=False)
+  .recover_stale_dispatching(cause="timeout|process_loss|restart_confirmed", actor=..., now=None)
   .get(mid) / .history(mid) / .can_dispatch(mid)
 ```
 
@@ -61,18 +61,28 @@ componente futuro, com autorização registrada.
 - Duplicidade: `mission_id` e `operation_id` únicos; payload divergente é rejeitado.
 - Concorrência: reserva por `(project_id, agent, session_id)` com chave primária e
   transação `BEGIN IMMEDIATE`; dois processos não reservam o mesmo destinatário.
-- Exclusividade: mudança de instância/PID não libera reserva; `UNKNOWN` preserva o
-  bloqueio. Somente reconciliação terminal confirmada libera o destinatário.
+- Exclusividade individual: `UNIQUE(project_id, agent)` e
+  `UNIQUE(project_id, session_id)`, além da chave composta. Mudança de
+  instância/PID não libera reserva; `UNKNOWN` preserva o bloqueio. Somente
+  reconciliação terminal confirmada libera o destinatário.
 - `can_dispatch()` indica apenas elegibilidade para a PRIMEIRA reserva
   (`AUTHORIZED` sem reserva). Não autoriza reenvio em `DISPATCHING`, `DELIVERED`,
   `RUNNING` ou `UNKNOWN`.
 - Recuperação: timeout é persistido por missão; causas conhecidas (`timeout`,
-  `process_loss`, `restart_confirmed`) levam a `UNKNOWN`. Causa desconhecida mantém
-  o bloqueio. Reconciliação exige evidência e referência de autoridade externa;
-  um booleano não comprova autorização humana. Nunca reenvia automaticamente.
-- Privacidade: diretório criado com `0700`, banco/WAL/SHM com `0600`. Instância de
-  outro projeto não vê, recupera nem modifica missões deste projeto.
+  `process_loss`, `restart_confirmed`) levam a `UNKNOWN`. A string de causa é
+  apenas uma declaração do chamador: `process_loss`/`restart_confirmed` precisam
+  ser comprovadas pelo componente externo de recuperação; testes sintéticos não
+  certificam reinício real. Causa desconhecida mantém o bloqueio. Reconciliação
+  exige evidência e `authority_reference`; a referência é evidência recebida do
+  chamador, não comprovação independente de autoridade, e um booleano sozinho não
+  basta. Nunca reenvia automaticamente.
+- Privacidade: diretório criado com `0700`, banco/WAL/SHM com `0600`.
+  Diretório preexistente com permissões abertas e caminhos simbólicos são
+  rejeitados sem alteração. Instância de outro projeto não vê, recupera nem
+  modifica missões deste projeto.
 - Falha de armazenamento: transação revertida e `LedgerStorageError`.
+- Compatibilidade: banco sem `meta.schema_version` ou com versão diferente é
+  rejeitado; nenhuma tabela é eliminada e nenhuma migração parcial é gravada.
 - Política e projeto injetados; nenhum nome de agente ou regra de produto é embutido.
 
 ## Testes

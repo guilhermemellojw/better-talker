@@ -6,6 +6,7 @@ from __future__ import annotations
 import multiprocessing
 import os
 import stat
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -87,6 +88,23 @@ def _try_reserve(db_path, mission_id, agent, session_id, queue):
             instance_id="instance-2",
             worktree="/tmp/wt-b2",
             actor="process-2",
+        )
+        queue.put("ok")
+    except Exception as exc:  # noqa: BLE001
+        queue.put(type(exc).__name__)
+
+
+def _barrier_reserve(db_path, mission_id, barrier, queue):
+    ledger = Ledger(db_path, project_id=PROJECT, repository_id=REPO)
+    barrier.wait()
+    try:
+        ledger.reserve_dispatch(
+            mission_id,
+            agent="B",
+            session_id="ses-B",
+            instance_id="instance-1",
+            worktree="/tmp/wt-b",
+            actor="process-race",
         )
         queue.put("ok")
     except Exception as exc:  # noqa: BLE001
@@ -363,6 +381,179 @@ class LedgerTest(unittest.TestCase):
         with self.assertRaises(LedgerError):
             other.fail_before_dispatch(record.mission_id, evidence="x", actor="S")
 
+
+
+    def test_f1a_mesmo_agente_sessao_diferente_bloqueado(self):
+        first = authorized(self.ledger)
+        self.ledger.reserve_dispatch(
+            first.mission_id, agent=first.agent, session_id=first.session_id,
+            instance_id=first.instance_id, worktree=first.worktree, actor="S")
+        second = authorized(
+            self.ledger,
+            mission_id="MISS-BETA-0002",
+            operation_id="OP-0002",
+            payload={"text": "segunda", "mission": "MISS-BETA-0002"},
+            session_id="ses-B-2",
+        )
+        with self.assertRaises(DuplicateReservation):
+            self.ledger.reserve_dispatch(
+                second.mission_id, agent=second.agent, session_id=second.session_id,
+                instance_id=second.instance_id, worktree=second.worktree, actor="S")
+
+    def test_f1b_agente_diferente_mesma_sessao_bloqueado(self):
+        first = authorized(self.ledger)
+        self.ledger.reserve_dispatch(
+            first.mission_id, agent=first.agent, session_id=first.session_id,
+            instance_id=first.instance_id, worktree=first.worktree, actor="S")
+        second = authorized(
+            self.ledger,
+            mission_id="MISS-BETA-0002",
+            operation_id="OP-0002",
+            payload={"text": "segunda", "mission": "MISS-BETA-0002"},
+            agent="C",
+        )
+        with self.assertRaises(DuplicateReservation):
+            self.ledger.reserve_dispatch(
+                second.mission_id, agent=second.agent, session_id=second.session_id,
+                instance_id=second.instance_id, worktree=second.worktree, actor="S")
+
+    def test_f1_agentes_e_sessoes_distintos_podem_reservar(self):
+        first = authorized(self.ledger)
+        self.ledger.reserve_dispatch(
+            first.mission_id, agent=first.agent, session_id=first.session_id,
+            instance_id=first.instance_id, worktree=first.worktree, actor="S")
+        second = authorized(
+            self.ledger,
+            mission_id="MISS-BETA-0002",
+            operation_id="OP-0002",
+            payload={"text": "segunda", "mission": "MISS-BETA-0002"},
+            agent="C",
+            session_id="ses-C",
+            worktree="/tmp/wt-c",
+        )
+        record = self.ledger.reserve_dispatch(
+            second.mission_id, agent=second.agent, session_id=second.session_id,
+            instance_id=second.instance_id, worktree=second.worktree, actor="S")
+        self.assertEqual(DISPATCHING, record.state)
+
+    def test_f2_corrida_simultaneia_um_vencedor(self):
+        first = authorized(self.ledger)
+        second = authorized(
+            self.ledger,
+            mission_id="MISS-BETA-0002",
+            operation_id="OP-0002",
+            payload={"text": "segunda", "mission": "MISS-BETA-0002"},
+        )
+        barrier = multiprocessing.Barrier(2)
+        queue: multiprocessing.Queue[str] = multiprocessing.Queue()
+        procs = [
+            multiprocessing.Process(
+                target=_barrier_reserve,
+                args=(str(self.db), mid, barrier, queue),
+            )
+            for mid in (first.mission_id, second.mission_id)
+        ]
+        for proc in procs:
+            proc.start()
+        results = [queue.get(timeout=20) for _ in procs]
+        for proc in procs:
+            proc.join(timeout=20)
+        self.assertEqual(1, results.count("ok"))
+        self.assertEqual(2, len(results))
+        with self._connect_raw() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM reservations").fetchone()[0]
+        self.assertEqual(1, count)
+        states = {
+            mid: self.ledger.get(mid).state
+            for mid in (first.mission_id, second.mission_id)
+        }
+        self.assertEqual(1, list(states.values()).count(DISPATCHING))
+        self.assertEqual(1, list(states.values()).count(AUTHORIZED))
+
+    def _connect_raw(self):
+        conn = sqlite3.connect(self.db)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def test_f3_banco_sem_versao_e_rejeitado_sem_perda(self):
+        old = Path(self._tmp.name) / "antigo.sqlite3"
+        conn = sqlite3.connect(old)
+        conn.executescript(
+            """
+            CREATE TABLE missions (mission_id TEXT PRIMARY KEY, operation_id TEXT,
+                project_id TEXT, repository_id TEXT, coordinator_id TEXT,
+                agent TEXT, session_id TEXT, instance_id TEXT, worktree TEXT,
+                authorization_reference TEXT, payload_sha256 TEXT,
+                identity_hash TEXT, state TEXT, created_at TEXT, updated_at TEXT,
+                dispatched_at TEXT, timeout_seconds INTEGER DEFAULT 0);
+            CREATE TABLE transitions (seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                mission_id TEXT, from_state TEXT, to_state TEXT, evidence TEXT,
+                actor TEXT, at TEXT);
+            CREATE TABLE reservations (project_id TEXT, agent TEXT, session_id TEXT,
+                mission_id TEXT, PRIMARY KEY (project_id, agent, session_id));
+            INSERT INTO missions VALUES ('M-OLD','O-OLD','better-talker',
+                'guilhermemellojw/better-talker','coord','B','ses-B','i','w',
+                'AUTH','h','id','UNKNOWN','t','t',NULL,0);
+            INSERT INTO reservations VALUES ('better-talker','B','ses-B','M-OLD');
+            """
+        )
+        conn.commit()
+        conn.close()
+        with self.assertRaises(LedgerStorageError):
+            Ledger(old, project_id=PROJECT, repository_id=REPO)
+        conn = sqlite3.connect(old)
+        state = conn.execute("SELECT state FROM missions WHERE mission_id='M-OLD'").fetchone()[0]
+        reserved = conn.execute("SELECT COUNT(*) FROM reservations").fetchone()[0]
+        conn.close()
+        self.assertEqual("UNKNOWN", state)
+        self.assertEqual(1, reserved)
+
+    def test_f4_diretorio_preexistente_aberto_e_rejeitado(self):
+        open_dir = Path(self._tmp.name) / "aberto"
+        open_dir.mkdir()
+        os.chmod(open_dir, 0o777)
+        before = stat.S_IMODE(open_dir.stat().st_mode)
+        with self.assertRaises(LedgerStorageError):
+            Ledger(open_dir / "ledger.sqlite3", project_id=PROJECT, repository_id=REPO)
+        self.assertEqual(before, stat.S_IMODE(open_dir.stat().st_mode))
+
+    def test_f4_caminho_simbolico_rejeitado(self):
+        real = Path(self._tmp.name) / "real"
+        real.mkdir()
+        link = Path(self._tmp.name) / "link"
+        link.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(LedgerStorageError):
+            Ledger(link / "ledger.sqlite3", project_id=PROJECT, repository_id=REPO)
+
+    def test_f4_arquivos_auxiliares_protegidos(self):
+        for suffix in ("-wal", "-shm"):
+            Path(str(self.db) + suffix).write_text("aux")
+            os.chmod(Path(str(self.db) + suffix), 0o666)
+        self.ledger._harden_files()
+        for suffix in ("-wal", "-shm"):
+            path = Path(str(self.db) + suffix)
+            self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
+
+    def test_f5_fail_cross_states(self):
+        record = reserved(self.ledger)
+        with self.assertRaises(InvalidTransition):
+            self.ledger.fail_before_dispatch(
+                record.mission_id, evidence="x", actor="S")
+        active = authorized(
+            self.ledger,
+            mission_id="MISS-BETA-0002",
+            operation_id="OP-0002",
+            payload={"text": "segunda", "mission": "MISS-BETA-0002"},
+        )
+        with self.assertRaises(InvalidTransition):
+            self.ledger.fail(active.mission_id, evidence="x", actor="S")
+
+    def test_f6_causa_nao_comprova_reinicio_real(self):
+        record = reserved(self.ledger)
+        self.ledger.recover_stale_dispatching(
+            cause="restart_confirmed", actor="synthetic")
+        self.assertEqual(UNKNOWN, self.ledger.get(record.mission_id).state)
+        self.assertTrue(self.ledger.is_reserved(record.mission_id))
 
 if __name__ == "__main__":
     unittest.main()

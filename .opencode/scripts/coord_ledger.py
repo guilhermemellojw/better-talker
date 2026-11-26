@@ -199,13 +199,51 @@ class Ledger:
             except OSError as exc:
                 raise LedgerStorageError(f"falha ao proteger {path}: {exc}") from exc
 
-    def _initialize(self) -> None:
+    def _validate_paths(self) -> bool:
+        """Rejeita caminhos incompatíveis; retorna se o diretório já existia."""
+        if self.db_path.is_symlink() or self.db_path.parent.is_symlink():
+            raise LedgerStorageError("caminho simbólico não é permitido")
         parent_existed = self.db_path.parent.exists()
+        if parent_existed:
+            mode = self.db_path.parent.stat().st_mode
+            if mode & 0o077:
+                raise LedgerStorageError(
+                    "diretório preexistente não é privado; não será modificado"
+                )
+        if self.db_path.exists() and self.db_path.stat().st_mode & 0o077:
+            os.chmod(self.db_path, 0o600)
+        return parent_existed
+
+    def _initialize(self) -> None:
+        parent_existed = self._validate_paths()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         if not parent_existed:
             os.chmod(self.db_path.parent, 0o700)
         try:
             with self._connect() as conn:
+                tables = {
+                    row["name"]
+                    for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    )
+                }
+                conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                version_row = conn.execute(
+                    "SELECT value FROM meta WHERE key='schema_version'"
+                ).fetchone()
+                if version_row is None:
+                    if tables and tables - {"meta"}:
+                        raise LedgerStorageError(
+                            "banco preexistente sem versão: migração não implementada"
+                        )
+                    conn.execute(
+                        "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
+                        (SCHEMA_VERSION,),
+                    )
+                elif version_row["value"] != SCHEMA_VERSION:
+                    raise LedgerStorageError(
+                        f"esquema incompatível: {version_row['value']}"
+                    )
                 conn.executescript(
                     """
                     PRAGMA journal_mode=WAL;
@@ -237,29 +275,14 @@ class Ledger:
                         actor TEXT NOT NULL,
                         at TEXT NOT NULL
                     );
-                    """
-                )
-                mission_cols = {
-                    row["name"] for row in conn.execute("PRAGMA table_info(missions)")
-                }
-                if "timeout_seconds" not in mission_cols:
-                    conn.execute(
-                        "ALTER TABLE missions ADD COLUMN timeout_seconds INTEGER NOT NULL DEFAULT 0"
-                    )
-                res_cols = [
-                    row["name"]
-                    for row in conn.execute("PRAGMA table_info(reservations)")
-                ]
-                if res_cols and "project_id" not in res_cols:
-                    conn.execute("DROP TABLE reservations")
-                conn.executescript(
-                    """
                     CREATE TABLE IF NOT EXISTS reservations (
                         project_id TEXT NOT NULL,
                         agent TEXT NOT NULL,
                         session_id TEXT NOT NULL,
                         mission_id TEXT NOT NULL,
-                        PRIMARY KEY (project_id, agent, session_id)
+                        PRIMARY KEY (project_id, agent, session_id),
+                        UNIQUE (project_id, agent),
+                        UNIQUE (project_id, session_id)
                     );
                     """
                 )
@@ -563,20 +586,27 @@ class Ledger:
                 or row["worktree"] != worktree
             ):
                 raise LedgerError("destino divergente da missão registrada")
-            busy = conn.execute(
-                """SELECT mission_id FROM reservations
-                   WHERE project_id=? AND agent=? AND session_id=? AND mission_id<>?""",
-                (self.project_id, agent, session_id, mission_id),
-            ).fetchone()
-            if busy:
-                raise DuplicateReservation(
-                    f"agente/destino ocupado pela missão {busy['mission_id']}"
+            for column, value, label in (
+                ("agent", agent, "agente"),
+                ("session_id", session_id, "sessão"),
+            ):
+                busy = conn.execute(
+                    f"""SELECT mission_id FROM reservations
+                        WHERE project_id=? AND {column}=? AND mission_id<>?""",
+                    (self.project_id, value, mission_id),
+                ).fetchone()
+                if busy:
+                    raise DuplicateReservation(
+                        f"{label} ocupado pela missão {busy['mission_id']}"
+                    )
+            try:
+                conn.execute(
+                    """INSERT INTO reservations (project_id, agent, session_id, mission_id)
+                       VALUES (?,?,?,?)""",
+                    (self.project_id, agent, session_id, mission_id),
                 )
-            conn.execute(
-                """INSERT INTO reservations (project_id, agent, session_id, mission_id)
-                   VALUES (?,?,?,?)""",
-                (self.project_id, agent, session_id, mission_id),
-            )
+            except sqlite3.IntegrityError as exc:
+                raise DuplicateReservation("destinatário já reservado") from exc
             conn.execute(
                 "UPDATE missions SET state=?, updated_at=?, dispatched_at=? WHERE mission_id=?",
                 (DISPATCHING, now, now, mission_id),
@@ -623,6 +653,9 @@ class Ledger:
         """Falha comprovada antes do envio: AUTHORIZED -> FAILED, sem envio."""
         if not evidence.strip():
             raise UnsafeReconciliation("falha exige evidência")
+        record = self.get(mission_id)
+        if record is None or record.state != AUTHORIZED:
+            raise InvalidTransition("fail_before_dispatch exige AUTHORIZED")
         return self._transition(
             mission_id, FAILED, evidence=evidence, actor=actor, clear_reservation=True
         )
@@ -631,6 +664,9 @@ class Ledger:
         """Falha confirmada após execução: RUNNING -> FAILED."""
         if not evidence.strip():
             raise UnsafeReconciliation("falha exige evidência")
+        record = self.get(mission_id)
+        if record is None or record.state != RUNNING:
+            raise InvalidTransition("fail exige RUNNING")
         return self._transition(
             mission_id, FAILED, evidence=evidence, actor=actor, clear_reservation=True
         )
