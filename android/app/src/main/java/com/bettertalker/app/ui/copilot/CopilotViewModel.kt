@@ -43,6 +43,7 @@ import com.bettertalker.app.data.copilot.cardTargetKey
 import com.bettertalker.app.data.copilot.ConversationalReferentRecovery
 import com.bettertalker.app.data.copilot.ConversationalReferentResolver
 import com.bettertalker.app.data.copilot.MentorContinuityRouting
+import com.bettertalker.app.data.copilot.PedagogicalContinuityBridge
 import com.bettertalker.app.data.copilot.MentorTurnLifecycle
 import com.bettertalker.app.data.copilot.CardStatus
 import com.bettertalker.app.data.copilot.CardSuggestedAction
@@ -651,6 +652,7 @@ fun verifyChatText(text: String, corpus: List<String>): ChatVerificationOutcome 
         ),
     )
 }
+
 
 /**
  * #11-fix: orçamento de saída do chat — maior quando a pergunta cita refs do
@@ -4515,32 +4517,39 @@ class CopilotViewModel(
             else ConversationalReferentResolver.Focus.SECTION
             val scope = if (focus == ConversationalReferentResolver.Focus.WHOLE)
                 null else (turnScope ?: _chatScope.value)
+            val sectionTitles = _guideSections.value.associate { it.id to it.title }
+            val lastResponse = historyBefore.lastOrNull { !it.fromMe }?.text
+            // Mesmas fontes injetadas para #52 e para a ponte P6: um único
+            // resolvedor certificado, sem segunda leitura/regravação de estado.
+            val continuityLoadMessages: suspend () -> List<ConversationalReferentRecovery.Message> = {
+                db.chatDao().all(nid.orEmpty()).map { e ->
+                    ConversationalReferentRecovery.Message(
+                        id = e.id, noteId = e.noteId, sectionId = e.sectionId,
+                        payload = ChatCodec.unescMap(e.payload),
+                        createdAt = e.createdAt, active = e.isActive,
+                    )
+                }
+            }
+            val continuityLoadTargetState: suspend (CardTargetKind, String) ->
+                ConversationalReferentRecovery.TargetState? = { kind, id ->
+                when (kind) {
+                    CardTargetKind.SECTION -> db.speechSectionDao().get(id)?.let {
+                        ConversationalReferentRecovery.TargetState(true, hashText(it.contentHtml))
+                    }
+                    CardTargetKind.NOTE -> db.noteDao().get(id)?.let {
+                        ConversationalReferentRecovery.TargetState(true, hashText(it.richHtml))
+                    }
+                }
+            }
             val resolution = if (nid != null) MentorContinuityRouting.resolveFromContext(
                 request = text, noteId = nid, scope = scope, focus = focus,
                 suggestion = pendingSuggestion,
                 suggestionNoteId = pendingSuggestionNoteId,
                 suggestionSectionId = pendingSuggestionScope,
-                lastResponse = historyBefore.lastOrNull { !it.fromMe }?.text,
-                sectionTitles = _guideSections.value.associate { it.id to it.title },
-                loadMessages = {
-                    db.chatDao().all(nid).map { e ->
-                        ConversationalReferentRecovery.Message(
-                            id = e.id, noteId = e.noteId, sectionId = e.sectionId,
-                            payload = ChatCodec.unescMap(e.payload),
-                            createdAt = e.createdAt, active = e.isActive,
-                        )
-                    }
-                },
-                loadTargetState = { kind, id ->
-                    when (kind) {
-                        CardTargetKind.SECTION -> db.speechSectionDao().get(id)?.let {
-                            ConversationalReferentRecovery.TargetState(true, hashText(it.contentHtml))
-                        }
-                        CardTargetKind.NOTE -> db.noteDao().get(id)?.let {
-                            ConversationalReferentRecovery.TargetState(true, hashText(it.richHtml))
-                        }
-                    }
-                },
+                lastResponse = lastResponse,
+                sectionTitles = sectionTitles,
+                loadMessages = continuityLoadMessages,
+                loadTargetState = continuityLoadTargetState,
             ) else MentorContinuityRouting.Resolution.Unavailable(
                 "sem nota", IllegalStateException("sem nota"),
             )
@@ -4589,6 +4598,84 @@ class CopilotViewModel(
                 }
             }
             // ---- fim P9/P12 ----
+
+            // ---- PEDAGOGY-1-MIN / P6 — ÚNICO seam produtivo da ponte ----
+            // Pedidos pedagógicos não são referenciais para #52; a identidade
+            // do referente vem da MESMA composição certificada, com a frase
+            // canônica que a própria ponte usa. Nenhum segundo resolvedor.
+            val pedagogyResolution = if (nid != null) MentorContinuityRouting.resolveFromContext(
+                request = "Explique melhor",
+                noteId = nid, scope = scope, focus = focus,
+                suggestion = pendingSuggestion,
+                suggestionNoteId = pendingSuggestionNoteId,
+                suggestionSectionId = pendingSuggestionScope,
+                lastResponse = lastResponse,
+                sectionTitles = sectionTitles,
+                loadMessages = continuityLoadMessages,
+                loadTargetState = continuityLoadTargetState,
+            ) else null
+            val referentAction =
+                (pedagogyResolution as? MentorContinuityRouting.Resolution.Ok)?.plan?.action
+            // Mesma normalização de validação do #52: um card APPLIED continua
+            // referente legítimo; só o status é normalizado em memória, nunca
+            // o payload persistido nem o estado visível do cartão.
+            val bridgedCard = (referentAction as? MentorContinuityRouting.Action.DeepenCard)
+                ?.card?.let { if (it.status == CardStatus.APPLIED)
+                    it.copy(status = CardStatus.AVAILABLE) else it }
+            val bridgedSuggestion = if (referentAction is MentorContinuityRouting.Action.ExplainSuggestion)
+                pendingSuggestion else null
+            val pedagogyContext = PedagogicalContinuityBridge.Context(
+                noteId = nid,
+                sectionId = scope,
+                focus = focus,
+                lastCard = bridgedCard,
+                lastCardNoteId = bridgedCard?.let { nid },
+                lastCardSectionId = bridgedCard?.let { scope ?: it.targetId },
+                lastSuggestion = bridgedSuggestion,
+                lastSuggestionNoteId = bridgedSuggestion?.let { pendingSuggestionNoteId },
+                lastSuggestionSectionId = bridgedSuggestion?.let { pendingSuggestionScope },
+                lastResponse = lastResponse,
+                // Precedência pertence aos fluxos certificados.
+                pendingConsent = pendingSourceGate != null,
+                explicitCommand = route !is com.bettertalker.app.data.copilot.ChatRouter.Route.General,
+            )
+            when (val pedagogy = planPedagogicalAction(
+                PedagogicalContinuityBridge.dispatch(text, pedagogyContext), sectionTitles,
+            )) {
+                is PedagogicalAction.Reformulate -> {
+                    answerAsk(pedagogy.topic, finalResponse = true, simplify = pedagogy.simplify)
+                    return@launch
+                }
+                is PedagogicalAction.Develop -> {
+                    answerAsk(pedagogy.topic, finalResponse = true)
+                    return@launch
+                }
+                is PedagogicalAction.Clarify -> {
+                    post(
+                        false, "text",
+                        ChatCodec.escMap(mapOf("text" to
+                            "Não identifiquei com segurança o referente deste pedido. " +
+                                pedagogy.reason.replaceFirstChar { it.uppercase() } + ".")),
+                        MessageOrigin.LOCAL,
+                        finalResponse = true,
+                    )
+                    return@launch
+                }
+                PedagogicalAction.PositiveFeedback -> {
+                    // Reconhecimento sem efeito: nenhum aceite, avanço, card
+                    // consumido ou inserção no editor.
+                    post(
+                        false, "text",
+                        ChatCodec.escMap(mapOf("text" to
+                            "Obrigado! Posso aprofundar ou simplificar este ponto quando quiser.")),
+                        MessageOrigin.LOCAL,
+                        finalResponse = true,
+                    )
+                    return@launch
+                }
+                PedagogicalAction.Delegate -> Unit // rotas/gates certificados continuam
+            }
+            // ---- fim P6 ----
 
             // Gate determinístico de fontes: só rotas que consultam o LLM.
             // Comando de refs/estrutura já retornou antes; aqui a pergunta
@@ -7850,7 +7937,11 @@ class CopilotViewModel(
             "“remover o 2”, “fundir 1 e 2”, “sincronizar esboço”, “desenvolva a introdução”. Exemplos:\n" +
             "• “ideias para a conclusão”\n• “exemplo para a conclusão”\n• “como introduzir?”\n• “o que dizem sobre fé?”\n• “o que diz Gênesis 1:26?”\n• “insere a segunda”\n• “quais refs faltam?”\n• “refs do esboço”\n• “mostre as seções”"
 
-    private suspend fun answerAsk(topic: String, finalResponse: Boolean = false) {
+    private suspend fun answerAsk(
+        topic: String,
+        finalResponse: Boolean = false,
+        simplify: Boolean = false,
+    ) {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Para responder com base nos materiais, toque no + e vincule um esboço.")),
@@ -7912,7 +8003,10 @@ class CopilotViewModel(
             sb.append("\n${i + 1}. $rotulo\n")
         }
         sb.append("\nQuer que eu gere ideias com isso? Diga a seção.")
-        post(false, "text", ChatCodec.escMap(mapOf("text" to sb.toString().trim())), MessageOrigin.LOCAL, finalResponse = finalResponse)
+        // P6: simplificação efetiva da linguagem. Citações literais, rótulos
+        // de trecho recuperado (TRUST #60) e referências voltam intactos.
+        val body = sb.toString().trim().let { if (simplify) simplifyPedagogicalText(it) else it }
+        post(false, "text", ChatCodec.escMap(mapOf("text" to body)), MessageOrigin.LOCAL, finalResponse = finalResponse)
     }
 
     /**
