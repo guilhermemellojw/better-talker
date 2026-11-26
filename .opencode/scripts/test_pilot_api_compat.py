@@ -76,7 +76,7 @@ def registered(store_dir):
         "project_id": pilot.EXPECTED_PROJECT_ID,
         "repository_id": pilot.EXPECTED_REPOSITORY_ID,
         "agent_id": "agente-observado", "model": cli.ALLOWED_FREE_MODEL,
-        "location": pilot.EXPERIMENTAL_WORKTREE,
+        "location": pilot.EXPERIMENTAL_WORKTREE, "permissions_confirmed": True,
         "authorization_reference": "AUTH-EXPERIMENTAL-001"})
 
 

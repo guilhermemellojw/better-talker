@@ -170,19 +170,53 @@ def _session_registry_path(store_dir: str) -> str:
     return os.path.join(store_dir, SESSION_REGISTRY_FILE)
 
 
+REQUIRED_SESSION_FIELDS = ("schema_version", "session_id", "experimental", "endpoint",
+                           "instance_id", "project_id", "repository_id", "agent_id",
+                           "model", "location", "authorization_reference", "registered_at")
+
+
+def _validate_registry(value: Any) -> dict[str, Any]:
+    """Valida integridade do cadastro local; erro controlado e fail-closed."""
+    if not isinstance(value, dict):
+        raise ValueError("cadastro de sessão inválido")
+    missing = [key for key in REQUIRED_SESSION_FIELDS if key not in value]
+    if missing:
+        raise ValueError(f"cadastro incompleto: {', '.join(missing)}")
+    if not re.fullmatch(r"ses_[A-Za-z0-9]+", str(value["session_id"])):
+        raise ValueError("session_id inválido")
+    if value["experimental"] is not True:
+        raise ValueError("destino não marcado como experimental")
+    value["endpoint"] = pilot.canonical_endpoint(str(value["endpoint"]))
+    if value["project_id"] != pilot.EXPECTED_PROJECT_ID:
+        raise ValueError("projeto cadastrado diverge da política")
+    if value["repository_id"] != pilot.EXPECTED_REPOSITORY_ID:
+        raise ValueError("repositório cadastrado diverge da política")
+    if value["location"] != pilot.EXPERIMENTAL_WORKTREE:
+        raise ValueError("location cadastrada diverge da worktree experimental")
+    if value["model"] != ALLOWED_FREE_MODEL:
+        raise ValueError("modelo cadastrado não é o gratuito autorizado")
+    if "permissions_confirmed" in value and not isinstance(value["permissions_confirmed"], bool):
+        raise ValueError("confirmação de permissões inválida")
+    return value
+
+
 def _load_registered_session(store_dir: str) -> Optional[dict[str, Any]]:
     path = _session_registry_path(store_dir)
     if not os.path.isfile(path):
         return None
-    with open(path, "rb") as handle:
-        value = json.loads(handle.read().decode("utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError("cadastro de sessão inválido")
-    return value
+    try:
+        with open(path, "rb") as handle:
+            value = json.loads(handle.read().decode("utf-8"))
+        return _validate_registry(value)
+    except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as e:
+        raise ValueError(f"cadastro de sessão corrompido: {type(e).__name__}") from e
 
 
-def _register_session(store_dir: str, fields: dict[str, Any]) -> dict[str, Any]:
+def _register_session(store_dir: str, fields: dict[str, Any], *, replace: bool = False) -> dict[str, Any]:
     """Registra localmente um destino experimental já autorizado; não cria sessão real."""
+    path = _session_registry_path(store_dir)
+    if os.path.exists(path) and not replace:
+        raise ValueError("cadastro existente; substituição exige --replace explícito")
     session_id = str(fields.get("session_id") or "")
     if not re.fullmatch(r"ses_[A-Za-z0-9]+", session_id):
         raise ValueError("session_id inválido")
@@ -208,8 +242,12 @@ def _register_session(store_dir: str, fields: dict[str, Any]) -> dict[str, Any]:
         "authorization_reference": fields["authorization_reference"],
         "registered_at": cc.iso(cc.utc_now()),
     }
+    for key in ("permissions_confirmed", "permission_policy"):
+        if key in fields:
+            value[key] = fields[key]
+    value = _validate_registry(value)
     os.makedirs(store_dir, mode=0o700, exist_ok=True)
-    fd = os.open(_session_registry_path(store_dir), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(value, handle, sort_keys=True, ensure_ascii=False)
     return value
@@ -237,9 +275,8 @@ def _validate_proposal_window(created_at: datetime, issued_at: datetime,
 
 def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
                   session: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """GETs necessários, com estados HTTP separados; nunca cai para fixture."""
+    """GETs ordenados: cadastro/endpoint → instância → projeto → sessão → inbox."""
     canonical = pilot.canonical_endpoint(endpoint)
-    client = _real_client(canonical, auth_env=auth_env)
     seen: list[str] = []
     observed: dict[str, Any] = {
         "endpoint": canonical, "source": "real", "read_only": True,
@@ -248,11 +285,26 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
         "metadata_available": False, "session_found": False,
         "recipient_authorized": bool(session), "status_kind": "not_attempted",
         "http_status": None, "real_calls": 0, "calls": seen, "blockers": [],
-        "fallback": "none",
+        "fallback": "none", "instance_confirmed": False, "identity_confirmed": False,
+        "session_identity_confirmed": False, "availability_confirmed": False,
+        "agent_confirmed": False, "model_confirmed": False, "permissions_confirmed": False,
         "limits": ["busy/idle não comprovam disponibilidade",
                    "conteúdo de mensagens não consultado nesta missão"],
         "hypotheses": [],
     }
+    # Nenhuma consulta é feita antes de validar cadastro e endpoint.
+    if session is not None:
+        try:
+            session = _validate_registry(session)
+        except ValueError as e:
+            observed["status_kind"] = "registry_invalid"
+            observed["blockers"].append(f"cadastro inválido: {e}")
+            return observed
+        if session["endpoint"] != canonical:
+            observed["status_kind"] = "registry_endpoint_divergent"
+            observed["blockers"].append("cadastro de outra instância/endpoint; nenhum GET")
+            return observed
+    client = _real_client(canonical, auth_env=auth_env)
 
     def fetch(path: str, label: str) -> Optional[dict[str, Any]]:
         seen.append(f"GET {path}")
@@ -287,6 +339,7 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
         observed["http_response_valid"] = True
         return payload
 
+    # 1) identidade da instância; nenhuma consulta de sessão antes desta validação.
     info = fetch(pilot.INFO_PATH, "info")
     if info is None:
         observed["real_calls"] = len(seen)
@@ -298,7 +351,15 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
     observed["hostname"] = info.get("hostname")
     observed["urls"] = list(info.get("urls") or [])
     observed["instance_id"] = pilot.instance_identity(info)
+    if session is not None and observed["instance_id"] != session["instance_id"]:
+        observed["status_kind"] = "instance_divergent"
+        observed["blockers"].append(
+            "instância observada diverge do cadastro; nenhum GET de sessão/inbox")
+        observed["real_calls"] = len(seen)
+        return observed
+    observed["instance_confirmed"] = True
 
+    # 2) projeto/location/repositório pela validação compartilhada.
     location = fetch(pilot.LOCATION_PATH, "location")
     if location is None:
         observed["real_calls"] = len(seen)
@@ -308,6 +369,20 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
     observed["opencode_project_id"] = project.get("id")
     observed["project_canonical"] = project.get("canonical")
     observed["opencode_repository_field"] = project.get("repository")
+    try:
+        identity = pilot.validate_observed_identity(
+            location,
+            project_id=(session["project_id"] if session else pilot.EXPECTED_PROJECT_ID),
+            expected_location=(session["location"] if session else pilot.EXPERIMENTAL_WORKTREE),
+            repository_id=(session["repository_id"] if session else None))
+    except cc.ContractError as e:
+        observed["status_kind"] = "identity_divergent"
+        observed["blockers"].append(f"identidade de projeto divergente: {e}")
+        observed["real_calls"] = len(seen)
+        return observed
+    observed["identity_confirmed"] = True
+    observed["project_id"] = identity.project_id
+    observed["repository_id"] = identity.repository_id
 
     inventory = fetch("/api/session", "inventário")
     if inventory is None:
@@ -326,6 +401,7 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
     active_data = active.get("data") or {}
     observed["active_sessions"] = len(active_data)
 
+    # 3) somente após instância e projeto confirmados, metadados da sessão.
     if session is not None:
         session_id = session["session_id"]
         metadata = fetch(f"/api/session/{session_id}", "metadados da sessão")
@@ -345,9 +421,41 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
             observed["session_model"] = (f"{model['providerID']}/{model['id']}"
                                          f"#{model.get('variant') or 'default'}")
         observed["session_location"] = (value.get("location") or {}).get("directory")
+        reasons: list[str] = []
+        if observed["session_id"] != session_id:
+            reasons.append("session_id divergente")
+        if observed["agent_id"] != session["agent_id"]:
+            reasons.append("agente divergente")
+        if observed["session_project_id"] != identity.opencode_project_id:
+            reasons.append("projeto interno divergente")
+        if observed["session_location"] != observed["location_directory"]:
+            reasons.append("location da sessão divergente")
+        if observed["session_repository_id"] not in (None, identity.repository_id):
+            reasons.append("repositório divergente")
+        if observed["session_model"] != session["model"]:
+            reasons.append("modelo divergente")
+        observed["model_confirmed"] = observed["session_model"] == ALLOWED_FREE_MODEL
+        observed["agent_confirmed"] = observed["agent_id"] == session["agent_id"]
+        observed["availability_confirmed"] = bool(observed["outcome"]) and bool(observed["time"])
+        observed["permissions_confirmed"] = session.get("permissions_confirmed") is True
+        if not observed["availability_confirmed"]:
+            reasons.append("disponibilidade desconhecida")
+        if not observed["model_confirmed"]:
+            reasons.append("modelo gratuito não confirmado")
+        if not observed["permissions_confirmed"]:
+            reasons.append("permissões efetivas não confirmadas")
+        if reasons:
+            observed["status_kind"] = "session_identity_divergent"
+            observed["blockers"].extend(reasons)
+            observed["real_calls"] = len(seen)
+            return observed
+        observed["session_identity_confirmed"] = True
+        # 4) inbox somente após identidade efetiva confirmada.
         inbox = fetch(f"/api/session/{session_id}{pilot.INBOX_SUFFIX}", "inbox")
         if inbox is not None:
             observed["inbox_count"] = len(inbox.get("data") or [])
+            if observed["inbox_count"] > 0:
+                observed["blockers"].append("inbox ocupado")
     else:
         observed["recipient_authorized"] = False
         observed["blockers"].append(
@@ -377,11 +485,42 @@ def _observe_blockers(observed: dict[str, Any]) -> list[str]:
     return blockers
 
 
+def _manifest_readiness_blockers(observed: dict[str, Any],
+                                 session: Optional[dict[str, Any]]) -> list[str]:
+    """Exige correspondência explícita entre cadastro (esperado) e API (observado)."""
+    blockers: list[str] = []
+    for key, label in (("instance_confirmed", "instância não confirmada"),
+                       ("identity_confirmed", "projeto/location não confirmados"),
+                       ("session_found", "sessão não encontrada"),
+                       ("session_identity_confirmed", "identidade da sessão não confirmada"),
+                       ("availability_confirmed", "disponibilidade desconhecida"),
+                       ("model_confirmed", "modelo gratuito não confirmado"),
+                       ("permissions_confirmed", "permissões efetivas não confirmadas")):
+        if observed.get(key) is not True:
+            blockers.append(label)
+    if observed.get("inbox_count", 0) > 0:
+        blockers.append("inbox ocupado")
+    if observed.get("opencode_project_id") != observed.get("session_project_id"):
+        blockers.append("projeto interno divergente")
+    if observed.get("repository_id") != pilot.EXPECTED_REPOSITORY_ID:
+        blockers.append("repositório divergente")
+    if session is not None:
+        for observed_key, expected_key in (("session_id", "session_id"),
+                                           ("agent_id", "agent_id"),
+                                           ("session_model", "model"),
+                                           ("session_location", "location"),
+                                           ("session_repository_id", "repository_id")):
+            if observed.get(observed_key) != session.get(expected_key):
+                blockers.append(f"{observed_key} divergente")
+    return blockers
+
+
 def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
     options: dict[str, Any] = {"store_dir": pilot.DEFAULT_PILOT_DIR,
                                "endpoint": DEFAULT_ENDPOINT, "activate": False,
                                "approval": None, "real": False, "session": None,
-                               "auth_env": None,
+                               "auth_env": None, "replace": False,
+                               "permissions_confirmed": False,
                                "instance_id": None, "agent_id": None,
                                "authorization_reference": None}
     command = None
@@ -396,6 +535,10 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
             options[arg[2:].replace("-", "_")] = argv[index]
         elif arg == "--activate":
             options["activate"] = True
+        elif arg == "--replace":
+            options["replace"] = True
+        elif arg == "--permissions-confirmed":
+            options["permissions_confirmed"] = True
         elif arg == "--real":
             options["real"] = True
             if options["store_dir"] == pilot.DEFAULT_PILOT_DIR:
@@ -414,6 +557,14 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
                   clock: Optional[datetime] = None) -> dict[str, Any]:
     """Proposta real com relógio UTC corrente; nunca emite PilotApproval."""
     clock = clock or cc.utc_now()
+    try:
+        if session is not None:
+            session = _validate_registry(session)
+    except ValueError as e:
+        return {"command": "prepare", "mode": "real", "source": "real",
+                "approved": False, "environment": "PROPOSED", "blocked": True,
+                "blockers": [f"cadastro inválido: {e}"],
+                "reason": "manifesto não emitido"}
     result: dict[str, Any] = {
         "command": "prepare", "mode": "real", "source": "real",
         "service_contacted": observed["service_contacted"], "read_only": True,
@@ -422,6 +573,7 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
         "notice": "proposta não autorizada; nenhuma PilotApproval humana é emitida pela CLI",
     }
     blockers = _observe_blockers(observed)
+    blockers.extend(_manifest_readiness_blockers(observed, session))
     if not observed.get("authentication_succeeded") or not observed.get("metadata_available"):
         blockers.append("metadados reais incompletos")
     if session is None:
@@ -504,7 +656,13 @@ def run(argv: list[str]) -> dict[str, Any]:
     store = pilot.PilotOperationStore(options["store_dir"])
     mode = "real" if options["real"] else "fixture"
     source = "real" if options["real"] else "fixture"
-    session = _resolve_session(options["store_dir"], options["session"]) if options["real"] else None
+    try:
+        session = _resolve_session(options["store_dir"], options["session"]) if options["real"] else None
+    except ValueError as e:
+        return {"command": command, "mode": "real", "source": "real",
+                "service_contacted": False, "recipient_authorized": False,
+                "status_kind": "registry_invalid", "blocked": True,
+                "blockers": [f"cadastro inválido: {e}"], "real_calls": 0}
 
     if command == "session-register":
         try:
@@ -516,7 +674,8 @@ def run(argv: list[str]) -> dict[str, Any]:
                 "agent_id": options["agent_id"], "model": ALLOWED_FREE_MODEL,
                 "location": pilot.EXPERIMENTAL_WORKTREE,
                 "authorization_reference": options["authorization_reference"],
-            })
+                "permissions_confirmed": options["permissions_confirmed"],
+            }, replace=options["replace"])
         except (ValueError, cc.ContractError) as e:
             return {"command": command, "source": "fixture", "service_contacted": False,
                     "registered": False, "reason": str(e)}

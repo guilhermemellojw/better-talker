@@ -91,9 +91,14 @@ env HOME=/tmp/<isolado>/home XDG_DATA_HOME=/tmp/<isolado>/data \
     opencode serve --hostname 127.0.0.1 --port <porta-livre>
 
 # 2) criar exatamente UMA sessão experimental (POST autorizado apenas no futuro)
-env HOME=/tmp/<isolado>/home ... OPENCODE_SERVER_PASSWORD=<fornecido-pelo-operador> \
-    opencode api --server http://127.0.0.1:<porta-livre> session.create \
-    --data '{"title":"COORD-04 experimental","location":{"directory":"/home/guilherme/Documentos/better-talker-coord-supervisor-shadow"},"agent":"<agente-observado>","model":{"providerID":"opencode-go","modelID":"hungerg-free"}}'
+# Confirmar antes: GET /doc na instância privada (contrato efetivo da v2.3.2).
+# SDK instalado: POST /session com directory em QUERY; corpo documentado = title/parentID.
+# Superfície HTTP v2: POST /api/session?directory=<worktree>, model usa `id`,
+# permission = [{"permission":...,"pattern":...,"action":...}]. Não usar `session.create`
+# sem confirmação no /doc. Sem prompt inicial e sem LLM.
+opencode api --server http://127.0.0.1:<porta-livre> post /api/session \
+  --param directory=/home/guilherme/Documentos/better-talker-coord-supervisor-shadow \
+  --data '{"title":"COORD-04 experimental","model":{"providerID":"opencode-go","id":"hungerg-free"},"permission":[]}'
 
 # 3) capturar data.id da resposta, confirmar agente/modelo/permissões e cadastrar no piloto
 python3 .opencode/scripts/coord_pilot_cli.py session-register \
@@ -107,7 +112,7 @@ python3 .opencode/scripts/coord_pilot_cli.py preflight --real --endpoint http://
 python3 .opencode/scripts/coord_pilot_cli.py prepare --real --endpoint http://127.0.0.1:<porta-livre> --auth-env COORD_PILOT_AUTH --session <id-retornado>
 ```
 
-`POST /api/session` (operação `session.create`) é o endpoint exato de criação; payload mínimo documentado publicamente: `title` + `location.directory` (aceita também `agent`, `model`, `parentID`, `permission`). Restrições de ferramentas devem ser confirmadas no `/doc` da instância isolada antes de serem fixadas — nenhum campo foi inventado. Nenhum prompt de inicialização e nenhuma execução de LLM.
+**Corrigido em P3B.2.1:** o SDK instalado expõe `POST /session` com `directory` em **query** e corpo documentado limitado a `title`/`parentID`; o caminho HTTP efetivo pode incluir `/api` e deve ser confirmado por `GET /doc` na instância privada. Na superfície v2, `model` usa `id` (não `modelID`) e `permission` é lista de objetos `permission`/`pattern`/`action`. Operation ID `session.create` não foi confirmado — não usá-lo como premissa. Nenhum prompt de inicialização e nenhuma execução de LLM.
 
 ## I. Permissões experimentais propostas
 

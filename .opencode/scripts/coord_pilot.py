@@ -212,22 +212,88 @@ def repository_identity_from_git(root: Optional[str] = None) -> str:
     return repository_id
 
 
+@dataclass(frozen=True)
+class ObservedProjectIdentity:
+    """Identidades distintas observadas/validadas para o mesmo destino."""
+
+    project_id: str          # identidade lógica do Better Talker (política)
+    opencode_project_id: str # ID interno do OpenCode (hash), nunca comparado ao lógico
+    repository_id: str       # identidade do repositório GitHub (metadados Git locais)
+    project_canonical: str
+    location: str
+    repository_source: str = "git-local"
+
+
+def validate_observed_identity(location: dict[str, Any], *, project_id: str,
+                               expected_location: str = EXPERIMENTAL_WORKTREE,
+                               expected_canonical: str = EXPECTED_CANONICAL_DIR,
+                               repository_id: Optional[str] = None) -> ObservedProjectIdentity:
+    """Validação compartilhada: preflight, manifesto e confirmação de destino."""
+    if not isinstance(location, dict):
+        raise cc.ContractError("location observada inválida")
+    directory = location.get("directory")
+    if directory != expected_location:
+        raise cc.ContractError("worktree experimental divergente")
+    project = location.get("project") or {}
+    internal = project.get("id")
+    if not isinstance(internal, str) or not internal:
+        raise cc.ContractError("ID interno do OpenCode ausente")
+    allowed_canonical = ((expected_canonical,) if isinstance(expected_canonical, str)
+                         else tuple(expected_canonical))
+    if project.get("canonical") not in allowed_canonical:
+        raise cc.ContractError("diretório canônico divergente")
+    expected_repository = repository_id or EXPECTED_REPOSITORY_ID
+    try:
+        observed_repository = repository_identity_from_git(root=directory)
+        repository_source = "git-local"
+    except cc.ContractError:
+        # Somente em fixtures sintéticas (fora da worktree experimental) o
+        # repositório não é derivável; na worktree real isso é bloqueante.
+        if expected_location == EXPERIMENTAL_WORKTREE:
+            raise
+        observed_repository = expected_repository
+        repository_source = "indisponivel-fixture"
+    if observed_repository != expected_repository:
+        raise cc.ContractError("repositório Git divergente da política")
+    return ObservedProjectIdentity(
+        project_id=project_id, opencode_project_id=internal,
+        repository_id=observed_repository, project_canonical=project["canonical"],
+        location=directory, repository_source=repository_source)
+
+
 class LocalHttpClient(HttpClient):
     """Cliente opcional, restrito a base local fixa e caminhos /api/."""
 
     def __init__(self, base_url: str, *, allowed_port: int, allow_write: bool = False,
                  auth: Optional[ExperimentalAuth] = None):
-        self.endpoint = canonical_endpoint(base_url, allowed_port=allowed_port)
-        self.base_url = self.endpoint
-        self.allowed_port = allowed_port
+        self._endpoint = canonical_endpoint(base_url, allowed_port=allowed_port)
+        self._allowed_port = allowed_port
         self.allow_write = allow_write
-        if auth is not None and auth.endpoint != self.endpoint:
+        if auth is not None and auth.endpoint != self._endpoint:
             raise cc.ContractError("credencial divergente do endpoint do cliente")
         self.auth = auth
         # Proxies externos desativados e redirecionamentos proibidos.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
 
+    @property
+    def endpoint(self) -> str:
+        """Endpoint efetivo: única fonte validada, sem atributo mutável duplicado."""
+        return self._endpoint
+
+    @property
+    def base_url(self) -> str:
+        """Alias somente leitura do endpoint efetivo."""
+        return self._endpoint
+
+    def _effective_endpoint(self) -> str:
+        """Revalida a fonte interna imediatamente antes de qualquer uso."""
+        return canonical_endpoint(self._endpoint, allowed_port=self._allowed_port)
+
     def request(self, method: str, path: str, body: Optional[dict[str, Any]] = None) -> tuple[int, dict[str, Any]]:
+        # A validação precede até mesmo a consulta ao provedor de senha.
+        endpoint = self._effective_endpoint()
+        if self.auth is not None and self.auth.endpoint != endpoint:
+            raise cc.ContractError("credencial não pode ser usada neste endpoint")
         method = method.upper()
         if method not in ALLOWED_METHODS:
             raise cc.ContractError("método HTTP não permitido")
@@ -239,11 +305,11 @@ class LocalHttpClient(HttpClient):
         headers = {"Accept": "application/json"}
         if self.auth is not None:
             # Nunca registrar o valor do cabeçalho; apenas anexá-lo à requisição.
-            headers.update(self.auth.header(self.endpoint))
+            headers.update(self.auth.header(endpoint))
         if body is not None:
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"
-        request = urllib.request.Request(self.base_url + path, data=data,
+        request = urllib.request.Request(endpoint + path, data=data,
                                          headers=headers, method=method)
         try:
             with self.opener.open(request, timeout=10) as response:
@@ -672,14 +738,22 @@ class OpenCodeTransport(cc.Transport):
         if target != self.pilot.target or target.key() not in self.registered:
             raise cc.TransportError("destino não autorizado", phase="pre_transmit")
         location = self._get(LOCATION_PATH)
-        project = location.get("project") or {}
-        if project.get("id") != target.project_id or location.get("directory") != target.location:
-            raise cc.TransportError("location/projeto divergente", phase="pre_transmit")
+        # Identidade lógica (better-talker), repositório Git e hash interno do
+        # OpenCode são validados separadamente pela função compartilhada.
+        try:
+            identity = validate_observed_identity(
+                location, project_id=target.project_id, expected_location=target.location,
+                expected_canonical=(EXPECTED_CANONICAL_DIR, target.location),
+                repository_id=target.repository_id)
+        except cc.ContractError as e:
+            raise cc.TransportError(f"identidade de destino divergente: {e}",
+                                    phase="pre_transmit") from e
         session = (self._get(f"/api/session/{target.session_id}") or {}).get("data") or {}
         model = session.get("model") or {}
         model_ref = f"{model.get('providerID')}/{model.get('id')}" + (
             f"#{model.get('variant')}" if model.get("variant") else "")
-        if (session.get("id") != target.session_id or session.get("projectID") != target.project_id
+        if (session.get("id") != target.session_id
+                or session.get("projectID") != identity.opencode_project_id
                 or session.get("agent") != target.agent_id
                 or (session.get("location") or {}).get("directory") != target.location
                 or model_ref != self.pilot.expected_model):

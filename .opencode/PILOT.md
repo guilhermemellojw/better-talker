@@ -248,16 +248,37 @@ python3 .opencode/scripts/coord_pilot_cli.py session-register \
   --store-dir ~/.local/state/better-talker/coord-pilot/real \
   --session <ses-efetiva> --endpoint <endpoint> --instance-id <instancia> \
   --agent-id <agente-observado> --authorization-reference <decisao> \
-  --auth-env COORD_PILOT_AUTH
+  --permissions-confirmed
+# Para substituir um cadastro existente é exigida ação explícita: --replace
 python3 .opencode/scripts/coord_pilot_cli.py prepare --real \
   --endpoint <endpoint> --session <ses-efetiva> --auth-env COORD_PILOT_AUTH
 ```
 
+### Contrato real de criação da sessão (a confirmar no `/doc` da instância privada)
+
+Evidência do SDK instalado (`@opencode-ai/sdk/dist/gen`): a operação é `POST /session`
+**na base da API do SDK**; `directory` é parâmetro de **query**, não do corpo; o corpo
+documentado pelo SDK contém apenas `parentID`/`title`. O caminho HTTP efetivo pode incluir
+o prefixo `/api` — **confirmar** com `GET /doc` na instância v2.3.2 antes de qualquer escrita:
+
+```sh
+opencode api --server <endpoint> get /doc
+```
+
+Na superfície HTTP v2, o contrato a confirmar é: `POST /api/session?directory=<worktree>`
+com corpo mínimo contendo `title`, `model: {"providerID":"opencode-go","id":"hungerg-free"}`
+(**`id`, não `modelID`**) e `permission` como **lista de objetos**
+`{"permission": ..., "pattern": ..., "action": ...}`. Não usar o operation ID
+`session.create` sem confirmação no `/doc`; não inventar payload. A sessão deve ser criada
+**sem prompt inicial e sem execução de LLM**, com política de ferramentas restritas
+verificável e modelo gratuito congelado. Se o ambiente isolado não disponibilizar o modelo
+autorizado, **bloquear** — sem fallback pago.
+
 `project.id` do OpenCode é um ID interno (hash), distinto da identidade lógica `better-talker`,
 do repositório GitHub (lido de `git remote get-url origin` e validado pela política), do
 diretório canônico e da worktree experimental. `prepare --real` usa relógio UTC corrente,
-validade curta e bloqueia sem destinatário, metadados ou validade vigente. Nenhuma
-`PilotApproval` é emitida pela CLI; nenhuma sessão é criada nesta rodada.
+validade de 30 minutos e bloqueia sem destinatário, metadados ou evidências observadas
+conferentes. Nenhuma `PilotApproval` é emitida pela CLI; nenhuma sessão é criada nesta rodada.
 
 ## Encerramento seguro
 
