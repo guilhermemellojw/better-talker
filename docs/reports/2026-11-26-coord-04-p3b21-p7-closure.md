@@ -64,7 +64,7 @@ Evidência do SDK instalado (`@opencode-ai/sdk/dist/gen`): `POST /session` na ba
 | Demais suítes via `unittest discover` | 156 OK (56+20+19+20+15+13+**13 P7**) |
 | **Total** | **323/323** |
 
-Demos normal e `UNKNOWN`: `final_state=COMPLETED`, `transmit_calls=1`, reenvio bloqueado no timeout. `dry-run`: `source=fixture`, `service_contacted=false`, `http_posts=1`, `real_calls=0`. Stores temporários; segredos sintéticos; zero POST real; zero conexão real. CI: `propose` a conferir no SHA final do código.
+Demos normal e `UNKNOWN`: `final_state=COMPLETED`, `transmit_calls=1`, reenvio bloqueado no timeout. `dry-run`: `source=fixture`, `service_contacted=false`, `http_posts=1`, `real_calls=0`. Stores temporários; segredos sintéticos; zero POST real; zero conexão real. CI: check `propose` concluiu `success` no run `45808588311`, `head_sha=cdced54d54b148d12ea96856f9dfba5a253c3826`; commits posteriores são somente documentação.
 
 ## J. Limitações remanescentes
 
