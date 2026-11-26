@@ -371,6 +371,27 @@ python3 .opencode/scripts/coord_pilot_cli.py closeout
   Qualquer alteração material invalida a aprovação anterior. Nenhuma `PilotApproval` é emitida
   e nenhum manifesto real apresentável é gerado enquanto restarem lacunas.
 
+### P3B.7 — contrato real do caminho padrão
+
+- `Session.Info.cost` é **`Money.USD` numérico** (valor acumulado da sessão), não lista de
+  preços. Preços do catálogo são contrato distinto. Ausência, tipo inválido, booleano,
+  divergência ou valor não nulo bloqueiam.
+- Caminho padrão verificado: `prepare --real` produz proposta imutável com `approved=false`;
+  aprovação sintética externa vincula o `canonical_sha256` emitido; o executor consome o
+  **mesmo** manifesto, a autorização e o catálogo da proposta — sem montar manifesto
+  alternativo e sem exigir alteração de booleano no material aprovado.
+- Observer padrão reobserva via GET (`info`, `location`, `session`, `active`, `inbox`,
+  `message`, `permission` **e `/api/model`**). Catálogo estático não prova atualidade;
+  arquivo de catálogo usado no `prepare` tem validade máxima de 30 minutos.
+- Exclusividade tem fronteira controlável: evidência do operador com `consumer_id`, lock
+  operacional existente, sessão/endpoint conferidos e validade temporal. `registry_only`,
+  hash estático e flag local **não** provam exclusividade. Ausência global de processos
+  externos depende de integração futura e permanece como limitação explícita; nenhum ledger
+  foi duplicado.
+- O teste de contrato simula somente a fronteira de I/O (`HttpClient`); nenhum método
+  interno (`_validate`, `fresh_evidence`, `status`, `prepare`, `transmit`,
+  `_validate_prepared_request`) é substituído.
+
 ### P3B.5 — fechamento preparação→aprovação→execução e probe de permissões
 
 - `PilotExecutor` reconstrói o manifesto em runtime com **todas** as evidências do manifesto

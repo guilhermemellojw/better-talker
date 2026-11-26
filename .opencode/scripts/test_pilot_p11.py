@@ -22,11 +22,13 @@ import test_pilot_api_compat as ax
 import test_pilot_executor as hx
 
 NOW = datetime(2026, 11, 26, 12, tzinfo=timezone.utc)
-EXCLUSIVE = {"source": "single-registered-consumer", "session_id": ax.SID,
-             "authorization_reference": "AUTH-P11", "registry_only": True}
+EXCLUSIVE = {"consumer_id": "coord-pilot-executor", "session_id": ax.SID,
+             "authorization_reference": "AUTH-P11", "endpoint": pilot.DEFAULT_ENDPOINT,
+             "acquired_at": "2026-11-26T11:00:00Z", "expires_at": "2026-11-26T13:00:00Z",
+             "lock_scope": "/tmp/opencode/p11.lock", "verified": True}
 POLICY = ax.SESSION_META["data"]["permissions"]
 POLICY_SHA = pilot.canonical_policy_sha256(POLICY)
-EXCLUSIVE_SHA = pilot.canonical_policy_sha256(EXCLUSIVE)
+EXCLUSIVE_SHA = pilot.consumer_evidence_sha256(EXCLUSIVE)
 
 
 def fresh_evidence():
@@ -38,7 +40,7 @@ def fresh_evidence():
         "instance_id": ctx["auth"].instance_id,
         "target_key": list(target.key()),
         "tokens": {"input": 0, "output": 0, "reasoning": 0},
-        "cost": [{"input": 0, "output": 0, "cache": {"read": 0, "write": 0}}],
+        "cost": 0,
         "model_catalog_evidence": {"confirmed": True, "source": "model-catalog"},
         "target_in_active": False, "inbox_observed": True, "inbox_count": 0,
         "messages_observed": True, "message_count": 0, "part_count": 0,
@@ -107,9 +109,13 @@ class PrePostValidationTests(unittest.TestCase):
             permission_policy_sha256=POLICY_SHA, admission_basis="new_experimental_session",
             inbox_evidence="empty:0", repository_source="git-local",
             admission_authorized=True, exclusive_consumer=True,
-            exclusive_consumer_evidence_sha256=EXCLUSIVE_SHA)
+            exclusive_consumer_evidence_sha256=EXCLUSIVE_SHA, session_cost=0)
         manifest = replace(manifest, issued_at=NOW, expires_at=NOW + timedelta(hours=1))
-        approval = pilot.PilotApproval("APP", "mantenedor", "human", "APPROVED", manifest)
+        binding = {"manifest_sha256": manifest.canonical(),
+                   "bound_material_sha256": manifest.canonical(),
+                   "approver_type": "human", "approver_id": "mantenedor"}
+        approval = pilot.PilotApproval("APP", "mantenedor", "human", "APPROVED", manifest,
+                                       approval_binding=binding)
         transport = pilot.OpenCodeTransport(
             client, expected_instance_id=auth.instance_id, registered_targets=(auth.target,),
             pilot_authorization=auth, mode="real", allow_write=True, clock=lambda: NOW)
@@ -197,7 +203,12 @@ class ProbeAndRebindTests(unittest.TestCase):
             with open(cli._session_registry_path(td), "w", encoding="utf-8") as handle:
                 import json
                 json.dump(session, handle)
-            good = cli.run(["--store-dir", td, "permission-probe-plan"])
+            policy_path = os.path.join(td, "policy.json")
+            with open(policy_path, "w", encoding="utf-8") as handle:
+                import json as _json
+                _json.dump({"policy": ax.SESSION_META["data"]["permissions"]}, handle)
+            good = cli.run(["--store-dir", td, "permission-probe-plan",
+                            "--policy-evidence", policy_path])
             self.assertFalse(good["blocked"])
             self.assertTrue(good["policy_preserved"])
             self.assertTrue(good["ask_handling"]["requires_specific_authorization"])

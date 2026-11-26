@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -77,6 +78,8 @@ def build_permission_probe_plan(*, session_id: str, policy_sha256: str) -> dict[
             "effect": "ask", "action": "reply", "decision": "reject",
             "requires_specific_authorization": True,
             "count_request": True, "record_sanitized": True,
+            "synthetic_case": {"action": "read", "resources": [PROBE_TEMP_RESOURCE],
+                               "expected": "ask", "reply": "reject"},
         },
         "expected_results": [
             {"action": action, "resources": list(resources), "effect": expected}
@@ -400,14 +403,13 @@ def assess_admission(observed: dict[str, Any], session: dict[str, Any]) -> dict[
     cost = observed.get("cost")
     tokens_observed = (isinstance(tokens, dict)
                        and all(isinstance(tokens.get(k), (int, float))
+                               and not isinstance(tokens.get(k), bool)
                                for k in ("input", "output", "reasoning")))
-    cost_observed = (isinstance(cost, list) and bool(cost)
-                     and all(isinstance(item, dict)
-                             and all(isinstance(item.get(k), (int, float))
-                                     for k in ("input", "output")) for item in cost))
+    # Session.Info.cost é Money.USD numérico; preços do catálogo são outro contrato.
+    cost_observed = (isinstance(cost, (int, float)) and not isinstance(cost, bool))
     zero_cost_tokens = (tokens_observed and cost_observed
                         and all(tokens[k] == 0 for k in ("input", "output", "reasoning"))
-                        and all(item["input"] == 0 and item["output"] == 0 for item in cost))
+                        and cost == 0)
     require("zero_cost_tokens", zero_cost_tokens,
             "tokens/custo não observados explicitamente como zero")
     require("outcome_absent", observed.get("outcome") is None,
@@ -456,6 +458,7 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
     seen: list[str] = []
     observed: dict[str, Any] = {
         "endpoint": canonical, "source": "real", "read_only": True,
+        "observed_at": cc.iso(cc.utc_now()), "expired": False,
         "connection_attempted": False, "service_contacted": False,
         "authentication_succeeded": False, "http_response_valid": False,
         "metadata_available": False, "session_found": False,
@@ -795,8 +798,14 @@ def registry_gaps(registry: dict[str, Any]) -> list[str]:
 def prepare_rebind(registry: dict[str, Any], observed: dict[str, Any],
                    *, endpoint: str) -> dict[str, Any]:
     """Prepara proposta de revinculação da MESMA sessão; nunca aplica nem cria outra."""
+    endpoint_changed = registry.get("endpoint") != pilot.canonical_endpoint(endpoint)
     checks: dict[str, bool] = {
         "endpoint_authorized": observed.get("endpoint") == pilot.canonical_endpoint(endpoint),
+        "endpoint_preserved_or_authorized": not endpoint_changed,
+        "registry_endpoint_matches_evidence": registry.get("endpoint") == observed.get("endpoint"),
+        "repository_bound": (observed.get("repository_evidence") or {}).get(
+            "validated_repository_id") == registry.get("repository_id"),
+        "evidence_fresh": bool(observed.get("observed_at")) and not observed.get("expired"),
         "authenticated_instance": observed.get("authentication_succeeded") is True,
         "same_session": observed.get("session_id") == registry.get("session_id"),
         "same_project": observed.get("project_id") == registry.get("project_id"),
@@ -851,6 +860,12 @@ def prepare_rebind(registry: dict[str, Any], observed: dict[str, Any],
     }
 
 
+def refresh_admission(observed: dict[str, Any], session: Optional[dict[str, Any]]) -> None:
+    """Recalcula admissão depois que catálogo/consumidor são anexados à observação."""
+    if session is not None and observed.get("session_found"):
+        observed.update(assess_admission(observed, session))
+
+
 def apply_catalog_evidence(observed: dict[str, Any], path: Optional[str]) -> None:
     """Catálogo atual é evidência de prepare e preflight; nunca é presumido."""
     if not path:
@@ -859,6 +874,12 @@ def apply_catalog_evidence(observed: dict[str, Any], path: Optional[str]) -> Non
                                               "source": "model-catalog"}
         return
     try:
+        age = time.time() - os.path.getmtime(path)
+        if age > 1800:
+            observed["model_catalog_evidence"] = {
+                "confirmed": False, "reason": "catálogo desatualizado",
+                "age_seconds": round(age, 1), "source": "model-catalog"}
+            return
         with open(path, "rb") as handle:
             catalog = json.loads(handle.read().decode("utf-8"))
         model = observed.get("session_model", "")
@@ -893,7 +914,8 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
                                "endpoint": DEFAULT_ENDPOINT, "activate": False,
                                "approval": None, "real": False, "session": None,
                                "auth_env": None, "replace": False, "evidence": None,
-                               "catalog": None,
+                               "catalog": None, "consumer_evidence": None,
+                               "policy_evidence": None, "permission_policy": None,
                                "instance_id": None, "agent_id": None,
                                "authorization_reference": None}
     command = None
@@ -902,7 +924,8 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
         arg = argv[index]
         if arg in {"--store-dir", "--endpoint", "--approval", "--session", "--auth-env",
                    "--instance-id", "--agent-id", "--authorization-reference", "--evidence",
-                   "--catalog"}:
+                   "--catalog", "--consumer-evidence", "--policy-evidence",
+                   "--permission-policy"}:
             index += 1
             if index >= len(argv):
                 raise ValueError(f"{arg} sem valor")
@@ -1000,7 +1023,7 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
     prompt_sha256 = pilot.sha256_text(pilot.PILOT_PROMPT)
     authorization = pilot.PilotAuthorization(
         authorization_id="AUTH-COORD04-PILOT-001", maintainer_id="<mantenedor>",
-        approval_reference="<decisao-pendente>", project_id=project_id,
+        approval_reference=session["authorization_reference"], project_id=project_id,
         repository_id=repository_id, instance_id=observed["instance_id"], target=target,
         mission_id=mission.mission_id, mission_identity=cc.canonical_mission_identity(mission),
         operation_id=mission.operation_id, prompt_sha256=prompt_sha256, scope=mission.scope,
@@ -1016,10 +1039,21 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
         repository_source=observed.get("repository_source", "git-local"),
         admission_authorized=False,  # proposta nunca é autorização externa
         exclusive_consumer=observed.get("exclusive_consumer") is True,
-        exclusive_consumer_evidence_sha256=pilot.canonical_policy_sha256(
-            observed.get("exclusive_consumer_evidence")))
+        exclusive_consumer_evidence_sha256=pilot.consumer_evidence_sha256(
+            observed.get("exclusive_consumer_evidence")),
+        session_cost=(observed.get("cost") if isinstance(observed.get("cost"), (int, float))
+                      and not isinstance(observed.get("cost"), bool) else None))
     result.update({
         "manifest": manifest.proposal(), "authorization": authorization.proposal(),
+        "mission": {**{k: (cc.iso(v) if isinstance(v, datetime) else v)
+                        for k, v in vars(mission).items()}},
+        "core_authorization": {
+            "reference": authorization.approval_reference,
+            "project_id": project_id, "repository_id": repository_id,
+            "target": list(target.key()), "payload_sha256": mission.payload_sha256,
+            "mission_identity": cc.canonical_mission_identity(mission), "scope": mission.scope,
+            "issued_at": cc.iso(issued_at), "expires_at": cc.iso(expires_at),
+            "synthetic": False},
         "created_at": cc.iso(created_at), "issued_at": cc.iso(issued_at),
         "expires_at": cc.iso(expires_at),
         "opencode_project_id": observed.get("opencode_project_id"),
@@ -1059,6 +1093,8 @@ def run(argv: list[str]) -> dict[str, Any]:
                 "agent_id": options["agent_id"], "model": ALLOWED_FREE_MODEL,
                 "location": pilot.EXPERIMENTAL_WORKTREE,
                 "authorization_reference": options["authorization_reference"],
+                "permission_policy": (json.loads(options["permission_policy"])
+                                      if options["permission_policy"] else None),
             }, replace=options["replace"])
         except (ValueError, cc.ContractError) as e:
             return {"command": command, "source": "fixture", "service_contacted": False,
@@ -1072,9 +1108,30 @@ def run(argv: list[str]) -> dict[str, Any]:
         if session is None:
             return {"command": command, "source": "fixture", "service_contacted": False,
                     "blocked": True, "reason": "destinatário experimental cadastrado obrigatório"}
-        return build_permission_probe_plan(
+        plan = build_permission_probe_plan(
             session_id=session["session_id"],
             policy_sha256=session.get("permission_policy_sha256", ""))
+        if not options["policy_evidence"]:
+            plan["blocked"] = True
+            plan["reason"] = "evidência observada da política obrigatória"
+            return plan
+        try:
+            with open(options["policy_evidence"], "rb") as handle:
+                evidence = json.loads(handle.read().decode("utf-8"))
+            observed_policy = evidence["policy"]
+            observed_digest = pilot.canonical_policy_sha256(observed_policy)
+        except (OSError, ValueError, UnicodeError, KeyError) as e:
+            plan["blocked"] = True
+            plan["policy_preserved"] = False
+            plan["reason"] = f"evidência de política inválida: {type(e).__name__}"
+            return plan
+        plan["policy_preserved"] = (
+            observed_digest == session.get("permission_policy_sha256"))
+        plan["observed_policy_sha256"] = observed_digest
+        if not plan["policy_preserved"]:
+            plan["blocked"] = True
+            plan["reason"] = "política observada difere do hash registrado"
+        return plan
 
     if command == "rebind-check":
         if not options["evidence"] or session is None:
@@ -1088,13 +1145,26 @@ def run(argv: list[str]) -> dict[str, Any]:
             return {"command": command, "source": "fixture", "service_contacted": False,
                     "blocked": True, "applied": False,
                     "reason": f"evidência inválida: {type(e).__name__}"}
-        return prepare_rebind(session, evidence, endpoint=options["endpoint"])
+        try:
+            seen = datetime.fromisoformat(str(evidence["observed_at"]).replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            return {"command": command, "source": "fixture", "service_contacted": False,
+                    "blocked": True, "applied": False,
+                    "reason": "evidência sem observed_at válido"}
+        evidence["expired"] = cc.utc_now() - seen > timedelta(minutes=30)
+        proposal = prepare_rebind(session, evidence, endpoint=options["endpoint"])
+        if session.get("endpoint") != pilot.canonical_endpoint(options["endpoint"]):
+            proposal["blocked"] = True
+            proposal["endpoint_change_requires_explicit_authorization"] = True
+            proposal["reason"] = "mudança de endpoint exige autorização expressa"
+        return proposal
 
     if command == "preflight":
         if options["real"]:
             observed = _real_observe(options["endpoint"], auth_env=options["auth_env"],
                                      session=session)
             apply_catalog_evidence(observed, options["catalog"])
+            refresh_admission(observed, session)
             return {"command": command, "mode": "real", "source": "real",
                     "read_only": True, "service_contacted": observed["service_contacted"],
                     "connection_attempted": observed["connection_attempted"],
@@ -1138,6 +1208,12 @@ def run(argv: list[str]) -> dict[str, Any]:
             observed = _real_observe(options["endpoint"], auth_env=options["auth_env"],
                                      session=session)
             apply_catalog_evidence(observed, options["catalog"])
+            if options["consumer_evidence"]:
+                observed["exclusive_consumer_evidence"] = pilot.verify_consumer_evidence(
+                    options["consumer_evidence"],
+                    session_id=(session or {}).get("session_id", ""),
+                    endpoint=observed["endpoint"], clock=cc.utc_now())
+            refresh_admission(observed, session)
             return _prepare_real(observed, session=session)
         context = _fixture_context(store_dir=options["store_dir"])
         return {"command": command, "mode": "fixture", "source": "fixture",

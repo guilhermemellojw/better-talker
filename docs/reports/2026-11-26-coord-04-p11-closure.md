@@ -15,7 +15,7 @@
 | HEAD vigente | `dfa57fa0b4ecc2c113390800b5e941a54c0ef099` |
 | HEAD do código | `4a921c0159eba996ac001cf88cd0ee4de2acbfdb` |
 | HEAD final | SHA corrente; documentação posterior não altera código |
-| Delta | 5 arquivos, **+203/−36**; `git diff --check` limpo; push sem force-push |
+| Delta | **código +428/−36** (5 arquivos, incluindo `test_pilot_p11.py`); relatório final `3e4c1b34` acrescenta +65 linhas. `git diff --check` limpo; push sem force-push |
 
 Digests publicados: `coord_pilot.py 136691f2…`, `coord_pilot_cli.py adb64074…`. Fundação (`coord_checkpoint`, `coord_communication`, `demo_communication`, `test_communication`) intacta.
 

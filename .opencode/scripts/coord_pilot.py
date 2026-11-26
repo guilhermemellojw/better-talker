@@ -49,6 +49,54 @@ AVAILABILITY_STATES = ("FRESH_UNEXECUTED", "IDLE_TERMINAL", "BUSY", "UNKNOWN")
 OUTCOME_VALUES = ("succeeded", "failed", "interrupted")
 
 
+def consumer_evidence_sha256(evidence: Any) -> str:
+    """Hash estável da evidência de consumidor (sem carimbos de verificação)."""
+    if not isinstance(evidence, dict):
+        return ""
+    fields = ("consumer_id", "authorization_reference", "session_id", "endpoint",
+              "acquired_at", "expires_at", "lock_scope")
+    return canonical_policy_sha256({key: evidence.get(key) for key in fields})
+
+
+def verify_consumer_evidence(path: Optional[str], *, session_id: str,
+                             endpoint: str, clock: Optional[datetime] = None) -> dict[str, Any]:
+    """Fronteira controlável do consumidor: identidade, lock operacional e validade.
+
+    Não prova ausência global de processos; essa integração futura permanece
+    como limitação explícita. Nenhum ledger é criado aqui.
+    """
+    base = {"verified": False, "source": "operator-evidence-file"}
+    if not path or not os.path.isfile(path):
+        return {**base, "reason": "evidência de consumidor ausente"}
+    try:
+        with open(path, "rb") as handle:
+            value = json.loads(handle.read().decode("utf-8"))
+    except (OSError, ValueError, UnicodeError) as e:
+        return {**base, "reason": f"evidência inválida: {type(e).__name__}"}
+    if not isinstance(value, dict):
+        return {**base, "reason": "evidência inválida"}
+    expected = ("consumer_id", "authorization_reference", "session_id", "endpoint",
+                "acquired_at", "expires_at", "lock_scope")
+    if any(not value.get(key) for key in expected):
+        return {**base, "reason": "evidência incompleta"}
+    if value["session_id"] != session_id or value["endpoint"] != canonical_endpoint(endpoint):
+        return {**base, "reason": "evidência diverge da sessão/endpoint"}
+    try:
+        expires = datetime.fromisoformat(str(value["expires_at"]).replace("Z", "+00:00"))
+        acquired = datetime.fromisoformat(str(value["acquired_at"]).replace("Z", "+00:00"))
+    except ValueError:
+        return {**base, "reason": "timestamps inválidos"}
+    now = clock or cc.utc_now()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if expires <= now or acquired > now:
+        return {**base, "reason": "evidência vencida ou futura"}
+    if not os.path.exists(str(value["lock_scope"])):
+        return {**base, "reason": "lock operacional ausente"}
+    return {**value, "verified": True, "checked_at": cc.iso(now),
+            "source": "operator-evidence-file"}
+
+
 def verify_model_catalog(models: Any, *, provider_id: str, model_id: str,
                          variant: str, authorized_model: str = EXPERIMENTAL_MODEL) -> dict[str, Any]:
     """Verifica o catálogo atual sem escolher modelos: identidade, variante e custo."""
@@ -555,14 +603,15 @@ class PilotAuthorization:
         if self.maintainer_id.lower() in {"supervisor", "agent-s", "agente s"}:
             raise cc.ContractError("supervisor não pode emitir sua própria autorização")
 
-    def validate_for_pilot(self, clock: Optional[datetime] = None, *, require_real: bool = False) -> None:
+    def validate_for_pilot(self, clock: Optional[datetime] = None, *, require_real: bool = False,
+                           allow_proposed: bool = False) -> None:
         self.validate()
-        if not self.approved:
+        if not self.approved and not allow_proposed:
             raise cc.AuthorizationError("autorização experimental não aprovada")
-        if self.environment in {"PROPOSED", "SYNTHETIC"}:
+        if self.environment in {"PROPOSED", "SYNTHETIC"} and not allow_proposed:
             raise cc.AuthorizationError("autorização proposta/sintética não habilita transmissão")
         if require_real:
-            if self.environment != "APPROVED":
+            if self.environment != "APPROVED" and not allow_proposed:
                 raise cc.AuthorizationError("HTTP real exige autorização APPROVED")
             if self.maintainer_id.lower() in {"fixture", "fake", "test", "simulado"}:
                 raise cc.AuthorizationError("aprovador fixtures não habilita HTTP real")
@@ -651,6 +700,7 @@ class PilotManifest:
     admission_authorized: bool = False
     exclusive_consumer: bool = False
     exclusive_consumer_evidence_sha256: str = ""
+    session_cost: Optional[float] = None
 
     def __post_init__(self) -> None:
         # Nenhum endpoint externo/divergente entra no manifesto aprovado.
@@ -683,6 +733,7 @@ class PilotManifest:
             "admission_authorized": self.admission_authorized,
             "exclusive_consumer": self.exclusive_consumer,
             "exclusive_consumer_evidence_sha256": self.exclusive_consumer_evidence_sha256,
+            "session_cost": self.session_cost,
         }
 
     def canonical(self) -> str:
@@ -700,7 +751,8 @@ def build_runtime_manifest(mission: cc.MissionEnvelope, authorization: PilotAuth
                            repository_source: str = "git-local",
                            admission_authorized: bool = False,
                            exclusive_consumer: bool = False,
-                           exclusive_consumer_evidence_sha256: str = "") -> PilotManifest:
+                           exclusive_consumer_evidence_sha256: str = "",
+                           session_cost: Optional[float] = None) -> PilotManifest:
     """Manifesto reconstruído do estado real, sem confiar em campos informados."""
     return PilotManifest(
         reviewed_head_sha=executed_head_sha(),
@@ -726,6 +778,7 @@ def build_runtime_manifest(mission: cc.MissionEnvelope, authorization: PilotAuth
         admission_authorized=admission_authorized,
         exclusive_consumer=exclusive_consumer,
         exclusive_consumer_evidence_sha256=exclusive_consumer_evidence_sha256,
+        session_cost=session_cost,
     )
 
 
@@ -738,6 +791,7 @@ class PilotApproval:
     approver_type: str
     environment: str
     manifest: PilotManifest
+    approval_binding: Optional[dict[str, Any]] = None
 
     @property
     def manifest_sha256(self) -> str:
@@ -750,6 +804,14 @@ class PilotApproval:
             raise cc.AuthorizationError("ambiente de aprovação inválido")
         if require_real and self.environment != "APPROVED":
             raise cc.AuthorizationError("HTTP real exige aprovação APPROVED")
+        if require_real:
+            binding = self.approval_binding or {}
+            digest = self.manifest.canonical()
+            if (binding.get("manifest_sha256") != digest
+                    or binding.get("bound_material_sha256") != digest
+                    or binding.get("approver_type") != "human"):
+                raise cc.AuthorizationError(
+                    "aprovação externa não vinculada ao digest emitido pelo prepare")
         manifest = self.manifest
         if not re.fullmatch(r"[0-9a-f]{40}", manifest.reviewed_head_sha):
             raise cc.ContractError("HEAD revisado inválido")
@@ -844,7 +906,8 @@ class OpenCodeTransport(cc.Transport):
                  registered_targets: tuple[cc.TargetIdentity, ...],
                  pilot_authorization: PilotAuthorization,
                  allow_write: bool = False,
-                 clock=None, mode: str = "fixture"):
+                 clock=None, mode: str = "fixture",
+                 allow_proposed_with_approval: bool = False):
         if mode not in {"fixture", "real"}:
             raise cc.ContractError("modo de transporte inválido")
         self.mode = mode
@@ -858,6 +921,7 @@ class OpenCodeTransport(cc.Transport):
         self.pilot = pilot_authorization
         self.pilot.validate()
         self.allow_write = allow_write
+        self.allow_proposed_with_approval = allow_proposed_with_approval
         self.clock = clock or cc.utc_now
         self.prepared_bodies: dict[str, dict[str, Any]] = {}
         self.calls: list[tuple[str, str]] = []
@@ -1046,16 +1110,24 @@ class OpenCodeTransport(cc.Transport):
             "pending_observed": isinstance(pending, list),
             "pending_count": len(pending) if isinstance(pending, list) else None,
         }
-        if catalog is not None:
-            provider_id, _, rest = evidence["session_model"].partition("/")
-            model_id, _, variant = rest.partition("#")
-            evidence["model_catalog_evidence"] = verify_model_catalog(
-                catalog, provider_id=provider_id, model_id=model_id,
-                variant=variant or "none", authorized_model=self.pilot.expected_model)
+        # Catálogo é reobservado pelo contrato documentado da API, não copiado.
+        try:
+            catalog = self._get("/api/model")
+        except cc.TransportError:
+            catalog = None
+        provider_id, _, rest = evidence["session_model"].partition("/")
+        model_id, _, variant = rest.partition("#")
+        catalog_evidence = verify_model_catalog(
+            catalog, provider_id=provider_id, model_id=model_id,
+            variant=variant or "none", authorized_model=self.pilot.expected_model)
+        catalog_evidence["observed_at"] = cc.iso(self.clock())
+        catalog_evidence["source"] = "fresh-get:/api/model"
+        evidence["model_catalog_evidence"] = catalog_evidence
         return evidence
 
     def prepare(self, envelope: cc.MissionEnvelope, authorization: cc.Authorization) -> cc.PreparedRequest:
-        self.pilot.validate_for_pilot(self.clock(), require_real=self.is_real)
+        self.pilot.validate_for_pilot(self.clock(), require_real=self.is_real,
+                                      allow_proposed=self.allow_proposed_with_approval)
         self.confirm_endpoint(self.pilot.endpoint)
         envelope.validate()
         if (envelope.mission_id != self.pilot.mission_id or
@@ -1104,7 +1176,8 @@ class OpenCodeTransport(cc.Transport):
             raise cc.AuthorizationError("DISPATCHING persistido ausente")
         if guard.store.read_reservation() != guard.reservation:
             raise cc.AuthorizationError("reserva inválida ou não confirmada")
-        self.pilot.validate_for_pilot(self.clock(), require_real=self.is_real)
+        self.pilot.validate_for_pilot(self.clock(), require_real=self.is_real,
+                                      allow_proposed=self.allow_proposed_with_approval)
         self._confirm_instance()
         self._confirm_target(request.envelope.target)
         body = self.prepared_bodies.get(request.request_id)
@@ -1402,7 +1475,9 @@ class PilotExecutor:
     def __init__(self, transport: OpenCodeTransport, store: PilotOperationStore,
                  approval: PilotApproval, *, endpoint: Optional[str] = None,
                  allow_real: bool = False, clock=None, observer=None,
-                 catalog: Optional[dict[str, Any]] = None):
+                 catalog: Optional[dict[str, Any]] = None,
+                 catalog_path: Optional[str] = None,
+                 consumer_evidence_path: Optional[str] = None):
         self.transport = transport
         self.store = store
         self.approval = approval
@@ -1415,9 +1490,21 @@ class PilotExecutor:
         self.allow_real = allow_real
         self.clock = clock or cc.utc_now
         self.catalog = catalog
-        self.observer = observer or (lambda: self.transport.fresh_evidence(
-            self.transport.pilot.target, catalog=self.catalog))
+        self.catalog_path = catalog_path
+        self.consumer_evidence_path = consumer_evidence_path
+        self.observer = observer or self._default_observer
         self.last_observation: Optional[dict[str, Any]] = None
+        if allow_real and approval.environment == "APPROVED" and approval.approval_binding:
+            transport.allow_proposed_with_approval = True
+
+    def _default_observer(self) -> dict[str, Any]:
+        """Observer padrão: reobserva via GET e revalida a evidência do consumidor."""
+        evidence = self.transport.fresh_evidence(self.transport.pilot.target,
+                                                 catalog=self.catalog)
+        evidence["exclusive_consumer_evidence"] = verify_consumer_evidence(
+            self.consumer_evidence_path, session_id=self.transport.pilot.target.session_id,
+            endpoint=self.endpoint, clock=self.clock())
+        return evidence
 
     def _validate(self, mission: cc.MissionEnvelope, authorization: cc.Authorization,
                   prompt: str) -> None:
@@ -1426,7 +1513,7 @@ class PilotExecutor:
         if self.allow_real:
             if not self.transport.is_real or self.approval.environment != "APPROVED":
                 raise cc.AuthorizationError("execução real exige aprovação e transporte real")
-            if self.transport.pilot.environment != "APPROVED":
+            if self.transport.pilot.environment in {"FIXTURE", "SYNTHETIC"}:
                 raise cc.AuthorizationError("autorização FIXTURE não habilita HTTP real")
         elif self.transport.is_real:
             raise cc.AuthorizationError("transporte real requer allow_real explícito")
@@ -1444,6 +1531,7 @@ class PilotExecutor:
             "admission_authorized": approved.admission_authorized,
             "exclusive_consumer": approved.exclusive_consumer,
             "exclusive_consumer_evidence_sha256": approved.exclusive_consumer_evidence_sha256,
+            "session_cost": approved.session_cost,
         }
         if self.allow_real:
             # Nenhum default permissivo habilita transmissão real.
@@ -1456,12 +1544,11 @@ class PilotExecutor:
                 missing.append("inbox observado vazio")
             if evidence["repository_source"] != "git-local":
                 missing.append("fonte do repositório")
-            if evidence["admission_authorized"] is not True:
-                missing.append("autorização humana de admissão")
-            if evidence["exclusive_consumer"] is not True:
-                missing.append("consumidor exclusivo")
             if not cc.SHA256_PATTERN.fullmatch(evidence["exclusive_consumer_evidence_sha256"]):
                 missing.append("evidência verificável de exclusividade")
+            if not (isinstance(evidence["session_cost"], (int, float))
+                    and not isinstance(evidence["session_cost"], bool)):
+                missing.append("custo numérico da sessão")
             if missing:
                 raise cc.AuthorizationError(
                     "evidências obrigatórias ausentes: " + ", ".join(missing))
@@ -1483,10 +1570,11 @@ class PilotExecutor:
                             for k in ("input", "output", "reasoning"))
                     and tokens["input"] == tokens["output"] == tokens["reasoning"] == 0):
                 divergent.append("tokens")
-            if not (isinstance(cost, list) and cost
-                    and all(isinstance(item, dict) and item.get("input") == 0
-                            and item.get("output") == 0 for item in cost)):
+            if not (isinstance(cost, (int, float)) and not isinstance(cost, bool)
+                    and cost == 0):
                 divergent.append("cost")
+            if approved.session_cost is not None and cost != approved.session_cost:
+                divergent.append("cost_divergent")
             catalog = fresh.get("model_catalog_evidence") or {}
             if catalog.get("confirmed") is not True:
                 divergent.append("catalog")
@@ -1497,7 +1585,8 @@ class PilotExecutor:
                 divergent.append("active/inbox/messages/pending")
             exclusive_evidence = fresh.get("exclusive_consumer_evidence")
             if (not isinstance(exclusive_evidence, dict)
-                    or canonical_policy_sha256(exclusive_evidence)
+                    or exclusive_evidence.get("verified") is not True
+                    or consumer_evidence_sha256(exclusive_evidence)
                     != approved.exclusive_consumer_evidence_sha256):
                 divergent.append("exclusividade")
             if divergent:
