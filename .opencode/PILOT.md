@@ -280,6 +280,44 @@ diretório canônico e da worktree experimental. `prepare --real` usa relógio U
 validade de 30 minutos e bloqueia sem destinatário, metadados ou evidências observadas
 conferentes. Nenhuma `PilotApproval` é emitida pela CLI; nenhuma sessão é criada nesta rodada.
 
+### Procedimento operacional P3B.3 (autorização humana concedida; sem prompt/LLM)
+
+1. **Ambiente persistente:** diretório privado fora de `/tmp` (por exemplo
+   `~/.local/state/better-talker/coord-pilot/experimental-instance`, modo `0700`), com
+   `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` e `XDG_STATE_HOME`
+   exclusivos, logs sanitizados e registro operacional separados. **Não copiar** banco,
+   credencial, histórico, configuração global ou mensagens produtivas.
+2. **Credencial:** segredo exclusivamente experimental em arquivo `0600` dentro do
+   diretório privado; exportar para servidor e cliente por variável de ambiente lida via
+   `$(cat <arquivo>)` — o valor nunca aparece em argumento, log, manifesto, relatório,
+   commit ou histórico do shell. Não ler credencial produtiva; não desabilitar
+   autenticação; não registrar cabeçalhos `Authorization`.
+3. **Instância única:** `opencode serve --hostname 127.0.0.1 --port <porta-livre>` com cwd
+   experimental, `HOME`/XDG isolados e **sem** `--service` ou `--standalone`. Registrar o
+   **PID efetivo do servidor** (dono do listener, não o shell invólucro), confirmar bind
+   exclusivo em loopback, caminhos efetivos e banco distinto. Confirmar inventário vazio
+   (`GET /api/session`); sessões inesperadas → **bloquear**. Não reiniciar automaticamente.
+4. **Cliente COORD-04:** `preflight --real` **sem destinatário**; exigir `source=real`,
+   `service_contacted=true`, `authentication_succeeded=true`, endpoint e instância
+   coerentes, nenhum fallback e zero POST. Falha de autenticação bloqueia a criação.
+5. **Contrato real:** `GET /doc` na instância; confirmar caminho HTTP, método, query
+   `directory`, corpo, agente, modelo, estrutura de permissões e ausência de prompt inicial
+   obrigatório. SDK não é prova suficiente; divergência material bloqueia.
+6. **Criação:** registrar intenção, endpoint/instância e hash do payload sanitizado; **uma**
+   tentativa de POST no caminho confirmado. Sem prompt, `resume`, edição ou operação
+   adicional. Timeout/ambiguidade → **não repetir**; classificar `UNKNOWN`, consultar
+   evidências autorizadas e aguardar decisão humana.
+7. **Validação/cadastro:** recuperar somente metadados da sessão criada; cadastrar o ID
+   efetivo no store real com endpoint, instância, agente, projeto, repositório, location,
+   modelo e referência humana. **`--permissions-confirmed` não comprova permissões
+   observadas e não deve ser utilizado nesta operação.** Novo preflight somente leitura;
+   **não** executar `prepare --real` para manifesto apresentável.
+8. **Encerramento:** `kill <pid>` exclusivamente no PID criado, sem `pkill`/`killall`;
+   confirmar listener indisponível, serviço compartilhado/processos produtivos inalterados
+   e **preservar o banco experimental**. A identidade inclui PID: futura inicialização pode
+   exigir revinculação controlada da **mesma** sessão — nunca criar outra para resolver
+   divergência.
+
 ## Encerramento seguro
 
 ```sh
