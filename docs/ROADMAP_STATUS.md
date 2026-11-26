@@ -26,9 +26,9 @@
 | --- | --- | --- | --- |
 | [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `83316bd24aae` | Verde |
 | [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `5d7791388842` | Verde |
-| [#70 — feat(coord05): ledger persistente de missões (Draft)](https://github.com/guilhermemellojw/better-talker/pull/70) | Outros | `a0006b446096` | Verde |
+| [#70 — feat(coord05): ledger persistente de missões](https://github.com/guilhermemellojw/better-talker/pull/70) | Outros | `a0006b446096` | Pendente |
 | [#69 — docs(coord): transferência operacional e prontidão do supervisor (COORD-08/09 PREP) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/69) | Documentação | `db58380af3b3` | Verde |
-| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `ed587e330551` | Pendente |
+| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `ed587e330551` | Verde |
 
 ## Integrações recentes
 
@@ -70,7 +70,7 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-26 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **5**; desses, Drafts: **5**.
+- PRs abertos: **5**; desses, Drafts: **4**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=66.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-26).
