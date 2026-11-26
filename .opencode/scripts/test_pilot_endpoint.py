@@ -155,7 +155,7 @@ class FixtureRealSeparationTests(unittest.TestCase):
         self.assertEqual(out["mode"], "real")
         self.assertFalse(out["service_contacted"])
         self.assertEqual(out["fallback"], "none")
-        self.assertIn("conexão real falhou", " ".join(out["blockers"]))
+        self.assertIn("falha de conexão", " ".join(out["blockers"]))
         # Nenhum valor de fixture é reapresentado como observação real.
         self.assertNotIn("agent_id", out["observed"])
 

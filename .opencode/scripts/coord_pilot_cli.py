@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -25,9 +26,12 @@ import coord_pilot as pilot
 # Fonte única do endpoint: o mesmo módulo que valida e vincula a operação.
 DEFAULT_ENDPOINT = pilot.DEFAULT_ENDPOINT
 REAL_STORE_DIR = os.path.join(pilot.DEFAULT_PILOT_DIR, "real")
+# ID fixado existe somente para fixtures; o caminho real exige destino cadastrado.
 SESSION_ID = "ses_defc05853ffeej4fPXrp7frx4x"
-NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
-COMMANDS = ("preflight", "prepare", "execute", "reconcile", "closeout", "dry-run")
+SESSION_REGISTRY_FILE = "experimental-session.json"
+NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)  # permitido exclusivamente em fixtures
+COMMANDS = ("preflight", "prepare", "execute", "reconcile", "closeout", "dry-run",
+            "session-register")
 
 
 class FixtureClient(pilot.HttpClient):
@@ -145,80 +149,209 @@ def _fixture_context(*, store_dir: str, endpoint: Optional[str] = None,
             "approval": approval, "executor": executor}
 
 
-def _real_client(endpoint: str) -> pilot.ReadOnlyHttpClient:
+ALLOWED_FREE_MODEL = "opencode-go/hungerg-free#default"
+
+
+def _real_client(endpoint: str, *, auth_env: Optional[str] = None) -> pilot.ReadOnlyHttpClient:
     """Cliente real somente leitura; POST é bloqueado mecanicamente."""
     canonical = pilot.canonical_endpoint(endpoint)
-    return pilot.ReadOnlyHttpClient(canonical, allowed_port=pilot.endpoint_port(canonical))
+    auth = None
+    if auth_env:
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", auth_env):
+            raise ValueError("nome de variável de credencial inválido")
+        # Apenas o provedor é injetado; o valor nunca é lido para logs ou saída.
+        auth = pilot.ExperimentalAuth(
+            canonical, password_provider=lambda name=auth_env: os.environ.get(name, ""))
+    return pilot.ReadOnlyHttpClient(canonical, allowed_port=pilot.endpoint_port(canonical),
+                                    auth=auth)
 
 
-def _real_observe(endpoint: str) -> dict[str, Any]:
-    """GETs necessários, sem fallback para fixture e sem leitura de conteúdo de mensagens."""
+def _session_registry_path(store_dir: str) -> str:
+    return os.path.join(store_dir, SESSION_REGISTRY_FILE)
+
+
+def _load_registered_session(store_dir: str) -> Optional[dict[str, Any]]:
+    path = _session_registry_path(store_dir)
+    if not os.path.isfile(path):
+        return None
+    with open(path, "rb") as handle:
+        value = json.loads(handle.read().decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("cadastro de sessão inválido")
+    return value
+
+
+def _register_session(store_dir: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Registra localmente um destino experimental já autorizado; não cria sessão real."""
+    session_id = str(fields.get("session_id") or "")
+    if not re.fullmatch(r"ses_[A-Za-z0-9]+", session_id):
+        raise ValueError("session_id inválido")
+    if fields.get("experimental") is not True:
+        raise ValueError("destino não marcado como experimental")
+    endpoint = pilot.canonical_endpoint(str(fields.get("endpoint") or ""))
+    for key in ("instance_id", "project_id", "repository_id", "agent_id", "model",
+                "location", "authorization_reference"):
+        if not isinstance(fields.get(key), str) or not fields[key].strip():
+            raise ValueError(f"{key} ausente no cadastro")
+    if fields["project_id"] != pilot.EXPECTED_PROJECT_ID:
+        raise ValueError("projeto cadastrado diverge da política do Better Talker")
+    if fields["location"] != pilot.EXPERIMENTAL_WORKTREE:
+        raise ValueError("location cadastrada diverge da worktree experimental")
+    if fields["model"] != ALLOWED_FREE_MODEL:
+        raise ValueError("modelo cadastrado não é o gratuito autorizado")
+    value = {
+        "schema_version": "1.0", "session_id": session_id, "experimental": True,
+        "endpoint": endpoint, "instance_id": fields["instance_id"],
+        "project_id": fields["project_id"], "repository_id": fields["repository_id"],
+        "agent_id": fields["agent_id"], "model": fields["model"],
+        "location": fields["location"],
+        "authorization_reference": fields["authorization_reference"],
+        "registered_at": cc.iso(cc.utc_now()),
+    }
+    os.makedirs(store_dir, mode=0o700, exist_ok=True)
+    fd = os.open(_session_registry_path(store_dir), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(value, handle, sort_keys=True, ensure_ascii=False)
+    return value
+
+
+def _resolve_session(store_dir: str, requested: Optional[str]) -> Optional[dict[str, Any]]:
+    registered = _load_registered_session(store_dir)
+    if requested and (not registered or registered.get("session_id") != requested):
+        return None
+    return registered
+
+
+def _validate_proposal_window(created_at: datetime, issued_at: datetime,
+                              expires_at: datetime, clock: datetime) -> None:
+    cc._require_aware(created_at, "created_at")
+    cc._require_aware(issued_at, "issued_at")
+    cc._require_aware(expires_at, "expires_at")
+    if created_at > clock or issued_at > clock:
+        raise ValueError("proposta com data futura indevida")
+    if expires_at <= issued_at:
+        raise ValueError("validade invertida")
+    if expires_at <= clock:
+        raise ValueError("proposta expirada")
+
+
+def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
+                  session: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """GETs necessários, com estados HTTP separados; nunca cai para fixture."""
     canonical = pilot.canonical_endpoint(endpoint)
-    client = _real_client(canonical)
+    client = _real_client(canonical, auth_env=auth_env)
     seen: list[str] = []
     observed: dict[str, Any] = {
-        "endpoint": canonical, "source": "real", "service_contacted": False,
-        "read_only": True, "real_calls": 0, "calls": seen, "blockers": [],
+        "endpoint": canonical, "source": "real", "read_only": True,
+        "connection_attempted": False, "service_contacted": False,
+        "authentication_succeeded": False, "http_response_valid": False,
+        "metadata_available": False, "session_found": False,
+        "recipient_authorized": bool(session), "status_kind": "not_attempted",
+        "http_status": None, "real_calls": 0, "calls": seen, "blockers": [],
+        "fallback": "none",
         "limits": ["busy/idle não comprovam disponibilidade",
                    "conteúdo de mensagens não consultado nesta missão"],
         "hypotheses": [],
     }
-    try:
-        status, info = client.request("GET", pilot.INFO_PATH)
-        seen.append("GET /api/info")
-        if status != 200:
-            raise cc.TransportError(f"GET /api/info falhou: {status}")
+
+    def fetch(path: str, label: str) -> Optional[dict[str, Any]]:
+        seen.append(f"GET {path}")
+        observed["connection_attempted"] = True
+        try:
+            status, payload = client.request("GET", path)
+        except Exception as e:
+            observed["status_kind"] = "connection_error"
+            observed["error"] = f"{type(e).__name__}: {e}"
+            observed["blockers"].append("falha de conexão; nenhum fallback para fixture")
+            return None
+        observed["http_status"] = status
         observed["service_contacted"] = True
-        observed["api_version"] = info.get("version")
-        observed["pid"] = info.get("pid")
-        observed["hostname"] = info.get("hostname")
-        observed["urls"] = list(info.get("urls") or [])
-        observed["instance_id"] = pilot.instance_identity(info)
-
-        status, location = client.request("GET", pilot.LOCATION_PATH)
-        seen.append("GET /api/location")
+        if status in {401, 403}:
+            observed["authentication_succeeded"] = False
+            observed["http_response_valid"] = False
+            observed["status_kind"] = "unauthorized"
+            observed["blockers"].append("autenticação recusada pelo serviço")
+            return None
+        observed["authentication_succeeded"] = True
+        if (status == 404 and isinstance(payload, dict)
+                and payload.get("_tag") == "SessionNotFoundError"):
+            observed["http_response_valid"] = False
+            observed["status_kind"] = "session_absent"
+            observed["session_absence_confirmed"] = True
+            return None
         if status != 200:
-            raise cc.TransportError(f"GET /api/location falhou: {status}")
-        project = location.get("project") or {}
-        observed["location_directory"] = location.get("directory")
-        observed["project_id"] = project.get("id")
-        observed["project_canonical"] = project.get("canonical")
-        observed["project_repository"] = project.get("repository")
+            observed["http_response_valid"] = False
+            observed["status_kind"] = "http_error"
+            observed["blockers"].append(f"GET {label} falhou: {status}")
+            return None
+        observed["http_response_valid"] = True
+        return payload
 
-        status, session_response = client.request("GET", f"/api/session/{SESSION_ID}")
-        seen.append(f"GET /api/session/{SESSION_ID}")
-        if status != 200:
-            raise cc.TransportError(f"GET da sessão falhou: {status}")
-        session = (session_response.get("data") or {})
-        observed["session_id"] = session.get("id")
-        observed["agent_id"] = session.get("agent")
-        observed["session_project_id"] = session.get("projectID")
-        observed["session_repository_id"] = session.get("repositoryID")
-        observed["outcome"] = session.get("outcome")
-        observed["time"] = dict(session.get("time") or {})
-        model = session.get("model") or {}
+    info = fetch(pilot.INFO_PATH, "info")
+    if info is None:
+        observed["real_calls"] = len(seen)
+        return observed
+    observed["status_kind"] = "ok"
+    observed["metadata_available"] = True
+    observed["api_version"] = info.get("version")
+    observed["pid"] = info.get("pid")
+    observed["hostname"] = info.get("hostname")
+    observed["urls"] = list(info.get("urls") or [])
+    observed["instance_id"] = pilot.instance_identity(info)
+
+    location = fetch(pilot.LOCATION_PATH, "location")
+    if location is None:
+        observed["real_calls"] = len(seen)
+        return observed
+    project = location.get("project") or {}
+    observed["location_directory"] = location.get("directory")
+    observed["opencode_project_id"] = project.get("id")
+    observed["project_canonical"] = project.get("canonical")
+    observed["opencode_repository_field"] = project.get("repository")
+
+    inventory = fetch("/api/session", "inventário")
+    if inventory is None:
+        observed["real_calls"] = len(seen)
+        return observed
+    data = inventory.get("data")
+    if isinstance(data, list):
+        observed["session_count"] = len(data)
+        observed["inventory_fields"] = sorted(data[0].keys()) if data else []
+        observed["inventory_cursor"] = dict(inventory.get("cursor") or {})
+
+    active = fetch(pilot.ACTIVE_PATH, "active")
+    if active is None:
+        observed["real_calls"] = len(seen)
+        return observed
+    active_data = active.get("data") or {}
+    observed["active_sessions"] = len(active_data)
+
+    if session is not None:
+        session_id = session["session_id"]
+        metadata = fetch(f"/api/session/{session_id}", "metadados da sessão")
+        if metadata is None:
+            observed["real_calls"] = len(seen)
+            return observed
+        value = metadata.get("data") or {}
+        observed["session_found"] = True
+        observed["session_id"] = value.get("id")
+        observed["agent_id"] = value.get("agent")
+        observed["session_project_id"] = value.get("projectID")
+        observed["session_repository_id"] = value.get("repositoryID")
+        observed["outcome"] = value.get("outcome")
+        observed["time"] = dict(value.get("time") or {})
+        model = value.get("model") or {}
         if all(model.get(k) for k in ("providerID", "id")):
-            variant = model.get("variant") or "default"
-            observed["model"] = f"{model['providerID']}/{model['id']}#{variant}"
-        observed["session_location"] = (session.get("location") or {}).get("directory")
-
-        status, active = client.request("GET", pilot.ACTIVE_PATH)
-        seen.append("GET /api/session/active")
-        if status != 200:
-            raise cc.TransportError(f"GET active falhou: {status}")
-        active_data = active.get("data") or {}
-        observed["active_sessions"] = len(active_data)
-        observed["session_active"] = SESSION_ID in active_data
-
-        status, inbox = client.request("GET", f"/api/session/{SESSION_ID}{pilot.INBOX_SUFFIX}")
-        seen.append(f"GET /api/session/{SESSION_ID}{pilot.INBOX_SUFFIX}")
-        if status != 200:
-            raise cc.TransportError(f"GET inbox falhou: {status}")
-        observed["inbox_count"] = len(inbox.get("data") or [])
-    except Exception as e:  # falha de conexão/contrato: nunca cai para fixture
-        observed["error"] = f"{type(e).__name__}: {e}"
-        observed["fallback"] = "none"
-        observed["blockers"].append("conexão real falhou; nenhum fallback para fixture")
+            observed["session_model"] = (f"{model['providerID']}/{model['id']}"
+                                         f"#{model.get('variant') or 'default'}")
+        observed["session_location"] = (value.get("location") or {}).get("directory")
+        inbox = fetch(f"/api/session/{session_id}{pilot.INBOX_SUFFIX}", "inbox")
+        if inbox is not None:
+            observed["inbox_count"] = len(inbox.get("data") or [])
+    else:
+        observed["recipient_authorized"] = False
+        observed["blockers"].append(
+            "nenhum destinatário experimental cadastrado; somente infraestrutura observada")
     observed["real_calls"] = len(seen)
     return observed
 
@@ -228,33 +361,35 @@ def _observe_blockers(observed: dict[str, Any]) -> list[str]:
     blockers = list(observed.get("blockers") or [])
     if observed.get("api_version") not in (None, "2.3.2"):
         blockers.append("versão da API observada diverge de 2.3.2")
-    for key, label in (("instance_id", "instância"), ("agent_id", "agente"),
-                       ("project_id", "projeto"), ("location_directory", "location"),
-                       ("model", "modelo")):
+    for key, label in (("instance_id", "instância"), ("location_directory", "location")):
         if not observed.get(key):
             blockers.append(f"{label} não observado; não presumir valor")
-    if (not observed.get("session_repository_id")
-            and not observed.get("project_repository")):
-        blockers.append("repositório não observado; não derivar do project_id")
-    expected_location = "/home/guilherme/Documentos/better-talker-coord-supervisor-shadow"
-    if observed.get("location_directory") and observed["location_directory"] != expected_location:
+    if observed.get("location_directory") and observed["location_directory"] != pilot.EXPERIMENTAL_WORKTREE:
         blockers.append("location observada diverge da worktree experimental")
     if observed.get("urls") and observed["endpoint"] not in observed["urls"]:
         blockers.append("endpoint observado diverge do endpoint efetivo do cliente")
     if observed.get("service_contacted") is False:
         blockers.append("serviço real não contactado")
+    if observed.get("status_kind") == "session_absent":
+        blockers.append("sessão cadastrada ausente no banco isolado; não criar automaticamente")
+    if not observed.get("recipient_authorized"):
+        blockers.append("destinatário experimental não autorizado")
     return blockers
 
 
 def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
     options: dict[str, Any] = {"store_dir": pilot.DEFAULT_PILOT_DIR,
                                "endpoint": DEFAULT_ENDPOINT, "activate": False,
-                               "approval": None, "real": False}
+                               "approval": None, "real": False, "session": None,
+                               "auth_env": None,
+                               "instance_id": None, "agent_id": None,
+                               "authorization_reference": None}
     command = None
     index = 0
     while index < len(argv):
         arg = argv[index]
-        if arg in {"--store-dir", "--endpoint", "--approval"}:
+        if arg in {"--store-dir", "--endpoint", "--approval", "--session", "--auth-env",
+                   "--instance-id", "--agent-id", "--authorization-reference"}:
             index += 1
             if index >= len(argv):
                 raise ValueError(f"{arg} sem valor")
@@ -275,31 +410,59 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
     return command, options
 
 
-def _prepare_real(observed: dict[str, Any]) -> dict[str, Any]:
-    """Manifesto proposto somente com metadados efetivamente observados."""
-    blockers = _observe_blockers(observed)
+def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]] = None,
+                  clock: Optional[datetime] = None) -> dict[str, Any]:
+    """Proposta real com relógio UTC corrente; nunca emite PilotApproval."""
+    clock = clock or cc.utc_now()
     result: dict[str, Any] = {
         "command": "prepare", "mode": "real", "source": "real",
         "service_contacted": observed["service_contacted"], "read_only": True,
         "real_calls": observed["real_calls"], "observed": observed,
-        "blockers": blockers, "approved": False, "environment": "PROPOSED",
-        "notice": "manifesto proposto; nenhuma PilotApproval humana é emitida pela CLI",
+        "approved": False, "environment": "PROPOSED",
+        "notice": "proposta não autorizada; nenhuma PilotApproval humana é emitida pela CLI",
     }
+    blockers = _observe_blockers(observed)
+    if not observed.get("authentication_succeeded") or not observed.get("metadata_available"):
+        blockers.append("metadados reais incompletos")
+    if session is None:
+        blockers.append("destinatário experimental não cadastrado")
     if blockers:
-        result.update({"blocked": True,
-                       "reason": "metadados observados insuficientes/divergentes; manifesto não emitido"})
+        result.update({"blocked": True, "blockers": blockers,
+                       "reason": "metadados/destinatário insuficientes; manifesto não emitido"})
         return result
-    repository_id = observed.get("session_repository_id") or observed.get("project_repository")
-    project_id = observed["project_id"]
-    target = cc.TargetIdentity(project_id, repository_id, observed["agent_id"],
-                               observed["session_id"], observed["instance_id"],
+    if (session["endpoint"] != observed["endpoint"]
+            or session["instance_id"] != observed["instance_id"]):
+        result.update({"blocked": True,
+                       "reason": "destino cadastrado diverge do endpoint/instância observados"})
+        return result
+    if observed.get("project_canonical") != pilot.EXPECTED_CANONICAL_DIR:
+        result.update({"blocked": True,
+                       "reason": "diretório canônico observado diverge da política"})
+        return result
+    try:
+        repository_id = pilot.repository_identity_from_git()
+    except cc.ContractError:
+        result.update({"blocked": True,
+                       "reason": "repositório Git local divergente ou indisponível"})
+        return result
+    created_at = clock
+    issued_at = clock
+    expires_at = clock + timedelta(minutes=30)
+    try:
+        _validate_proposal_window(created_at, issued_at, expires_at, clock)
+    except ValueError as e:
+        result.update({"blocked": True, "reason": str(e)})
+        return result
+    project_id = pilot.EXPECTED_PROJECT_ID
+    target = cc.TargetIdentity(project_id, repository_id, session["agent_id"],
+                               session["session_id"], observed["instance_id"],
                                observed["location_directory"])
     payload = {"prompt": pilot.PILOT_PROMPT}
     mission = cc.MissionEnvelope(
         schema_version=cc.MISSION_SCHEMA_VERSION, project_id=project_id,
         repository_id=repository_id, mission_id="MISS-COORD04-PILOT-001",
         operation_id="OP-COORD04-PILOT-001", coordinator_id="supervisor-shadow-experimental",
-        target_agent=observed["agent_id"], target_session_id=observed["session_id"],
+        target_agent=session["agent_id"], target_session_id=session["session_id"],
         target_instance_id=observed["instance_id"], target_location=observed["location_directory"],
         objective="Validar comunicação bidirecional real em sessão experimental",
         payload=payload, payload_sha256=cc.payload_sha256(payload),
@@ -308,9 +471,8 @@ def _prepare_real(observed: dict[str, Any]) -> dict[str, Any]:
         acceptance_criteria=("identidade da missão devolvida", "status explícito",
                              "marcador BT-COORD-REPORT:v1"),
         ownership_constraints=("somente sessão experimental; nenhuma edição de arquivo",),
-        authorization_reference="AUTH-COORD04-PILOT-001", created_at=NOW,
-        expires_at=NOW + timedelta(minutes=30), timeout=60,
-        expected_head_sha=None, expected_branch=None)
+        authorization_reference=session["authorization_reference"], created_at=created_at,
+        expires_at=expires_at, timeout=60, expected_head_sha=None, expected_branch=None)
     prompt_sha256 = pilot.sha256_text(pilot.PILOT_PROMPT)
     authorization = pilot.PilotAuthorization(
         authorization_id="AUTH-COORD04-PILOT-001", maintainer_id="<mantenedor>",
@@ -318,13 +480,17 @@ def _prepare_real(observed: dict[str, Any]) -> dict[str, Any]:
         repository_id=repository_id, instance_id=observed["instance_id"], target=target,
         mission_id=mission.mission_id, mission_identity=cc.canonical_mission_identity(mission),
         operation_id=mission.operation_id, prompt_sha256=prompt_sha256, scope=mission.scope,
-        issued_at=NOW, expires_at=NOW + timedelta(hours=1), approved=False,
-        environment="PROPOSED", max_transmissions=1, expected_model=observed["model"],
+        issued_at=issued_at, expires_at=expires_at, approved=False,
+        environment="PROPOSED", max_transmissions=1, expected_model=session["model"],
         endpoint=observed["endpoint"])
     manifest = pilot.build_runtime_manifest(mission, authorization, prompt_sha256,
                                             observed["endpoint"])
     result.update({
         "manifest": manifest.proposal(), "authorization": authorization.proposal(),
+        "created_at": cc.iso(created_at), "issued_at": cc.iso(issued_at),
+        "expires_at": cc.iso(expires_at),
+        "opencode_project_id": observed.get("opencode_project_id"),
+        "repository_source": "git-local",
         "assumptions": ["maintainer_id e approval_reference dependem de decisão humana"],
         "limits": ["HEAD e digests recalculados no momento desta proposta",
                    "alterar arquivos operacionais invalida o manifesto"],
@@ -338,12 +504,40 @@ def run(argv: list[str]) -> dict[str, Any]:
     store = pilot.PilotOperationStore(options["store_dir"])
     mode = "real" if options["real"] else "fixture"
     source = "real" if options["real"] else "fixture"
+    session = _resolve_session(options["store_dir"], options["session"]) if options["real"] else None
+
+    if command == "session-register":
+        try:
+            registered = _register_session(options["store_dir"], {
+                "session_id": options["session"], "experimental": True,
+                "endpoint": options["endpoint"], "instance_id": options["instance_id"],
+                "project_id": pilot.EXPECTED_PROJECT_ID,
+                "repository_id": pilot.EXPECTED_REPOSITORY_ID,
+                "agent_id": options["agent_id"], "model": ALLOWED_FREE_MODEL,
+                "location": pilot.EXPERIMENTAL_WORKTREE,
+                "authorization_reference": options["authorization_reference"],
+            })
+        except (ValueError, cc.ContractError) as e:
+            return {"command": command, "source": "fixture", "service_contacted": False,
+                    "registered": False, "reason": str(e)}
+        return {"command": command, "source": "fixture", "service_contacted": False,
+                "registered": True, "session": registered["session_id"],
+                "endpoint": registered["endpoint"],
+                "notice": "cadastro local; nenhuma sessão real foi criada"}
 
     if command == "preflight":
         if options["real"]:
-            observed = _real_observe(options["endpoint"])
+            observed = _real_observe(options["endpoint"], auth_env=options["auth_env"],
+                                     session=session)
             return {"command": command, "mode": "real", "source": "real",
                     "read_only": True, "service_contacted": observed["service_contacted"],
+                    "connection_attempted": observed["connection_attempted"],
+                    "authentication_succeeded": observed["authentication_succeeded"],
+                    "http_response_valid": observed["http_response_valid"],
+                    "metadata_available": observed["metadata_available"],
+                    "session_found": observed["session_found"],
+                    "recipient_authorized": observed["recipient_authorized"],
+                    "status_kind": observed["status_kind"], "http_status": observed["http_status"],
                     "real_calls": observed["real_calls"], "observed": observed,
                     "blockers": _observe_blockers(observed),
                     "limits": observed["limits"], "fallback": observed.get("fallback", "none")}
@@ -366,7 +560,9 @@ def run(argv: list[str]) -> dict[str, Any]:
 
     if command == "prepare":
         if options["real"]:
-            return _prepare_real(_real_observe(options["endpoint"]))
+            observed = _real_observe(options["endpoint"], auth_env=options["auth_env"],
+                                     session=session)
+            return _prepare_real(observed, session=session)
         context = _fixture_context(store_dir=options["store_dir"])
         return {"command": command, "mode": "fixture", "source": "fixture",
                 "service_contacted": False, "read_only": True, "real_calls": 0,
@@ -404,7 +600,8 @@ def run(argv: list[str]) -> dict[str, Any]:
         endpoint_state = "not_requested"
         if options["real"]:
             try:
-                endpoint_state = _real_client(options["endpoint"]).endpoint
+                endpoint_state = _real_client(options["endpoint"],
+                                              auth_env=options["auth_env"]).endpoint
             except cc.ContractError as e:
                 endpoint_state = f"blocked: {e}"
         return {"command": command, "mode": mode, "source": source,

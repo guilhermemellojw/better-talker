@@ -223,26 +223,41 @@ Endpoint é **fonte única e canônica**: `http://127.0.0.1:<porta>`; HTTP, host
 redirecionamentos. O cliente real somente leitura bloqueia POST mecanicamente; falha de
 conexão **nunca** cai para fixture. Stores de fixture e de operação real são separados.
 
-Estado observado em P3B.0: OpenCode v2.3.2 instalado, serviço de fundo `stopped`,
-`opencode service get` vazio — nenhuma instância local autorizada/disponível. Por isso
-**nenhum GET real foi executado** nesta missão; o serviço não foi iniciado.
+Estado observado em P3B.1: instância privada isolada iniciada e encerrada com segurança;
+GETs autenticados pela CLI oficial; banco vazio e sessão fixada inexistente (404). O cliente
+COORD-04 recebeu 401 porque não enviava autenticação. P3B.2 adaptou o cliente ao formato real.
 
-Comandos propostos, sujeitos a autorização específica para instância privada:
+**Autenticação experimental (alternativa B):** a credencial é fornecida explicitamente pelo
+operador por variável de ambiente cujo **nome** é passado em `--auth-env`; o valor nunca é
+lido para logs, manifestos, comandos ou relatórios. O cliente constrói `Authorization: Basic`
+(usuário fixo `opencode`) e só emite o cabeçalho para o endpoint privado ao qual foi vinculado.
+Nenhuma credencial produtiva é lida, copiada ou reutilizada; autenticação não é desativada.
 
 ```sh
-# 1) somente após autorização explícita para iniciar instância privada (não compartilhada):
-opencode api --standalone get /api/info
-# 2) usar a url observada em /api/info como <endpoint-local-autorizado> (http://127.0.0.1:<porta>)
-python3 .opencode/scripts/coord_pilot_cli.py preflight --real --endpoint <endpoint-local-autorizado>
-python3 .opencode/scripts/coord_pilot_cli.py prepare --real --endpoint <endpoint-local-autorizado>
+# endpoint = http://127.0.0.1:<porta> observado em /api/info da instância privada
+# COORD_PILOT_AUTH = nome da variável definida pelo operador (valor nunca impresso)
+python3 .opencode/scripts/coord_pilot_cli.py preflight --real \
+  --endpoint <endpoint-local-autorizado> --auth-env COORD_PILOT_AUTH
 ```
 
-Confirmar, somente com metadados autorizados: identidade real do agente (não presumir `A`),
-projeto e location, instância calculada de `/api/info`, repositório observado (não derivado
-do `project_id`), modelo gratuito, disponibilidade, inbox, permissões efetivas da sessão e
-compatibilidade observada da API OpenCode v2.3.2. Destinatário proposto mantido:
-`ses_defc05853ffeej4fPXrp7frx4x`. Qualquer divergência bloqueia o piloto; não improvisar
-configuração, modelo, sessão ou permissões. Nenhuma aprovação humana é emitida pela CLI.
+O ID fixo `ses_defc05853ffeej4fPXrp7frx4x` existe somente em fixtures. O caminho real exige
+destino previamente cadastrado e autorizado (cadastro local, sem criar sessão real):
+
+```sh
+python3 .opencode/scripts/coord_pilot_cli.py session-register \
+  --store-dir ~/.local/state/better-talker/coord-pilot/real \
+  --session <ses-efetiva> --endpoint <endpoint> --instance-id <instancia> \
+  --agent-id <agente-observado> --authorization-reference <decisao> \
+  --auth-env COORD_PILOT_AUTH
+python3 .opencode/scripts/coord_pilot_cli.py prepare --real \
+  --endpoint <endpoint> --session <ses-efetiva> --auth-env COORD_PILOT_AUTH
+```
+
+`project.id` do OpenCode é um ID interno (hash), distinto da identidade lógica `better-talker`,
+do repositório GitHub (lido de `git remote get-url origin` e validado pela política), do
+diretório canônico e da worktree experimental. `prepare --real` usa relógio UTC corrente,
+validade curta e bloqueia sem destinatário, metadados ou validade vigente. Nenhuma
+`PilotApproval` é emitida pela CLI; nenhuma sessão é criada nesta rodada.
 
 ## Encerramento seguro
 

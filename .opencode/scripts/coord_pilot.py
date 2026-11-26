@@ -6,6 +6,7 @@ explícita. Esta versão prepara o circuito; não transmite nesta missão.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -36,6 +37,11 @@ MESSAGE_SUFFIX = "/message"
 DEFAULT_PILOT_DIR = os.path.expanduser("~/.local/state/better-talker/coord-pilot")
 # Fonte única e canônica do endpoint local autorizado (P3B.0).
 DEFAULT_ENDPOINT = "http://127.0.0.1:49999"
+# Identidade lógica verificada (P3B.2): não derivada de project.id nem do diretório.
+EXPECTED_PROJECT_ID = "better-talker"
+EXPECTED_REPOSITORY_ID = "guilhermemellojw/better-talker"
+EXPECTED_CANONICAL_DIR = "/home/guilherme/Documentos/better-talker"
+EXPERIMENTAL_WORKTREE = "/home/guilherme/Documentos/better-talker-coord-supervisor-shadow"
 PILOT_TRANSITIONS = {
     "AUTHORIZED": {"DISPATCHING", "UNKNOWN", "FAILED"},
     "DISPATCHING": {"UNKNOWN", "FAILED", "DELIVERED", "RUNNING", "COMPLETED"},
@@ -154,14 +160,70 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         raise urllib.error.HTTPError(req.full_url, code, "redirecionamento proibido", headers, fp)
 
 
+class ExperimentalAuth:
+    """Credencial experimental fornecida explicitamente pelo operador.
+
+    O segredo nunca é armazenado em atributo, log, manifesto ou comando: apenas
+    um provedor (callable) é injetado. A credencial só é emitida para o endpoint
+    privado ao qual este objeto foi vinculado.
+    """
+
+    def __init__(self, endpoint: str, *, password_provider):
+        self.endpoint = canonical_endpoint(endpoint)
+        if not callable(password_provider):
+            raise cc.ContractError("provedor de credencial inválido")
+        self._provider = password_provider
+
+    def header(self, endpoint: str) -> dict[str, str]:
+        if canonical_endpoint(endpoint) != self.endpoint:
+            raise cc.ContractError("credencial não pode ser reutilizada em endpoint divergente")
+        value = self._provider()
+        if not isinstance(value, str) or not value:
+            raise cc.AuthorizationError("credencial experimental ausente")
+        token = base64.b64encode(f"opencode:{value}".encode("utf-8")).decode("ascii")
+        return {"Authorization": f"Basic {token}"}
+
+
+def repository_identity_from_git(root: Optional[str] = None) -> str:
+    """Repository ID lido de metadados Git locais e validado pela política explícita."""
+    import subprocess
+    try:
+        completed = subprocess.run(
+            ["git", "-C", root or REPO_ROOT, "remote", "get-url", "origin"],
+            capture_output=True, text=True, check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise cc.ContractError("metadados Git indisponíveis") from e
+    url = completed.stdout.strip() if completed.returncode == 0 else ""
+    repository_id = ""
+    if url.startswith("git@github.com:"):
+        repository_id = url.split(":", 1)[1].strip()
+    else:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme in {"http", "https"} and parsed.hostname == "github.com":
+            if parsed.username or parsed.password:
+                raise cc.ContractError("URL do repositório contém credencial")
+            repository_id = parsed.path.strip("/")
+    if repository_id.endswith(".git"):
+        repository_id = repository_id[:-4]
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository_id):
+        raise cc.ContractError("repositório GitHub inválido nos metadados Git")
+    if repository_id != EXPECTED_REPOSITORY_ID:
+        raise cc.ContractError("repositório divergente da política do Better Talker")
+    return repository_id
+
+
 class LocalHttpClient(HttpClient):
     """Cliente opcional, restrito a base local fixa e caminhos /api/."""
 
-    def __init__(self, base_url: str, *, allowed_port: int, allow_write: bool = False):
+    def __init__(self, base_url: str, *, allowed_port: int, allow_write: bool = False,
+                 auth: Optional[ExperimentalAuth] = None):
         self.endpoint = canonical_endpoint(base_url, allowed_port=allowed_port)
         self.base_url = self.endpoint
         self.allowed_port = allowed_port
         self.allow_write = allow_write
+        if auth is not None and auth.endpoint != self.endpoint:
+            raise cc.ContractError("credencial divergente do endpoint do cliente")
+        self.auth = auth
         # Proxies externos desativados e redirecionamentos proibidos.
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
 
@@ -175,6 +237,9 @@ class LocalHttpClient(HttpClient):
             raise cc.TransportDisabled("escrita HTTP desativada")
         data = None
         headers = {"Accept": "application/json"}
+        if self.auth is not None:
+            # Nunca registrar o valor do cabeçalho; apenas anexá-lo à requisição.
+            headers.update(self.auth.header(self.endpoint))
         if body is not None:
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"
@@ -197,8 +262,9 @@ class LocalHttpClient(HttpClient):
 class ReadOnlyHttpClient(LocalHttpClient):
     """Cliente real somente leitura: POST é bloqueado mecanicamente."""
 
-    def __init__(self, base_url: str, *, allowed_port: int):
-        super().__init__(base_url, allowed_port=allowed_port, allow_write=False)
+    def __init__(self, base_url: str, *, allowed_port: int,
+                 auth: Optional[ExperimentalAuth] = None):
+        super().__init__(base_url, allowed_port=allowed_port, allow_write=False, auth=auth)
 
     def request(self, method: str, path: str, body: Optional[dict[str, Any]] = None) -> tuple[int, dict[str, Any]]:
         if method.upper() == "POST":
