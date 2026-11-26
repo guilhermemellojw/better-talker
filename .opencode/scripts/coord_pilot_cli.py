@@ -32,7 +32,45 @@ SESSION_ID = "ses_defc05853ffeej4fPXrp7frx4x"
 SESSION_REGISTRY_FILE = "experimental-session.json"
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)  # permitido exclusivamente em fixtures
 COMMANDS = ("preflight", "prepare", "execute", "reconcile", "closeout", "dry-run",
-            "session-register", "rebind-check")
+            "session-register", "rebind-check", "permission-probe-plan")
+
+# Matriz fechada da futura avaliação de permissões (Agente E). Nenhum recurso é executado.
+PERMISSION_PROBE_MATRIX = (
+    ("shell", ("git status",), "deny"),
+    ("edit", ("docs/probe.txt",), "deny"),
+    ("write", ("docs/probe.txt",), "deny"),
+    ("read", ("/etc/passwd", ".env"), "deny"),
+    ("external_directory", ("/home/guilherme/Documentos/better-talker",), "deny"),
+    ("subagent", ("explore",), "deny"),
+    ("execute", ("code-mode",), "deny"),
+    ("question", ("*",), "allow"),
+)
+
+
+def build_permission_probe_plan(*, session_id: str, policy_sha256: str) -> dict[str, Any]:
+    """Plano sintético para futura avaliação; não executa nada e não autoriza transmissão."""
+    return {
+        "command": "permission-probe-plan", "source": "fixture", "service_contacted": False,
+        "endpoint": f"POST /api/session/{session_id}/permission",
+        "reply_endpoint": f"POST /api/session/{session_id}/permission/{{requestID}}/reply",
+        "session_id": session_id, "policy_sha256": policy_sha256,
+        "policy_preserved": True, "no_save": True, "no_prompt": True, "no_llm": True,
+        "no_tool_execution": True, "no_new_session": True,
+        "question_is_tool": True, "deny_is_not_exhaustive": True,
+        "agent_omitted": True,  # usa o agente efetivo da sessão (build)
+        "one_action_per_request": True,
+        "max_requests": len(PERMISSION_PROBE_MATRIX) + 2,
+        "stop_on_unexpected": True,
+        "ask_handling": {
+            "effect": "ask", "action": "reply", "decision": "reject",
+            "count_request": True, "record_sanitized": True,
+        },
+        "expected_results": [
+            {"action": action, "resources": list(resources), "effect": expected}
+            for action, resources, expected in PERMISSION_PROBE_MATRIX
+        ],
+        "notice": "planoOffline; avaliador não comprova snapshot/call sites/plugins; não autoriza transmissão",
+    }
 
 
 class FixtureClient(pilot.HttpClient):
@@ -243,7 +281,7 @@ def _register_session(store_dir: str, fields: dict[str, Any], *, replace: bool =
         "authorization_reference": fields["authorization_reference"],
         "registered_at": cc.iso(cc.utc_now()),
     }
-    for key in ("permission_policy",):
+    for key in ("permission_policy", "repository_source", "admission_basis", "inbox_evidence"):
         if key in fields:
             value[key] = fields[key]
     if fields.get("permission_policy") is not None:
@@ -347,12 +385,20 @@ def assess_admission(observed: dict[str, Any], session: dict[str, Any]) -> dict[
     updated = (observed.get("time") or {}).get("updated")
     require("time_untouched", created is not None and created == updated,
             "time.created/updated divergentes ou ausentes")
-    tokens = observed.get("tokens") or {}
-    cost = observed.get("cost") or []
-    zero_cost = all(not item or all((item.get(k) or 0) == 0 for k in ("input", "output"))
-                    for item in cost) if isinstance(cost, list) else False
-    require("zero_cost_tokens", zero_cost and all((tokens.get(k) or 0) == 0
-            for k in ("input", "output", "reasoning")), "tokens/custo não zerados")
+    tokens = observed.get("tokens")
+    cost = observed.get("cost")
+    tokens_observed = (isinstance(tokens, dict)
+                       and all(isinstance(tokens.get(k), (int, float))
+                               for k in ("input", "output", "reasoning")))
+    cost_observed = (isinstance(cost, list) and bool(cost)
+                     and all(isinstance(item, dict)
+                             and all(isinstance(item.get(k), (int, float))
+                                     for k in ("input", "output")) for item in cost))
+    zero_cost_tokens = (tokens_observed and cost_observed
+                        and all(tokens[k] == 0 for k in ("input", "output", "reasoning"))
+                        and all(item["input"] == 0 and item["output"] == 0 for item in cost))
+    require("zero_cost_tokens", zero_cost_tokens,
+            "tokens/custo não observados explicitamente como zero")
     require("outcome_absent", observed.get("outcome") is None,
             "outcome presente; execução anterior não excluída")
     repo = observed.get("repository_evidence") or {}
@@ -368,6 +414,8 @@ def assess_admission(observed: dict[str, Any], session: dict[str, Any]) -> dict[
             "consumidor exclusivo não comprovado")
     require("human_authorization", observed.get("human_authorization") is True,
             "autorização humana para transmissão ausente")
+    require("admission_authorized", observed.get("admission_authorized") is True,
+            "admissão operacional não autorizada externamente")
 
     if basis.get("identity_complete") and observed.get("session_in_active") is True:
         state = "busy"
@@ -385,6 +433,7 @@ def assess_admission(observed: dict[str, Any], session: dict[str, Any]) -> dict[
         state = "unknown"
     return {"admission_state": state, "admission_basis": basis,
             "availability_state": observed.get("availability_state", "UNKNOWN"),
+            "authorized_admission": observed.get("admission_authorized") is True,
             "admission_blockers": list(dict.fromkeys(blockers))}
 
 
@@ -687,6 +736,8 @@ def _manifest_readiness_blockers(observed: dict[str, Any],
         blockers.append(f"admissão={admission or 'unknown'}; não pronta para transmissão")
     if observed.get("availability_state") != "FRESH_UNEXECUTED":
         blockers.append(f"disponibilidade={observed.get('availability_state', 'UNKNOWN')}")
+    if observed.get("authorized_admission") is not True:
+        blockers.append("admissão operacional não autorizada externamente")
     if (observed.get("model_catalog_evidence") or {}).get("confirmed") is not True:
         blockers.append("catálogo do modelo não verificado")
     if not observed.get("permission_policy_sha256"):
@@ -713,6 +764,15 @@ def _manifest_readiness_blockers(observed: dict[str, Any],
     return list(dict.fromkeys(blockers))
 
 
+REBIND_EVIDENCE_FIELDS = ("permission_policy_sha256", "repository_source",
+                          "admission_basis", "inbox_evidence")
+
+
+def registry_gaps(registry: dict[str, Any]) -> list[str]:
+    """Campos de evidência ausentes no cadastro: nunca preenchidos silenciosamente."""
+    return [key for key in REBIND_EVIDENCE_FIELDS if not registry.get(key)]
+
+
 def prepare_rebind(registry: dict[str, Any], observed: dict[str, Any],
                    *, endpoint: str) -> dict[str, Any]:
     """Prepara proposta de revinculação da MESMA sessão; nunca aplica nem cria outra."""
@@ -736,6 +796,8 @@ def prepare_rebind(registry: dict[str, Any], observed: dict[str, Any],
     }
     previous = registry.get("instance_id")
     current = observed.get("instance_id")
+    gaps = registry_gaps(registry)
+    checks["registry_evidence_complete"] = not gaps
     allowed = all(checks.values())
     return {
         "command": "rebind-check", "source": "fixture", "service_contacted": False,
@@ -747,6 +809,21 @@ def prepare_rebind(registry: dict[str, Any], observed: dict[str, Any],
         "instance_changed": previous != current,
         "registry_sha256": hashlib.sha256(
             cc.canonical_json(registry).encode("utf-8")).hexdigest(),
+        "registry_gaps": gaps,
+        "update_proposal": {
+            "applied": False, "requires_replace": True, "requires_authorization": True,
+            "preserved": {"session_id": registry.get("session_id"),
+                          "project_id": registry.get("project_id"),
+                          "agent_id": registry.get("agent_id"),
+                          "model": registry.get("model"),
+                          "location": registry.get("location")},
+            "updatable": {"instance_id": current,
+                          "permission_policy_sha256": observed.get("permission_policy_sha256", ""),
+                          "repository_source": observed.get("repository_source", ""),
+                          "admission_basis": observed.get("admission_state", "unknown"),
+                          "inbox_evidence": f"{(observed.get('inbox_observation') or {}).get('state', 'unobserved')}:{(observed.get('inbox_observation') or {}).get('inbox_count')}"},
+            "reason": "atualização controlada do mesmo registro; sem preenchimento silencioso",
+        },
         "permission_policy_sha256": observed.get("permission_policy_sha256", ""),
         "reason": ("mesma sessão revinculável após autorização" if allowed
                    else "divergência impede revinculação; não criar outra sessão"),
@@ -878,7 +955,9 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
         permission_policy_sha256=observed.get("permission_policy_sha256", ""),
         admission_basis=observed.get("admission_state", "unknown"),
         inbox_evidence=f"{inbox.get('state', 'unobserved')}:{inbox.get('inbox_count')}",
-        repository_source=observed.get("repository_source", "git-local"))
+        repository_source=observed.get("repository_source", "git-local"),
+        admission_authorized=False,  # proposta nunca é autorização externa
+        exclusive_consumer=observed.get("exclusive_consumer") is True)
     result.update({
         "manifest": manifest.proposal(), "authorization": authorization.proposal(),
         "created_at": cc.iso(created_at), "issued_at": cc.iso(issued_at),
@@ -927,6 +1006,14 @@ def run(argv: list[str]) -> dict[str, Any]:
                 "registered": True, "session": registered["session_id"],
                 "endpoint": registered["endpoint"],
                 "notice": "cadastro local; nenhuma sessão real foi criada"}
+
+    if command == "permission-probe-plan":
+        if session is None:
+            return {"command": command, "source": "fixture", "service_contacted": False,
+                    "blocked": True, "reason": "destinatário experimental cadastrado obrigatório"}
+        return build_permission_probe_plan(
+            session_id=session["session_id"],
+            policy_sha256=session.get("permission_policy_sha256", ""))
 
     if command == "rebind-check":
         if not options["evidence"] or session is None:

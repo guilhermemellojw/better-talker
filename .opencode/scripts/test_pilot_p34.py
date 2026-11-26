@@ -31,7 +31,11 @@ def registered(td, *, endpoint=A, instance=None, session_id=None):
         "repository_id": pilot.EXPECTED_REPOSITORY_ID, "agent_id": "agente-observado",
         "model": cli.ALLOWED_FREE_MODEL, "location": pilot.EXPERIMENTAL_WORKTREE,
         "authorization_reference": "AUTH-P34",
-        "permission_policy": ax.SESSION_META["data"]["permissions"]})
+        "permission_policy": ax.SESSION_META["data"]["permissions"],
+        "permission_policy_sha256": cli.canonical_policy_sha256(
+            ax.SESSION_META["data"]["permissions"]),
+        "repository_source": "git-local", "admission_basis": "new_experimental_session",
+        "inbox_evidence": "empty:0"})
 
 
 def observe(responses, session, *, endpoint=A, expect_instance_change=False):

@@ -371,6 +371,34 @@ python3 .opencode/scripts/coord_pilot_cli.py closeout
   Qualquer alteração material invalida a aprovação anterior. Nenhuma `PilotApproval` é emitida
   e nenhum manifesto real apresentável é gerado enquanto restarem lacunas.
 
+### P3B.5 — fechamento preparação→aprovação→execução e probe de permissões
+
+- `PilotExecutor` reconstrói o manifesto em runtime com **todas** as evidências do manifesto
+  aprovado (`permission_policy_sha256`, `admission_basis`, `inbox_evidence`,
+  `repository_source`, `admission_authorized`, `exclusive_consumer`). Proposta preparada e
+  reconstrução produzem o mesmo `canonical_sha256`; alteração material invalida a aprovação.
+- Nenhum default permissivo habilita transmissão real: evidência ausente/divergente, admissão
+  não autorizada externamente ou consumidor não exclusivo bloqueiam antes do POST. A
+  revalidação ocorre no início de `execute()` e novamente antes de `transmit()`.
+- `tokens`/`cost` precisam ser observados explicitamente como zero; campos ausentes não são
+  convertidos em zero. `FRESH_UNEXECUTED` é estado descritivo; admissão operacional exige
+  autorização humana externa — proposta não autorizada pode ser elaborada, execução não.
+- Cadastro histórico sem `permission_policy_sha256`/`repository_source`/`admission_basis`/
+  `inbox_evidence` é reportado como lacuna; `rebind-check` não preenche silenciosamente e
+  exige `--replace` + autorização para atualizar somente campos efêmeros da **mesma** sessão.
+
+**Probe futuro de permissões (não executado):** uma instância privada autenticada, mesmo banco
+e Session ID, política original com hash verificado, endpoint
+`POST /api/session/{id}/permission` com `{action, resources}` — uma ação por requisição, sem
+`save`, sem prompt, sem LLM, sem execução de ferramenta, sem nova sessão e sem transmissão.
+Matriz fechada e inofensiva: `shell/git status`, `edit`, `write`, `read`, `external_directory`,
+`subagent`, `execute` → esperado `deny`; `question` → esperado `allow` (question é tool, não
+"zero tools"). `ask` pendente é tratado por `POST .../permission/{requestID}/reply` com
+`reject`, registrado e contabilizado. Limite: número de casos + 2; parar diante de resultado
+inesperado. `deny` do avaliador **não** comprova enforcement exaustivo de plugins/snapshot.
+Comando offline: `coord_pilot_cli.py permission-probe-plan`. Ledger PR #70, política PR #71 e
+autorização/revogação PR #72 permanecem com seus respectivos agentes.
+
 ### Adendo P10 — contrato unificado e higiene
 
 - `OpenCodeTransport.status()` e a preparação do manifesto usam a mesma classificação:

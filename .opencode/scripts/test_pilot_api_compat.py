@@ -81,6 +81,8 @@ def make_synthetic_ready(observed):
     """Evidência sintética apenas em teste: satisfaz admissão e enforcement."""
     observed["exclusive_consumer"] = True
     observed["human_authorization"] = True
+    observed["admission_authorized"] = True
+    observed["authorized_admission"] = True
     observed["permissions_evidence"]["enforcement_observed"] = True
     observed["admission_state"] = "new_experimental_session"
     observed["availability_state"] = "FRESH_UNEXECUTED"

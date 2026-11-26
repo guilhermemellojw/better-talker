@@ -642,6 +642,8 @@ class PilotManifest:
     admission_basis: str = "unavailable"
     inbox_evidence: str = "unobserved"
     repository_source: str = "git-local"
+    admission_authorized: bool = False
+    exclusive_consumer: bool = False
 
     def __post_init__(self) -> None:
         # Nenhum endpoint externo/divergente entra no manifesto aprovado.
@@ -671,6 +673,8 @@ class PilotManifest:
             "admission_basis": self.admission_basis,
             "inbox_evidence": self.inbox_evidence,
             "repository_source": self.repository_source,
+            "admission_authorized": self.admission_authorized,
+            "exclusive_consumer": self.exclusive_consumer,
         }
 
     def canonical(self) -> str:
@@ -685,7 +689,9 @@ def build_runtime_manifest(mission: cc.MissionEnvelope, authorization: PilotAuth
                            permission_policy_sha256: str = "",
                            admission_basis: str = "unavailable",
                            inbox_evidence: str = "unobserved",
-                           repository_source: str = "git-local") -> PilotManifest:
+                           repository_source: str = "git-local",
+                           admission_authorized: bool = False,
+                           exclusive_consumer: bool = False) -> PilotManifest:
     """Manifesto reconstruído do estado real, sem confiar em campos informados."""
     return PilotManifest(
         reviewed_head_sha=executed_head_sha(),
@@ -708,6 +714,8 @@ def build_runtime_manifest(mission: cc.MissionEnvelope, authorization: PilotAuth
         admission_basis=admission_basis,
         inbox_evidence=inbox_evidence,
         repository_source=repository_source,
+        admission_authorized=admission_authorized,
+        exclusive_consumer=exclusive_consumer,
     )
 
 
@@ -1353,8 +1361,35 @@ class PilotExecutor:
         confirmed = self.transport.confirm_endpoint(self.endpoint)
         if self.transport.pilot.endpoint != confirmed:
             raise cc.ContractError("endpoint diverge da autorização")
+        approved = self.approval.manifest
+        evidence = {
+            "permission_policy_sha256": approved.permission_policy_sha256,
+            "admission_basis": approved.admission_basis,
+            "inbox_evidence": approved.inbox_evidence,
+            "repository_source": approved.repository_source,
+            "admission_authorized": approved.admission_authorized,
+            "exclusive_consumer": approved.exclusive_consumer,
+        }
+        if self.allow_real:
+            # Nenhum default permissivo habilita transmissão real.
+            missing = []
+            if not cc.SHA256_PATTERN.fullmatch(evidence["permission_policy_sha256"]):
+                missing.append("hash da política de permissões")
+            if evidence["admission_basis"] != "new_experimental_session":
+                missing.append("base de admissão")
+            if not str(evidence["inbox_evidence"]).startswith("empty:"):
+                missing.append("inbox observado vazio")
+            if evidence["repository_source"] != "git-local":
+                missing.append("fonte do repositório")
+            if evidence["admission_authorized"] is not True:
+                missing.append("autorização humana de admissão")
+            if evidence["exclusive_consumer"] is not True:
+                missing.append("consumidor exclusivo")
+            if missing:
+                raise cc.AuthorizationError(
+                    "evidências obrigatórias ausentes: " + ", ".join(missing))
         runtime = build_runtime_manifest(mission, self.transport.pilot, prompt_sha256,
-                                         self.endpoint)
+                                         self.endpoint, **evidence)
         if not self.approval.matches(runtime):
             raise cc.ContractError("manifesto aprovado diverge da operação")
         if prompt_sha256 != self.transport.pilot.prompt_sha256:
