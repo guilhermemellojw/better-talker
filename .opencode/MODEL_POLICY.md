@@ -1,4 +1,4 @@
-# MODEL_POLICY — Free First / 1M Preferred (COORD-05B/P1)
+# MODEL_POLICY — Free First / 1M Preferred (COORD-05B/P2.1)
 
 **Estado:** proposta em PR Draft; não integrada a sessões, pilotos ou ao PR #64.
 **Escopo:** motor determinístico de **seleção e recomendação** de modelos a partir de inventário, política, missão, disponibilidade e benchmark injetados.
@@ -39,6 +39,7 @@ O motor é puro: recebe tudo por injeção. Nenhum dado é buscado por conta pr�
 ```
 
 - `provider_id`, `model_id` e `variant` formam a identidade exata; não há normalização por nome.
+- `variant: "none"` é o marcador explícito de ausência e é **canonicalizado internamente para ausência**. Igualdade, hash, ordenação, evidência de disponibilidade, autorização e detecção de duplicidade usam a mesma identidade. Variante ausente nunca vira `#default`; variantes explícitas diferentes (por exemplo `#high` e `#default`) permanecem distintas.
 - `context_window_tokens: null` significa **desconhecido**, não 1M.
 - `tools: null` / `modalities: null` / `capabilities: null` significam **desconhecido**, não ausência.
 - `cost.category` é obrigatório para classificar custo; a ausência vira `unknown`. O nome do modelo **nunca** é evidência de gratuidade.
@@ -54,6 +55,7 @@ O motor é puro: recebe tudo por injeção. Nenhum dado é buscado por conta pr�
   "allow_unknown_availability": false,
   "allow_included_franchise": true,
   "allow_additional_consumption": false,
+  "rotation_enabled": true,
   "coordination_mode": "SHADOW",
   "benchmark_suite": "coord05",
   "paid_authorization": null
@@ -65,6 +67,7 @@ O motor é puro: recebe tudo por injeção. Nenhum dado é buscado por conta pr�
 - `allow_unknown_availability`: padrão `false`. Com `false`, ausência de evidência resulta em `INSUFFICIENT_EVIDENCE`, não em recomendação fabricada.
 - `allow_included_franchise`: permite **propor** modelo incluído na franquia Go, mas ainda exige autorização específica para selecionar.
 - `allow_additional_consumption`: padrão `false`; consumo adicional é bloqueado. Mesmo com `true`, exige autorização válida.
+- `rotation_enabled`: padrão `true`. Com `false`, preservação e seleção inicial continuam permitidas, mas **nenhuma substituição automática** ocorre em caminho gratuito ou pago; o resultado é `NEEDS_AUTHORIZATION` com alternativa consultiva, `selected: null` e nenhuma intenção de troca.
 - `coordination_mode`: apenas `SHADOW`; `ASSISTED` e `DELEGATED` são rejeitados.
 - `paid_authorization`: ver §5.
 
@@ -74,6 +77,7 @@ O motor é puro: recebe tudo por injeção. Nenhum dado é buscado por conta pr�
 {
   "mission_id": "coord05b-p1",
   "state": "PLANNED",
+  "scope": "coord05b:test",
   "requirements": {
     "min_context_tokens": 1000000,
     "requires_tools": true,
@@ -85,7 +89,10 @@ O motor é puro: recebe tudo por injeção. Nenhum dado é buscado por conta pr�
 }
 ```
 
-- `state: UNKNOWN` ou `delivery_state: UNKNOWN` bloqueiam qualquer recomendação/reenvio.
+- `state` é obrigatório. Ausência ou valor inválido falha fechado na entrada (`ValueError`); não há presunção de `PLANNED`.
+- `scope` é necessário para qualquer autorização paga: sem escopo de missão não há vínculo comparável e a autorização é recusada.
+- `state: UNKNOWN` ou `delivery_state: UNKNOWN|INDETERMINATE` bloqueiam qualquer recomendação/reenvio.
+- Missão `RUNNING`, `COMPLETED` ou `FAILED` pode receber parecer consultivo, mas **não** produz `SessionChangeIntent` operacional.
 - Requisitos de contexto, ferramentas, modalidade e capacidade são filtros rígidos, não preferências.
 - `estimated_extra_cost_usd` é necessário para validar autorização de fallback pago; sem ele, a autorização não é validada.
 
@@ -144,6 +151,8 @@ Status: `available`, `unavailable`, `limits_reached`, `unknown`.
 
 **Não inferir gratuidade pelo nome `free`.** Um modelo chamado `mega-free` com categoria `additional` ou `unknown` não é gratuito. A categoria explícita é a única fonte.
 
+Um registro `free` com preço positivo é contraditório e é rejeitado. Categoria declarada no nível do modelo e no objeto `cost` também precisa coincidir; divergência rejeita o inventário. Autorização paga só aceita `included` e `additional`; `free` e `unknown` são categorias inválidas para consumo pago.
+
 ## 3. Ranking determinístico
 
 Entre candidatos elegíveis, a ordem é:
@@ -158,10 +167,12 @@ Entre candidatos elegíveis, a ordem é:
 Consequências deliberadas:
 
 - Um gratuito de 1M vence um gratuito menor.
-- Um gratuito **confirmado disponível** vence um gratuito de 1M com disponibilidade desconhecida, quando a política permite desconhecido. A certeza de disponibilidade prevalece sobre a preferência de contexto.
+- Um **modelo atual** gratuito, elegível e disponível é preservado mesmo que outro gratuito tenha contexto maior.
+- Disponibilidade desconhecida do modelo atual não é causa confirmada de substituição: com `allow_unknown_availability=true`, o atual é preservado com incerteza; sem essa permissão, o resultado é consultivo (`INSUFFICIENT_EVIDENCE`), sem troca. O mesmo vale quando o modelo atual não está no inventário fornecido.
+- Um gratuito **confirmado disponível** vence um gratuito de 1M com disponibilidade desconhecida quando ainda não há modelo atual a preservar. A certeza de disponibilidade prevalece sobre a preferência de contexto.
 - Contexto desconhecido não é contado como 1M; fica abaixo de contexto conhecido.
 - Dois gratuitos de 1M sem benchmark são desempatados lexicalmente; a ordem é estável entre execuções.
-- Se o modelo atual está disponível e é o melhor, a decisão é `KEEP_CURRENT`; se está indisponível, recomenda-se outro gratuito.
+- Se o modelo atual está disponível e é o melhor, a decisão é `KEEP_CURRENT`; se há indisponibilidade, limite ou inadequação confirmada, recomenda-se outro gratuito.
 
 ## 4. Desconhecidos e indisponibilidade
 
@@ -169,9 +180,10 @@ Consequências deliberadas:
 |---|---|
 | contexto desconhecido, sem requisito mínimo | incerteza `context_unknown`; pode ser elegível se `allow_unknown_context`; nunca é tratado como 1M |
 | contexto desconhecido, com `min_context_tokens` | excluído (`context_unknown_required`) |
-| disponibilidade sem evidência | `INSUFFICIENT_EVIDENCE` por padrão; com `allow_unknown_availability=true`, recomendação com incerteza |
-| `unavailable` confirmado | excluído; recomenda-se outro gratuito |
-| `limits_reached` com cooldown futuro | excluído (`cooldown_active`); recomenda-se outro gratuito |
+| disponibilidade sem evidência | `INSUFFICIENT_EVIDENCE` por padrão; com `allow_unknown_availability=true`, recomendação inicial com incerteza |
+| disponibilidade desconhecida do **modelo atual** | não substitui: preserva com incerteza se permitido; caso contrário, parecer consultivo sem seleção e sem intenção de troca |
+| `unavailable` confirmado | excluído; recomenda-se outro gratuito, se a rotação estiver habilitada |
+| `limits_reached` com cooldown futuro | excluído (`cooldown_active`); recomenda-se outro gratuito, se a rotação estiver habilitada |
 | `limits_reached` sem cooldown | excluído; nenhuma renovação inventada |
 | cooldown vencido sem nova evidência | `unknown`; não vira `available` automaticamente |
 | custo desconhecido | não é gratuito; excluído; pode gerar `INSUFFICIENT_EVIDENCE` |
@@ -187,7 +199,7 @@ A autorização é específica e limitada:
 {
   "authorized": true,
   "authorized_by": "maintainer",
-  "scope": "coord05b:fallback",
+  "scope": "coord05b:test",
   "mission_id": "coord05b-p1",
   "categories": ["included", "additional"],
   "model_refs": [
@@ -195,25 +207,35 @@ A autorização é específica e limitada:
   ],
   "max_cost_usd": "0.50",
   "expires_at": "2026-11-27T00:00:00Z",
-  "evidence": "authorization-reference"
+  "evidence": "authorization-reference",
+  "external_validation": {
+    "authority": "maintainer",
+    "reference": "decision:D-007",
+    "scope": "coord05b:test",
+    "mission_id": "coord05b-p1",
+    "validated_at": "2026-11-26T10:00:00Z"
+  }
 }
 ```
 
-Validação: autorização concedida, missão compatível, categoria coberta, identidade exata coberta, não expirada, `max_cost_usd` presente e `estimated_extra_cost_usd` da missão `<=` teto. Caso contrário, não há seleção.
+Validação: autorização concedida; `mission_id` presente e igual à missão; escopo da missão presente e igual ao escopo da autorização; validação externa estruturada presente e vinculada a autoridade, escopo e missão; categoria coberta; identidade exata coberta; não expirada; `max_cost_usd` presente e `estimated_extra_cost_usd` da missão `<=` teto. Caso contrário, não há seleção.
 
+- A validação externa é um **registro estruturado**, não uma frase ou referência textual isolada. O motor verifica o vínculo contratual, mas **não autentica criptograficamente o emissor** nem contata a autoridade; essa limitação é explícita.
 - `included` não é chamado de gratuito.
 - `additional` permanece bloqueado por padrão.
 - O motor não mede franquia, tokens ou billing; apenas aplica a política e a evidência injetada.
 
-## 6. Missão UNKNOWN
+## 6. Missão UNKNOWN e missão em execução
 
-Se `mission.state == UNKNOWN` ou `delivery_state == UNKNOWN`:
+Se `mission.state == UNKNOWN` ou `delivery_state == UNKNOWN|INDETERMINATE`:
 
 - decisão `MISSION_UNKNOWN`;
 - `selected: null`;
 - motivo `mission_state_unknown` ou `delivery_unknown`;
 - `no_resend_until_reconciled`;
 - nenhuma recomendação de reenvio, nenhuma troca de modelo.
+
+Se a missão está `RUNNING`, `COMPLETED` ou `FAILED`, o motor não emite `SessionChangeIntent`: a saída é apenas consultiva e registra `change_intent_suppressed_mission_state`. Nenhuma troca operacional é proposta enquanto a entrega não estiver reconciliada.
 
 ## 7. Seleção ≠ execução ≠ troca de sessão
 
@@ -239,19 +261,19 @@ O motor **não** cria, altera, ocupa ou troca sessão. Qualquer troca efetiva ex
 
 | Decisão | Significado |
 |---|---|
-| `RECOMMEND_FREE` | gratuito elegível selecionado; troca de sessão é apenas uma intenção separada |
-| `KEEP_CURRENT` | modelo atual disponível e melhor; nenhuma mudança |
-| `RECOMMEND_AUTHORIZED_FALLBACK` | fallback incluído/adicional selecionado com autorização válida |
-| `NEEDS_AUTHORIZATION` | existe fallback elegível, mas falta autorização válida; nada selecionado |
+| `RECOMMEND_FREE` | gratuito elegível selecionado; em missão operacional, troca de sessão é apenas uma intenção separada |
+| `KEEP_CURRENT` | modelo atual preservado (disponível ou desconhecido permitido); nenhuma mudança |
+| `RECOMMEND_AUTHORIZED_FALLBACK` | fallback incluído/adicional selecionado com autorização contratualmente válida |
+| `NEEDS_AUTHORIZATION` | existe fallback elegível, mas falta autorização válida ou a rotação está desativada; nada selecionado |
 | `NO_ELIGIBLE_FREE` | nenhum gratuito/fallback elegível por razões confirmadas |
-| `INSUFFICIENT_EVIDENCE` | ausência/conflito de contexto, disponibilidade ou custo; nada fabricado |
+| `INSUFFICIENT_EVIDENCE` | ausência/conflito de contexto, disponibilidade ou custo; inclui alternativa consultiva sem substituição confirmada |
 | `MISSION_UNKNOWN` | missão UNKNOWN; não recomendar reenvio |
 
 ## 10. Testes
 
 `python3 .opencode/scripts/test_coord_model_policy.py -v`
 
-Cobertura (32 testes):
+Cobertura atual (58 testes host-only, rede/LLM desativados):
 
 - gratuitos de 1M × gratuitos menores;
 - indisponibilidade confirmada e troca para outro gratuito;
@@ -260,13 +282,18 @@ Cobertura (32 testes):
 - contexto desconhecido, com e sem requisito mínimo;
 - custo desconhecido e nome `free` sem evidência;
 - pagos adicionais e franquia Go;
-- autorização válida, expirada, acima do teto, missão/modelo/categoria exatos;
+- autorização válida, expirada, acima do teto, missão/modelo/categoria/escopo exatos;
+- validação externa estruturada ausente e categorias pagas inválidas;
+- identidade canônica `none`/ausente em igualdade, hash, evidência, autorização e duplicidade;
+- missão sem estado, estado inválido, `RUNNING` sem intenção operacional;
+- rotação desativada nos caminhos gratuito e pago, com seleção inicial ainda permitida;
+- disponibilidade desconhecida do modelo atual e modelo atual ausente do inventário sem substituição confirmada;
+- revalidação de objetos tipados: duplicidade canônica, estado inválido, contexto inválido e política incompatível;
 - empates lexicais e benchmark verificado × unverified;
 - ausência de opção gratuita;
 - missão UNKNOWN e `delivery_state UNKNOWN`;
 - alteração dinâmica do inventário sem cache;
 - ferramentas, modalidades e capacidades, inclusive desconhecidas;
-- disponibilidade desconhecida, inclusive do modelo atual;
 - seleção separada de execução/troca de sessão;
 - serialização JSON, duplicidade e validação de política.
 
@@ -282,7 +309,8 @@ Cobertura (32 testes):
 ## 12. Histórico desta branch
 
 - `270b9a85` — versão compacta inicial publicada no PR Draft #71 (15 testes).
-- Revisão atual — mantém o commit anterior no histórico e amplia o contrato: autorização paga exata (missão/modelo/categoria/validade/teto), fallback Go/adicional separado de gratuito, estado de missão UNKNOWN, preservação do modelo atual disponível, benchmark verificado como desempate, interface de indisponibilidade/cooldown e 32 testes offline. O PR #71 permanece Draft; nenhum merge.
+- `697d055b`/`4e6986f7` — ampliação de autorização/benchmark, continuidade Free First, estado explícito, referência canônica e 37 testes offline; preservados no histórico.
+- Revisão P2.1 — fecha divergências entre código e relatório: identidade canônica interna, autorização vinculada a missão/escopo/validação externa, estado obrigatório, rotação em todos os caminhos e revalidação de objetos tipados. **58 testes offline PASS**; PR #71 permanece Draft; nenhum merge.
 
 ## 13. Limitações explícitas
 
@@ -291,17 +319,33 @@ Cobertura (32 testes):
 - Custo/franquia não são medidos; `cost: 0` não prova consumo zero.
 - Capacidades são campos declarados; não há teste de inferência real.
 - Benchmark é interface futura; sem observação verificada, não há score.
+- A validação externa é declarada e vinculada por contrato; o motor não autentica o emissor nem verifica assinatura, credencial ou canal externo.
+- Objetos tipados são revalidados nas fronteiras `Inventory`, `Policy` e `Mission`; isso não transforma entrada declarada em evidência física.
 - Não há exactly-once, troca de sessão, transmissão, ledger ou autorização automática.
 
-## 14. COORD-05B/P2 — reconciliação de continuidade, estado e custo
+## 14. COORD-05B/P2.1 — divergências código × relatório
 
-Revisão focal sobre o HEAD ampliado do PR #71 (o commit compacto `270b9a85` permanece no histórico). Delta desta etapa: **motor + testes + este documento**, nenhum outro arquivo, nenhuma mudança em PR #64/#70, governança compartilhada, sessões, configuração real ou Android. 37 testes offline PASS; fail-first executado com ImportError para `canonical_model_ref` e falha de rotação sem justificativa antes das correções.
+Revisão focal sobre o HEAD `4e6986f71f1d36b4ff7a70c3f185d391baea321e` do PR #71. Delta exclusivo em motor, testes e este documento; nenhum outro arquivo, nenhuma mudança em PR #64/#70, governança compartilhada, sessões, configuração real, Android ou credenciais.
 
-- **F1 — rotação somente justificada:** modelo gratuito atual, disponível e adequado é preservado (`KEEP_CURRENT`, motivo `kept_current`) mesmo quando outro gratuito tem contexto maior — sem redução desnecessária de contexto; rotação ocorre somente quando o atual está indisponível, em limite ou inadequado; `policy.rotation_enabled=false` produz `NEEDS_AUTHORIZATION` com `fallback_candidate`, `selected=None` e nenhum `SessionChangeIntent`. Missão UNKNOWN continua bloqueando qualquer troca.
-- **F2 — estado real da missão:** `MissionState` explícito, compatível com o futuro ledger COORD-05A; `mission_id` é identificador único e imutável e **não** é usado como estado; estado ausente/inválido falha de forma segura (`MISSION_UNKNOWN`/`INSUFFICIENT_EVIDENCE`), sem reenvio ou rotação.
-- **F3 — franquia e autorização:** `free` confirmado ≠ `included` na franquia ≠ `additional` ≠ custo desconhecido. Modelo incluído não é automaticamente autorizado: sem `PaidAuthorization` válida resulta `NEEDS_AUTHORIZATION`. A autorização exige `authorized_by`, `scope`, `mission_id`, `model_refs`, `categories`, `max_cost_usd`, `expires_at` e `evidence` vinculados; uma referência textual isolada é rejeitada (`ValueError`). Piloto de custo extraordinário zero não recomenda consumo incluído sem política compatível; nenhum faturamento é implementado.
-- **F4 — inventário e evidências:** identidades duplicadas e custo/disponibilidade contraditórios são rejeitados na origem; categoria inválida, contexto negativo/incompleto e evidência desconhecida não habilitam a entrada mais permissiva; disponibilidade desconhecida só aparece como incerteza/consultiva, nunca como confirmada.
-- **F5 — identidade canônica:** `canonical_model_ref()` adota `provider/id`, `variant="none"` sem sufixo, variante ausente sem `#default` implícito e variante explícita distinta preservada; contrato documentado do PR #64, sem importar código daquele PR.
-- **F6 — justificativa e 1M:** Free First / preferência por >=1M preservados em seleção inicial e substituição justificada; alternativas condicionais explícitas; sem opção permitida → solicitação de autorização; janela de contexto não é capacidade comprovada; nenhuma renovação de cota é inventada; `decision` registra manutenção, seleção, rotação ou espera de autorização.
+**Fail-first no HEAD exato:** 19 falhas em 57 testes — 18 regressões novas e a expectativa existente de disponibilidade desconhecida do modelo atual, que o contrato F4 tornou explicitamente incompatível. A verificação anterior de estado inválido e a seleção inicial paga já passavam e permaneceram verdes. Uma sonda focal adicional demonstrou que o modelo atual ausente do inventário ainda era substituído; após a correção, a suíte final tem **58/58 PASS**, host-only, sem rede ou LLM.
 
-`executed=False`/`selection_only=True`/`execution_performed=False`/`session_change_performed=False` permanecem invariáveis. ASSISTED e DELEGATED continuam desativados. Aguardando recertificação independente.
+- **F1 — identidade canônica real:** `variant="none"` é canonicalizado para `None` no próprio `ModelRef`, não apenas em `__str__`. Igualdade, hash, `sort_key`, evidência de disponibilidade, autorização e duplicidade usam a mesma identidade. Variantes explícitas diferentes permanecem distintas; ausente não vira `#default`.
+- **F2 — autorização e custo:** `mission_id` é obrigatório para autorização paga e comparado à missão; `scope` da missão e da autorização são vinculados e comparados; validação externa exige registro estruturado (`authority`, `reference`, `scope`, `mission_id`, `validated_at`), não referência textual isolada. `FREE` com preço positivo, categoria contraditória no mesmo modelo e categorias `free`/`unknown` em autorização paga são rejeitados. Validade, modelo, categoria e teto financeiro continuam aplicados; não há faturamento.
+- **F3 — estado obrigatório:** `Mission.from_value()` não presume mais `PLANNED`; estado ausente ou inválido falha na entrada. `UNKNOWN` continua bloqueando recomendação e reenvio. `RUNNING`, `COMPLETED`, `FAILED` e entrega indeterminada não geram `SessionChangeIntent`; a saída permanece consultiva e registra `change_intent_suppressed_mission_state`.
+- **F4 — rotação em todos os caminhos:** `rotation_enabled=false` bloqueia substituição no caminho gratuito e no fallback pago; preservação e seleção inicial continuam permitidas. Disponibilidade desconhecida do modelo atual — ou ausência dele no inventário — não é causa confirmada de substituição: se a disponibilidade desconhecida for permitida pela política, o atual é preservado com incerteza; caso contrário, há alternativa consultiva (`INSUFFICIENT_EVIDENCE`, `selected: null`) e nenhuma intenção de troca. O mesmo contrato vale para fallback pago.
+- **F5 — validação de objetos tipados:** `Inventory`, `Policy` e `Mission` já instanciados são revalidados pelo mesmo caminho de parsing, em vez de retornados diretamente. Sondas focais cobrem duplicidade canônica, estado inválido, contexto inválido e política incompatível. Não há framework genérico de validação.
+
+### Correspondência documental com o ledger COORD-05A (PR #70, sem integração)
+
+| Ledger PR #70 | Estado neste motor | Efeito |
+|---|---|---|
+| `PROPOSED` | `PLANNED` | pode recomendar; intenção separada permitida |
+| `AUTHORIZED` | `READY` | pode recomendar; intenção separada permitida |
+| `DISPATCHING`, `DELIVERED`, `RUNNING` | `RUNNING` | parecer consultivo; sem intenção operacional |
+| `COMPLETED` | `COMPLETED` | terminal; sem intenção operacional |
+| `FAILED` | `FAILED` | terminal; sem intenção operacional |
+| `UNKNOWN` | `UNKNOWN` | `MISSION_UNKNOWN`; sem reenvio nem troca |
+
+A correspondência é apenas documental. Nenhum código, esquema ou estado do PR #70 é importado, alterado ou integrado.
+
+Invariantes mantidas: `executed=False`, `selection_only=True`, `execution_performed=False`, `session_change_performed=False`. ASSISTED e DELEGATED continuam desativados. Aguardando certificação independente; nenhum merge.

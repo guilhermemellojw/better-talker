@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline tests for coord_model_policy.py (COORD-05B/P1).
+"""Offline tests for coord_model_policy.py (COORD-05B/P2.1).
 
 No network, LLM, OpenCode API, session, credential, ADB or Android is used.
 Run: python3 .opencode/scripts/test_coord_model_policy.py -v
@@ -18,9 +18,17 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 from coord_model_policy import (  # noqa: E402
+    AvailabilityEvidence,
+    CostCategory,
     Decision,
+    Inventory,
+    Mission,
+    MissionRequirements,
+    Model,
     ModelPolicyEngine,
     ModelRef,
+    PaidAuthorization,
+    Policy,
     canonical_model_ref,
     recommend,
 )
@@ -99,6 +107,7 @@ def mission(**overrides) -> dict:
     value = {
         "mission_id": "m1",
         "state": "PLANNED",
+        "scope": "coord05b:test",
         "requirements": {},
     }
     value.update(overrides)
@@ -117,8 +126,22 @@ def auth(*refs: dict, **overrides) -> dict:
         "expires_at": LATER,
         "evidence": "authorization-test-only",
         "purpose": "offline test",
+        "external_validation": {
+            "authority": "maintainer",
+            "reference": "decision:D-007",
+            "scope": "coord05b:test",
+            "mission_id": "m1",
+            "validated_at": OBSERVED,
+        },
     }
     value.update(overrides)
+    external = value.get("external_validation")
+    if isinstance(external, dict):
+        external = dict(external)
+        external["authority"] = value["authorized_by"]
+        external["scope"] = value["scope"]
+        external["mission_id"] = value["mission_id"]
+        value["external_validation"] = external
     return value
 
 
@@ -353,9 +376,14 @@ class ModelPolicyTests(unittest.TestCase):
             mis=mission(current_model=ref(model_id="current-free")),
             ev=[evidence(other)],
         )
-        self.assertEqual(Decision.RECOMMEND_FREE, result.decision)
-        self.assertEqual("opencode/other-free#default", selected_string(result))
+        # F4/P2.1: unknown availability is not a confirmed cause for replacement.
+        self.assertEqual(Decision.INSUFFICIENT_EVIDENCE, result.decision)
+        self.assertIsNone(result.selected)
+        self.assertFalse(result.change_required)
+        self.assertIsNone(result.session_change_intent)
+        self.assertEqual("opencode/other-free#default", str(result.fallback_candidate))
         self.assertIn("current_availability_unknown", result.reason_codes)
+        self.assertIn("no_substitution_without_confirmed_cause", result.reason_codes)
 
     def test_unknown_tools_modalities_capabilities_are_not_assumed(self):
         unknown_tools = model(model_id="unknown-tools", tools=None)
@@ -697,6 +725,302 @@ class ModelPolicyTests(unittest.TestCase):
             canonical_model_ref(ModelRef("opencode", "hy4-flash-free", None)),
             canonical_model_ref(ModelRef("opencode", "hy4-flash-free", "default")),
         )
+
+    # ---- COORD-05B/P2.1 — divergences F1-F5 -----------------------------
+
+    def test_p21_f1_none_and_absent_variant_share_internal_identity(self):
+        absent = ModelRef("opencode", "hy4-flash-free", None)
+        none = ModelRef("opencode", "hy4-flash-free", "none")
+        explicit = ModelRef("opencode", "hy4-flash-free", "high")
+
+        self.assertEqual(absent, none)
+        self.assertEqual(hash(absent), hash(none))
+        self.assertEqual(absent.sort_key, none.sort_key)
+        self.assertEqual(1, len({absent, none}))
+        self.assertNotEqual(absent, explicit)
+        self.assertNotEqual(hash(absent), hash(explicit))
+
+        observation = AvailabilityEvidence.from_mapping({
+            "provider_id": "opencode",
+            "model_id": "hy4-flash-free",
+            "variant": "none",
+            "status": "available",
+            "observed_at": OBSERVED,
+            "source": "synthetic-probe",
+        })
+        self.assertEqual(absent, observation.ref)
+
+    def test_p21_f1_canonical_identity_binds_evidence_and_authorization(self):
+        free = model(model_id="canonical-free", variant=None)
+        free_result = select(
+            inventory(free),
+            ev=[{
+                "provider_id": "opencode",
+                "model_id": "canonical-free",
+                "variant": "none",
+                "status": "available",
+                "observed_at": OBSERVED,
+                "source": "synthetic-probe",
+            }],
+        )
+        self.assertEqual(Decision.RECOMMEND_FREE, free_result.decision)
+        self.assertEqual("opencode/canonical-free", selected_string(free_result))
+
+        paid = model(provider_id="opencode-go", model_id="canonical-paid",
+                     variant=None, cost="additional")
+        authorized = select(
+            inventory(paid),
+            mis=mission(estimated_extra_cost_usd="0.10"),
+            pol=policy(
+                allow_additional_consumption=True,
+                paid_authorization=auth(
+                    ref("opencode-go", "canonical-paid", variant="none")
+                ),
+            ),
+            ev=[evidence(paid)],
+        )
+        self.assertEqual(
+            Decision.RECOMMEND_AUTHORIZED_FALLBACK, authorized.decision
+        )
+        self.assertEqual("opencode-go/canonical-paid", selected_string(authorized))
+
+    def test_p21_f1_duplicate_after_canonicalization_is_rejected(self):
+        absent = model(model_id="same-free", variant=None)
+        none = model(model_id="same-free", variant="none")
+        with self.assertRaises(ValueError):
+            select(inventory(absent, none), ev=[evidence(absent)])
+
+    def test_p21_f2_specific_authorization_requires_mission_id(self):
+        with self.assertRaises(ValueError):
+            PaidAuthorization.from_mapping(
+                auth(ref("opencode-go", "premium"), mission_id=None)
+            )
+
+    def test_p21_f2_authorization_scope_is_compared_with_mission(self):
+        paid = model(provider_id="opencode-go", model_id="premium",
+                     cost="additional")
+        result = select(
+            inventory(paid),
+            mis=mission(scope="coord05b:other", estimated_extra_cost_usd="0.10"),
+            pol=policy(
+                allow_additional_consumption=True,
+                paid_authorization=auth(ref("opencode-go", "premium")),
+            ),
+            ev=[evidence(paid)],
+        )
+        self.assertEqual(Decision.NEEDS_AUTHORIZATION, result.decision)
+        self.assertIsNone(result.selected)
+        self.assertEqual("authorization_scope_mismatch", result.authorization_reason)
+
+    def test_p21_f2_missing_external_validation_is_not_authorization(self):
+        paid = model(provider_id="opencode-go", model_id="premium",
+                     cost="additional")
+        result = select(
+            inventory(paid),
+            mis=mission(estimated_extra_cost_usd="0.10"),
+            pol=policy(
+                allow_additional_consumption=True,
+                paid_authorization=auth(
+                    ref("opencode-go", "premium"),
+                    external_validation=None,
+                ),
+            ),
+            ev=[evidence(paid)],
+        )
+        self.assertEqual(Decision.NEEDS_AUTHORIZATION, result.decision)
+        self.assertIsNone(result.selected)
+        self.assertFalse(result.authorized)
+        self.assertEqual(
+            "authorization_external_validation_missing",
+            result.authorization_reason,
+        )
+
+    def test_p21_f2_free_with_positive_price_is_rejected(self):
+        contradictory = model(model_id="not-really-free", cost="free")
+        contradictory["cost"]["input_usd_per_million"] = "0.01"
+        with self.assertRaises(ValueError):
+            select(inventory(contradictory), ev=[evidence(contradictory)])
+
+    def test_p21_f2_contradictory_cost_categories_in_one_model_are_rejected(self):
+        contradictory = model(model_id="double-cost", cost="free")
+        contradictory["cost_category"] = "additional"
+        with self.assertRaises(ValueError):
+            select(inventory(contradictory), ev=[evidence(contradictory)])
+
+    def test_p21_f2_paid_authorization_rejects_free_or_unknown_categories(self):
+        for category in ("free", "unknown"):
+            with self.assertRaises(ValueError):
+                PaidAuthorization.from_mapping(
+                    auth(ref("opencode-go", "premium"), categories=[category])
+                )
+
+    def test_p21_f3_mission_state_is_mandatory(self):
+        free = model(model_id="real-free")
+        with self.assertRaises(ValueError):
+            select(
+                inventory(free),
+                mis={"mission_id": "m1", "requirements": {}},
+                ev=[evidence(free)],
+            )
+
+    def test_p21_f3_invalid_mission_state_fails_closed(self):
+        free = model(model_id="real-free")
+        with self.assertRaises(ValueError):
+            select(
+                inventory(free),
+                mis=mission(state="NOT_A_STATE"),
+                ev=[evidence(free)],
+            )
+
+    def test_p21_f3_running_mission_never_emits_change_intent(self):
+        free = model(model_id="real-free")
+        result = select(
+            inventory(free),
+            mis=mission(state="RUNNING"),
+            ev=[evidence(free)],
+        )
+        self.assertEqual(Decision.RECOMMEND_FREE, result.decision)
+        self.assertIsNone(result.session_change_intent)
+        self.assertIn(
+            "change_intent_suppressed_mission_state", result.reason_codes
+        )
+
+    def test_p21_f4_rotation_disabled_blocks_fallback_replacement(self):
+        current = model(model_id="current-free")
+        paid = model(provider_id="opencode-go", model_id="premium",
+                     cost="additional")
+        result = select(
+            inventory(current, paid),
+            mis=mission(
+                current_model=ref("opencode", "current-free"),
+                estimated_extra_cost_usd="0.10",
+            ),
+            pol=policy(
+                allow_additional_consumption=True,
+                rotation_enabled=False,
+                paid_authorization=auth(ref("opencode-go", "premium")),
+            ),
+            ev=[evidence(current, status="unavailable"), evidence(paid)],
+        )
+        self.assertEqual(Decision.NEEDS_AUTHORIZATION, result.decision)
+        self.assertIsNone(result.selected)
+        self.assertEqual("opencode-go/premium#default",
+                         str(result.fallback_candidate))
+        self.assertEqual("rotation_disabled", result.authorization_reason)
+        self.assertIsNone(result.session_change_intent)
+
+    def test_p21_f4_rotation_disabled_still_allows_initial_selection(self):
+        paid = model(provider_id="opencode-go", model_id="premium",
+                     cost="additional")
+        result = select(
+            inventory(paid),
+            mis=mission(estimated_extra_cost_usd="0.10"),
+            pol=policy(
+                allow_additional_consumption=True,
+                rotation_enabled=False,
+                paid_authorization=auth(ref("opencode-go", "premium")),
+            ),
+            ev=[evidence(paid)],
+        )
+        self.assertEqual(
+            Decision.RECOMMEND_AUTHORIZED_FALLBACK, result.decision
+        )
+        self.assertEqual("opencode-go/premium#default", selected_string(result))
+        self.assertIsNotNone(result.session_change_intent)
+
+    def test_p21_f4_unknown_availability_preserves_current_when_permitted(self):
+        current = model(model_id="current-free")
+        other = model(model_id="other-free")
+        result = select(
+            inventory(current, other),
+            mis=mission(current_model=ref("opencode", "current-free")),
+            pol=policy(allow_unknown_availability=True),
+            ev=[evidence(other)],
+        )
+        self.assertEqual(Decision.KEEP_CURRENT, result.decision)
+        self.assertEqual("opencode/current-free#default", selected_string(result))
+        self.assertFalse(result.change_required)
+        self.assertIsNone(result.session_change_intent)
+        self.assertIn("current_availability_unknown", result.uncertainties)
+
+    def test_p21_f4_unknown_current_never_authorizes_paid_substitution(self):
+        current = model(model_id="current-free")
+        paid = model(provider_id="opencode-go", model_id="premium",
+                     cost="additional")
+        result = select(
+            inventory(current, paid),
+            mis=mission(
+                current_model=ref("opencode", "current-free"),
+                estimated_extra_cost_usd="0.10",
+            ),
+            pol=policy(
+                allow_additional_consumption=True,
+                paid_authorization=auth(ref("opencode-go", "premium")),
+            ),
+            ev=[evidence(paid)],
+        )
+        self.assertEqual(Decision.INSUFFICIENT_EVIDENCE, result.decision)
+        self.assertIsNone(result.selected)
+        self.assertFalse(result.change_required)
+        self.assertIsNone(result.session_change_intent)
+        self.assertEqual("opencode-go/premium#default",
+                         str(result.fallback_candidate))
+        self.assertIn("current_availability_unknown", result.reason_codes)
+
+    def test_p21_f4_current_absent_from_inventory_is_not_confirmed_cause(self):
+        other = model(model_id="other-free")
+        result = select(
+            inventory(other),
+            mis=mission(current_model=ref("opencode", "current-free")),
+            ev=[evidence(other)],
+        )
+        self.assertEqual(Decision.INSUFFICIENT_EVIDENCE, result.decision)
+        self.assertIsNone(result.selected)
+        self.assertFalse(result.change_required)
+        self.assertIsNone(result.session_change_intent)
+        self.assertEqual("opencode/other-free#default",
+                         str(result.fallback_candidate))
+        self.assertIn("current_not_in_inventory", result.reason_codes)
+        self.assertIn("no_substitution_without_confirmed_cause",
+                      result.reason_codes)
+
+    @staticmethod
+    def _typed_model(model_id: str, variant: str | None = None,
+                     context: int = 1_000_000) -> Model:
+        return Model(
+            ref=ModelRef("opencode", model_id, variant),
+            context_window_tokens=context,
+            tools=True,
+            modalities=frozenset({"text"}),
+            capabilities=frozenset({"reasoning"}),
+            cost_category=CostCategory.FREE,
+        )
+
+    def test_p21_f5_typed_inventory_duplicate_is_revalidated(self):
+        first = self._typed_model("duplicate-free", None)
+        second = self._typed_model("duplicate-free", "none")
+        with self.assertRaises(ValueError):
+            Inventory.from_value(Inventory(models=(first, second)))
+
+    def test_p21_f5_typed_mission_invalid_state_is_revalidated(self):
+        invalid = Mission(
+            mission_id="m1",
+            state="NOT_A_STATE",
+            requirements=MissionRequirements(),
+        )
+        with self.assertRaises(ValueError):
+            Mission.from_value(invalid)
+
+    def test_p21_f5_typed_inventory_invalid_context_is_revalidated(self):
+        invalid = self._typed_model("bad-context", context=0)
+        with self.assertRaises(ValueError):
+            Inventory.from_value(Inventory(models=(invalid,)))
+
+    def test_p21_f5_typed_policy_incompatible_is_revalidated(self):
+        with self.assertRaises(ValueError):
+            Policy.from_value(Policy(free_first=False))
+        with self.assertRaises(ValueError):
+            Policy.from_value(Policy(coordination_mode="ASSISTED"))
 
 
 if __name__ == "__main__":

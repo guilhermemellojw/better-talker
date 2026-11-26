@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""COORD-05B/P1 — deterministic model selection and recommendation.
+"""COORD-05B/P2.1 — deterministic model selection and recommendation.
 
 This module is deliberately offline and side-effect free:
 
@@ -209,6 +209,11 @@ class ModelRef:
                 raise ValueError("variant: outer whitespace is not allowed")
             if self.variant == "":
                 raise ValueError("variant: empty string is not allowed; use null")
+            # F1/P2.1: identity is canonical, not merely presentation.  The
+            # explicit absence marker "none" is the same reference as an absent
+            # variant for equality, hashing, sorting, evidence and authorization.
+            if self.variant.lower() == "none":
+                object.__setattr__(self, "variant", None)
 
     @property
     def sort_key(self) -> tuple[str, str, str]:
@@ -222,10 +227,10 @@ class ModelRef:
         }
 
     def __str__(self) -> str:
-        # COORD-05B/P2 F5: variant="none" is the canonical absence marker;
-        # an absent variant never implies "#default".
+        # An absent variant never implies "#default"; explicit variants remain
+        # distinct identities.
         base = f"{self.provider_id}/{self.model_id}"
-        return base if self.variant is None or self.variant.lower() == "none" else f"{base}#{self.variant}"
+        return base if self.variant is None else f"{base}#{self.variant}"
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "ModelRef":
@@ -297,14 +302,21 @@ class Model:
         capabilities = _string_set(value.get("capabilities"), "capabilities")
 
         cost = value.get("cost")
+        top_category = value.get("cost_category")
         if cost is None:
-            category_raw = value.get("cost_category")
+            category_raw = top_category
             cost_source = None
             cost_observed_at = None
             input_cost = None
             output_cost = None
         elif isinstance(cost, Mapping):
-            category_raw = cost.get("category", value.get("cost_category"))
+            nested_category = cost.get("category")
+            if nested_category is not None and top_category is not None:
+                nested_text = _text(nested_category, "cost.category").lower()
+                top_text = _text(top_category, "cost_category").lower()
+                if nested_text != top_text:
+                    raise ValueError("cost.category: contradictory values in one record")
+            category_raw = nested_category if nested_category is not None else top_category
             cost_source = cost.get("source")
             cost_observed_at = _utc(cost.get("observed_at"), "cost.observed_at")
             input_cost = _decimal(
@@ -324,6 +336,18 @@ class Model:
             except ValueError as exc:
                 raise ValueError("cost.category: unknown value") from exc
 
+        # F2/P2.1: a free category with a positive price is contradictory and
+        # must not enable free-first selection.
+        if category is CostCategory.FREE:
+            for field_name, price in (
+                ("input_usd_per_million", input_cost),
+                ("output_usd_per_million", output_cost),
+            ):
+                if price is not None and price > 0:
+                    raise ValueError(
+                        f"cost.{field_name}: positive price contradicts free category"
+                    )
+
         return cls(
             ref=ref,
             context_window_tokens=context_int,
@@ -342,6 +366,36 @@ class Model:
     def is_free(self) -> bool:
         return self.cost_category is CostCategory.FREE
 
+    def as_dict(self) -> dict[str, Any]:
+        category = (
+            self.cost_category.value
+            if isinstance(self.cost_category, CostCategory)
+            else self.cost_category
+        )
+        return {
+            "provider_id": self.ref.provider_id,
+            "model_id": self.ref.model_id,
+            "variant": self.ref.variant,
+            "context_window_tokens": self.context_window_tokens,
+            "tools": self.tools,
+            "modalities": None if self.modalities is None else sorted(self.modalities),
+            "capabilities": None
+            if self.capabilities is None
+            else sorted(self.capabilities),
+            "cost": {
+                "category": category,
+                "source": self.cost_source,
+                "observed_at": _iso(self.cost_observed_at),
+                "input_usd_per_million": None
+                if self.input_usd_per_million is None
+                else str(self.input_usd_per_million),
+                "output_usd_per_million": None
+                if self.output_usd_per_million is None
+                else str(self.output_usd_per_million),
+            },
+            "notes": self.notes,
+        }
+
 
 @dataclass(frozen=True)
 class Inventory:
@@ -353,7 +407,9 @@ class Inventory:
     @classmethod
     def from_value(cls, value: Any) -> "Inventory":
         if isinstance(value, Inventory):
-            return value
+            # F5/P2.1: typed values are revalidated instead of being trusted
+            # merely because they already have the expected class.
+            value = value.as_dict()
         if isinstance(value, Mapping):
             raw_models = value.get("models")
             source = value.get("source")
@@ -383,10 +439,76 @@ class Inventory:
             version=None if version is None else _text(version, "inventory.version"),
         )
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "models": [model.as_dict() for model in self.models],
+            "source": self.source,
+            "observed_at": _iso(self.observed_at),
+            "version": self.version,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Paid authorization, policy and mission
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ExternalValidation:
+    """Structured external-validation record bound to scope and mission.
+
+    The engine verifies contract binding only; it does not authenticate the
+    issuer or contact the authority.  A plain textual reference is not enough.
+    """
+
+    authority: str
+    reference: str
+    scope: str
+    mission_id: str
+    validated_at: datetime
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "ExternalValidation":
+        if not isinstance(value, Mapping):
+            raise ValueError(
+                "paid_authorization.external_validation: mapping required"
+            )
+        validated_at = _utc(
+            value.get("validated_at"),
+            "paid_authorization.external_validation.validated_at",
+        )
+        if validated_at is None:
+            raise ValueError(
+                "paid_authorization.external_validation.validated_at: required"
+            )
+        return cls(
+            authority=_text(
+                value.get("authority"),
+                "paid_authorization.external_validation.authority",
+            ),
+            reference=_text(
+                value.get("reference"),
+                "paid_authorization.external_validation.reference",
+            ),
+            scope=_text(
+                value.get("scope"),
+                "paid_authorization.external_validation.scope",
+            ),
+            mission_id=_text(
+                value.get("mission_id"),
+                "paid_authorization.external_validation.mission_id",
+            ),
+            validated_at=validated_at,
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "authority": self.authority,
+            "reference": self.reference,
+            "scope": self.scope,
+            "mission_id": self.mission_id,
+            "validated_at": _iso(self.validated_at),
+        }
 
 
 @dataclass(frozen=True)
@@ -403,6 +525,7 @@ class PaidAuthorization:
     evidence: str
     mission_id: str | None = None
     purpose: str | None = None
+    external_validation: ExternalValidation | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "PaidAuthorization":
@@ -431,13 +554,30 @@ class PaidAuthorization:
         authorized_by = _text(value.get("authorized_by", ""), "paid_authorization.authorized_by", allow_empty=True)
         scope = _text(value.get("scope", ""), "paid_authorization.scope", allow_empty=True)
         evidence = _text(value.get("evidence", ""), "paid_authorization.evidence", allow_empty=True)
-        mission_id = value.get("mission_id")
+        mission_raw = value.get("mission_id")
+        mission_id = (
+            None
+            if mission_raw is None
+            else _text(mission_raw, "paid_authorization.mission_id")
+        )
         purpose = value.get("purpose")
+        external_raw = value.get("external_validation")
+        external = (
+            None
+            if external_raw is None
+            else ExternalValidation.from_mapping(external_raw)
+        )
+
+        if CostCategory.FREE in categories or CostCategory.UNKNOWN in categories:
+            raise ValueError(
+                "paid_authorization.categories: free and unknown cannot authorize paid consumption"
+            )
 
         if authorized:
             for field_name, field_value in (
                 ("authorized_by", authorized_by),
                 ("scope", scope),
+                ("mission_id", mission_id),
                 ("evidence", evidence),
             ):
                 if not field_value:
@@ -460,9 +600,31 @@ class PaidAuthorization:
             max_cost_usd=max_cost,
             expires_at=expires_at,
             evidence=evidence,
-            mission_id=None if mission_id is None else _text(mission_id, "paid_authorization.mission_id"),
+            mission_id=mission_id,
             purpose=None if purpose is None else _text(purpose, "paid_authorization.purpose"),
+            external_validation=external,
         )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "authorized": self.authorized,
+            "authorized_by": self.authorized_by,
+            "scope": self.scope,
+            "mission_id": self.mission_id,
+            "categories": sorted(category.value for category in self.categories),
+            "model_refs": [
+                ref.as_dict() for ref in sorted(self.model_refs, key=lambda item: item.sort_key)
+            ],
+            "max_cost_usd": None
+            if self.max_cost_usd is None
+            else str(self.max_cost_usd),
+            "expires_at": _iso(self.expires_at),
+            "evidence": self.evidence,
+            "purpose": self.purpose,
+            "external_validation": None
+            if self.external_validation is None
+            else self.external_validation.as_dict(),
+        }
 
     def validate(
         self,
@@ -473,8 +635,25 @@ class PaidAuthorization:
     ) -> tuple[bool, str]:
         if not self.authorized:
             return False, "authorization_not_granted"
-        if self.mission_id is not None and self.mission_id != mission.mission_id:
+        if self.mission_id is None:
+            return False, "authorization_mission_missing"
+        if self.mission_id != mission.mission_id:
             return False, "authorization_mission_mismatch"
+        if mission.scope is None:
+            return False, "authorization_scope_missing"
+        if self.scope != mission.scope:
+            return False, "authorization_scope_mismatch"
+        external = self.external_validation
+        if external is None:
+            return False, "authorization_external_validation_missing"
+        if external.authority != self.authorized_by:
+            return False, "authorization_external_authority_mismatch"
+        if external.scope != self.scope:
+            return False, "authorization_external_scope_mismatch"
+        if external.mission_id != mission.mission_id:
+            return False, "authorization_external_mission_mismatch"
+        if external.validated_at > now:
+            return False, "authorization_external_validation_future"
         if candidate.cost_category not in self.categories:
             return False, "authorization_category_not_covered"
         if candidate.ref not in self.model_refs:
@@ -507,7 +686,8 @@ class Policy:
     @classmethod
     def from_value(cls, value: Any) -> "Policy":
         if isinstance(value, Policy):
-            return value
+            # F5/P2.1: typed policy is revalidated through the same constraints.
+            value = value.as_dict()
         if not isinstance(value, Mapping):
             raise ValueError("policy: mapping required")
         free_first = _bool(value.get("free_first", True), "policy.free_first")
@@ -565,6 +745,28 @@ class Policy:
             coordination_mode=mode,
         )
 
+    def as_dict(self) -> dict[str, Any]:
+        mode = (
+            self.coordination_mode.value
+            if isinstance(self.coordination_mode, CoordinationMode)
+            else self.coordination_mode
+        )
+        return {
+            "free_first": self.free_first,
+            "preferred_context_tokens": self.preferred_context_tokens,
+            "allow_unknown_context": self.allow_unknown_context,
+            "allow_unknown_availability": self.allow_unknown_availability,
+            "allow_included_franchise": self.allow_included_franchise,
+            "allow_additional_consumption": self.allow_additional_consumption,
+            "rotation_enabled": self.rotation_enabled,
+            "coordination_mode": mode,
+            "benchmark_suite": self.benchmark_suite,
+            "use_verified_benchmark": self.use_verified_benchmark,
+            "paid_authorization": None
+            if self.paid_authorization is None
+            else self.paid_authorization.as_dict(),
+        }
+
 
 @dataclass(frozen=True)
 class MissionRequirements:
@@ -598,12 +800,21 @@ class MissionRequirements:
             required_capabilities=capabilities or frozenset(),
         )
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "min_context_tokens": self.min_context_tokens,
+            "requires_tools": self.requires_tools,
+            "required_modalities": sorted(self.required_modalities),
+            "required_capabilities": sorted(self.required_capabilities),
+        }
+
 
 @dataclass(frozen=True)
 class Mission:
     mission_id: str
     state: MissionState
     requirements: MissionRequirements
+    scope: str | None = None
     delivery_state: str | None = None
     current_model: ModelRef | None = None
     estimated_extra_cost_usd: Decimal | None = None
@@ -613,28 +824,44 @@ class Mission:
     def is_unknown(self) -> bool:
         return self.state is MissionState.UNKNOWN or (
             self.delivery_state is not None
-            and self.delivery_state.strip().upper() == "UNKNOWN"
+            and self.delivery_state.strip().upper() in {"UNKNOWN", "INDETERMINATE"}
         )
+
+    @property
+    def allows_operational_intent(self) -> bool:
+        """Only planned/ready missions may receive a session-change intent.
+
+        RUNNING delivery and terminal missions remain advisory: no operational
+        model change is proposed until reconciliation.
+        """
+        return self.state in (MissionState.PLANNED, MissionState.READY)
 
     @classmethod
     def from_value(cls, value: Any) -> "Mission":
         if isinstance(value, Mission):
-            return value
+            # F5/P2.1: typed missions are revalidated instead of trusted.
+            value = value.as_dict()
         if not isinstance(value, Mapping):
             raise ValueError("mission: mapping required")
         mission_id = _text(value.get("mission_id"), "mission.mission_id")
-        state_raw = value.get("state", MissionState.PLANNED.value)
+        # F3/P2.1: there is no implicit PLANNED state.  Missing state is not
+        # evidence; it fails closed at the input boundary.
+        if "state" not in value or value.get("state") is None:
+            raise ValueError("mission.state: required")
+        state_raw = value["state"]
         try:
             state = MissionState(_text(state_raw, "mission.state").upper())
         except ValueError as exc:
             raise ValueError("mission.state: unknown value") from exc
         delivery = value.get("delivery_state")
+        scope_raw = value.get("scope")
         current_raw = value.get("current_model")
         current = None if current_raw is None else ModelRef.from_mapping(current_raw)
         return cls(
             mission_id=mission_id,
             state=state,
             requirements=MissionRequirements.from_mapping(value.get("requirements")),
+            scope=None if scope_raw is None else _text(scope_raw, "mission.scope"),
             delivery_state=None if delivery is None else _text(delivery, "mission.delivery_state"),
             current_model=current,
             estimated_extra_cost_usd=_decimal(
@@ -643,6 +870,24 @@ class Mission:
             ),
             notes=str(value.get("notes", "")),
         )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "mission_id": self.mission_id,
+            "state": self.state.value
+            if isinstance(self.state, MissionState)
+            else self.state,
+            "scope": self.scope,
+            "requirements": self.requirements.as_dict(),
+            "delivery_state": self.delivery_state,
+            "current_model": None
+            if self.current_model is None
+            else self.current_model.as_dict(),
+            "estimated_extra_cost_usd": None
+            if self.estimated_extra_cost_usd is None
+            else str(self.estimated_extra_cost_usd),
+            "notes": self.notes,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1154,6 +1399,109 @@ class ModelPolicyEngine:
 
     # -- decision branches ---------------------------------------------------
 
+    _CONFIRMED_REPLACEMENT_REASONS = frozenset(
+        {
+            "unavailable_confirmed",
+            "cooldown_active",
+            "limits_reached_no_renewal_evidence",
+            "included_not_allowed",
+            "additional_not_allowed",
+        }
+    )
+    _CONFIRMED_REPLACEMENT_PREFIXES = (
+        "context_below_requirement",
+        "tools_not_supported",
+        "modality_missing:",
+        "capability_missing:",
+    )
+
+    def _has_confirmed_replacement_cause(self, item: CandidateEvaluation) -> bool:
+        return any(
+            reason in self._CONFIRMED_REPLACEMENT_REASONS
+            or reason.startswith(self._CONFIRMED_REPLACEMENT_PREFIXES)
+            for reason in item.reasons
+        )
+
+    @staticmethod
+    def _current_evaluation(
+        current: ModelRef | None,
+        eligible: tuple[CandidateEvaluation, ...],
+        excluded: tuple[CandidateEvaluation, ...],
+    ) -> CandidateEvaluation | None:
+        if current is None:
+            return None
+        return next(
+            (item for item in (*eligible, *excluded) if item.ref == current),
+            None,
+        )
+
+    @staticmethod
+    def _session_change_intent(
+        mission: Mission,
+        ref: ModelRef,
+        reason: str,
+    ) -> SessionChangeIntent | None:
+        if not mission.allows_operational_intent:
+            return None
+        return SessionChangeIntent(model=ref, reason=reason)
+
+    def _consultative_no_substitution(
+        self,
+        inv: Inventory,
+        mission: Mission,
+        now: datetime,
+        *,
+        current: ModelRef,
+        current_eval: CandidateEvaluation | None,
+        alternative: CandidateEvaluation,
+        eligible: tuple[CandidateEvaluation, ...],
+        excluded: tuple[CandidateEvaluation, ...],
+        benchmark_used: bool,
+        policy_summary: dict[str, Any],
+        current_reason: str,
+        current_detail: str,
+    ) -> Recommendation:
+        current_uncertainties = (
+            set() if current_eval is None else set(current_eval.uncertainties)
+        )
+        return Recommendation(
+            decision=Decision.INSUFFICIENT_EVIDENCE,
+            selected=None,
+            current_model=current,
+            change_required=False,
+            fallback_candidate=alternative.ref,
+            requires_authorization=False,
+            authorized=False,
+            authorization_reason=None,
+            ranked=eligible,
+            excluded=excluded,
+            reason_codes=(
+                current_reason,
+                "no_substitution_without_confirmed_cause",
+            ),
+            uncertainties=tuple(
+                sorted(
+                    current_uncertainties
+                    | set(alternative.uncertainties)
+                    | {current_reason}
+                )
+            ),
+            explanation=(
+                f"decision=INSUFFICIENT_EVIDENCE; mission={mission.mission_id}; "
+                f"current={canonical_model_ref(current)} {current_detail}; "
+                f"consultative_alternative={canonical_model_ref(alternative.ref)}; "
+                "no substitution without confirmed unavailability, limit or inadequacy"
+            ),
+            mission_id=mission.mission_id,
+            mission_state=mission.state.value,
+            policy_summary=policy_summary,
+            inventory_source=inv.source,
+            inventory_observed_at=inv.observed_at,
+            evaluated_at=now,
+            benchmark_used=benchmark_used,
+            session_change_intent=None,
+        )
+
     def _recommend_free(
         self,
         inv: Inventory,
@@ -1170,7 +1518,10 @@ class ModelPolicyEngine:
         # F1 — preserve an adequate, available free current model even when a
         # larger context is ranked higher: no unnecessary context reduction.
         current_free = next((item for item in free if item.ref == current), None)
-        if current_free is not None and current_free.availability == "available":
+        if current_free is not None and current_free.availability in {
+            "available",
+            "unknown",
+        }:
             top = current_free
         keep = current is not None and current == top.ref
         if not self.policy.rotation_enabled and current is not None and current != top.ref:
@@ -1201,11 +1552,43 @@ class ModelPolicyEngine:
                 benchmark_used=benchmark_used,
                 session_change_intent=None,
             )
+        current_eval = self._current_evaluation(current, eligible, excluded)
+        no_confirmed_cause = current_eval is None or (
+            current_eval.availability == "unknown"
+            and not self._has_confirmed_replacement_cause(current_eval)
+        )
+        if (
+            current is not None
+            and current != top.ref
+            and no_confirmed_cause
+        ):
+            if current_eval is None:
+                current_reason = "current_not_in_inventory"
+                current_detail = "not_present_in_supplied_inventory"
+            else:
+                current_reason = "current_availability_unknown"
+                current_detail = "availability=unknown"
+            return self._consultative_no_substitution(
+                inv,
+                mission,
+                now,
+                current=current,
+                current_eval=current_eval,
+                alternative=top,
+                eligible=eligible,
+                excluded=excluded,
+                benchmark_used=benchmark_used,
+                policy_summary=policy_summary,
+                current_reason=current_reason,
+                current_detail=current_detail,
+            )
         decision = Decision.KEEP_CURRENT if keep else Decision.RECOMMEND_FREE
         reasons: list[str] = []
         if keep:
             reasons.append("kept_current")
         uncertainties = list(top.uncertainties)
+        if keep and top.availability == "unknown":
+            uncertainties.append("current_availability_unknown")
         reasons.append(
             "selected_free_preferred_context"
             if top.context_window_tokens is not None
@@ -1216,9 +1599,8 @@ class ModelPolicyEngine:
             reasons.append("selected_free_unverified_availability")
         if current is not None and current != top.ref:
             reasons.append("current_not_selected")
-            if any(item.ref == current for item in excluded):
+            if current_eval is not None and not current_eval.eligible:
                 reasons.append("current_not_eligible")
-                current_eval = next(item for item in excluded if item.ref == current)
                 if any(
                     reason
                     in {
@@ -1248,10 +1630,13 @@ class ModelPolicyEngine:
         change_required = current is None or current != top.ref
         intent = None
         if change_required:
-            intent = SessionChangeIntent(
-                model=top.ref,
-                reason="selected_model_requires_separate_session_change",
+            intent = self._session_change_intent(
+                mission,
+                top.ref,
+                "selected_model_requires_separate_session_change",
             )
+            if intent is None:
+                reasons.append("change_intent_suppressed_mission_state")
         return Recommendation(
             decision=decision,
             selected=top.ref,
@@ -1295,6 +1680,76 @@ class ModelPolicyEngine:
         policy_summary: dict[str, Any],
     ) -> Recommendation:
         top = fallback[0]
+        current = mission.current_model
+        current_eval = self._current_evaluation(current, eligible, excluded)
+        replacement = current is not None and current != top.ref
+        if replacement and not self.policy.rotation_enabled:
+            # F4/P2.1: the rotation contract applies to paid fallback too.
+            return Recommendation(
+                decision=Decision.NEEDS_AUTHORIZATION,
+                selected=None,
+                current_model=current,
+                change_required=False,
+                fallback_candidate=top.ref,
+                requires_authorization=True,
+                authorized=False,
+                authorization_reason="rotation_disabled",
+                ranked=eligible,
+                excluded=excluded,
+                reason_codes=(
+                    "automatic_rotation_disabled",
+                    "rotation_requires_authorization",
+                ),
+                uncertainties=top.uncertainties,
+                explanation=(
+                    f"rotation_disabled:current={canonical_model_ref(current)};"
+                    f"fallback={canonical_model_ref(top.ref)}"
+                ),
+                mission_id=mission.mission_id,
+                mission_state=mission.state.value,
+                policy_summary=policy_summary,
+                inventory_source=inv.source,
+                inventory_observed_at=inv.observed_at,
+                evaluated_at=now,
+                benchmark_used=benchmark_used,
+                session_change_intent=None,
+            )
+        if (
+            replacement
+            and (
+                current_eval is None
+                or (
+                    current_eval.availability == "unknown"
+                    and not self._has_confirmed_replacement_cause(current_eval)
+                )
+            )
+        ):
+            current_reason = (
+                "current_not_in_inventory"
+                if current_eval is None
+                else "current_availability_unknown"
+            )
+            current_detail = (
+                "not_present_in_supplied_inventory"
+                if current_eval is None
+                else "availability=unknown"
+            )
+            # Unknown availability or absent evidence for the current model is
+            # not a confirmed reason to replace it, even with paid authorization.
+            return self._consultative_no_substitution(
+                inv,
+                mission,
+                now,
+                current=current,
+                current_eval=current_eval,
+                alternative=top,
+                eligible=eligible,
+                excluded=excluded,
+                benchmark_used=benchmark_used,
+                policy_summary=policy_summary,
+                current_reason=current_reason,
+                current_detail=current_detail,
+            )
         authorization = self.policy.paid_authorization
         if authorization is None:
             valid, auth_reason = False, "authorization_missing"
@@ -1307,15 +1762,18 @@ class ModelPolicyEngine:
             valid, auth_reason = authorization.validate(
                 now, mission, model, mission.estimated_extra_cost_usd
             )
-        current = mission.current_model
         if valid:
             change_required = current is None or current != top.ref
             intent = None
+            reasons = ["selected_authorized_fallback"]
             if change_required:
-                intent = SessionChangeIntent(
-                    model=top.ref,
-                    reason="authorized_fallback_requires_separate_session_change",
+                intent = self._session_change_intent(
+                    mission,
+                    top.ref,
+                    "authorized_fallback_requires_separate_session_change",
                 )
+                if intent is None:
+                    reasons.append("change_intent_suppressed_mission_state")
             return Recommendation(
                 decision=Decision.RECOMMEND_AUTHORIZED_FALLBACK,
                 selected=top.ref,
@@ -1327,7 +1785,7 @@ class ModelPolicyEngine:
                 authorization_reason=auth_reason,
                 ranked=eligible,
                 excluded=excluded,
-                reason_codes=("selected_authorized_fallback",),
+                reason_codes=tuple(sorted(set(reasons))),
                 uncertainties=top.uncertainties,
                 explanation=self._explain(
                     Decision.RECOMMEND_AUTHORIZED_FALLBACK,
@@ -1347,6 +1805,17 @@ class ModelPolicyEngine:
                 benchmark_used=benchmark_used,
                 session_change_intent=intent,
             )
+        change_required = current is None or current != top.ref
+        intent = None
+        reasons = ["needs_authorization", "fallback_candidate_requires_authorization"]
+        if change_required:
+            intent = self._session_change_intent(
+                mission,
+                top.ref,
+                "fallback_requires_authorization_before_session_change",
+            )
+            if intent is None:
+                reasons.append("change_intent_suppressed_mission_state")
         return Recommendation(
             decision=Decision.NEEDS_AUTHORIZATION,
             selected=None,
@@ -1358,7 +1827,7 @@ class ModelPolicyEngine:
             authorization_reason=auth_reason,
             ranked=eligible,
             excluded=excluded,
-            reason_codes=("needs_authorization", "fallback_candidate_requires_authorization"),
+            reason_codes=tuple(sorted(set(reasons))),
             uncertainties=top.uncertainties,
             explanation=self._explain(
                 Decision.NEEDS_AUTHORIZATION,
@@ -1376,10 +1845,7 @@ class ModelPolicyEngine:
             inventory_observed_at=inv.observed_at,
             evaluated_at=now,
             benchmark_used=benchmark_used,
-            session_change_intent=SessionChangeIntent(
-                model=top.ref,
-                reason="fallback_requires_authorization_before_session_change",
-            ),
+            session_change_intent=intent,
         )
 
     def _recommend_none(
@@ -1462,6 +1928,7 @@ class ModelPolicyEngine:
             "allow_unknown_availability": self.policy.allow_unknown_availability,
             "allow_included_franchise": self.policy.allow_included_franchise,
             "allow_additional_consumption": self.policy.allow_additional_consumption,
+            "rotation_enabled": self.policy.rotation_enabled,
             "authorization_present": self.policy.paid_authorization is not None,
             "coordination_mode": self.policy.coordination_mode.value,
             "benchmark_suite": self.policy.benchmark_suite,
@@ -1514,6 +1981,7 @@ class ModelPolicyEngine:
             f"unknown_availability={self.policy.allow_unknown_availability},"
             f"paid_included={self.policy.allow_included_franchise},"
             f"paid_additional={self.policy.allow_additional_consumption}"
+            f",rotation_enabled={self.policy.rotation_enabled}"
         )
         return "; ".join(parts)
 
