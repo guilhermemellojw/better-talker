@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""COORD-05B/P3 — deterministic model selection and recommendation.
+"""COORD-05B/P4 — deterministic model selection and recommendation.
 
 This module is deliberately offline and side-effect free:
 
@@ -474,7 +474,8 @@ class Inventory:
 class ExternalValidation:
     """Structured external-validation record bound to the full material digest.
 
-    The engine verifies contract binding and tamper evidence only; it does not
+    The record also carries an explicit validity window. The engine verifies
+    contract binding, tamper evidence and freshness only; it does not
     authenticate the issuer or contact the authority. A plain textual reference
     is not enough, and the digest is not a signature.
     """
@@ -490,6 +491,7 @@ class ExternalValidation:
     material_sha256: str
     estimated_cost_ceiling_usd: Decimal | None = None
     estimated_extra_cost_usd: Decimal | None = None
+    valid_until: datetime | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "ExternalValidation":
@@ -535,6 +537,10 @@ class ExternalValidation:
                 value.get("estimated_extra_cost_usd"),
                 "paid_authorization.external_validation.estimated_extra_cost_usd",
             ),
+            valid_until=_utc(
+                value.get("valid_until"),
+                "paid_authorization.external_validation.valid_until",
+            ),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -551,6 +557,7 @@ class ExternalValidation:
             "estimated_extra_cost_usd": None
             if self.estimated_extra_cost_usd is None
             else str(self.estimated_extra_cost_usd),
+            "valid_until": _iso(self.valid_until),
         }
 
 
@@ -697,14 +704,24 @@ class PaidAuthorization:
             return False, "authorization_external_mission_mismatch"
         if external.validated_at > now:
             return False, "authorization_external_validation_future"
-        # P3: a prova externa precisa ser a do MATERIAL financeiro integral,
-        # incluindo o custo estimado efetivamente usado na avaliação.
+        if external.valid_until is None:
+            return False, "authorization_external_validity_missing"
+        if external.valid_until <= external.validated_at:
+            return False, "authorization_external_validity_invalid"
+        if now >= external.valid_until:
+            return False, "authorization_external_validation_expired"
+        # P3/P4: a prova externa precisa ser a do MATERIAL financeiro integral,
+        # incluindo custo estimado real, teto externo e validade/frescor.
         if external.reference != self.evidence:
             return False, "authorization_external_reference_mismatch"
         if estimated_extra_cost_usd is None:
             return False, "authorization_estimated_cost_unknown"
         if external.material_sha256 != authorization_material_sha256(
-            self, estimated_extra_cost_usd
+            self,
+            estimated_extra_cost_usd,
+            estimated_cost_ceiling_usd=external.estimated_cost_ceiling_usd,
+            validated_at=external.validated_at,
+            valid_until=external.valid_until,
         ):
             return False, "authorization_external_material_mismatch"
         if external.estimated_extra_cost_usd is None:
@@ -730,18 +747,32 @@ class PaidAuthorization:
 def canonical_authorization_material(
     authorization: "PaidAuthorization",
     estimated_extra_cost_usd: Decimal | None = None,
+    *,
+    estimated_cost_ceiling_usd: Decimal | None = None,
+    validated_at: datetime | None = None,
+    valid_until: datetime | None = None,
 ) -> str:
     """Material financeiro canônico, serializado de forma determinística.
 
     Inclui missão, escopo, autoridade, referência, categorias, modelos/variantes,
-    teto, validade e condições de custo. O custo estimado efetivamente usado na
-    avaliação entra no material; a evidência externa o repete e o digest o
-    vincula. O digest não é assinatura nem prova de autoridade.
+    teto, validade e condições de custo. O custo estimado efetivamente usado, o
+    teto externo e a janela de validade da evidência entram no material; a
+    evidência externa repete esses valores e o digest os vincula. O digest não é
+    assinatura nem prova de autoridade.
     """
     categories = sorted(category.value for category in authorization.categories)
     refs = sorted(str(ref) for ref in authorization.model_refs)
+    external = authorization.external_validation
+    if external is not None:
+        if estimated_cost_ceiling_usd is None:
+            estimated_cost_ceiling_usd = external.estimated_cost_ceiling_usd
+        if validated_at is None:
+            validated_at = external.validated_at
+        if valid_until is None:
+            valid_until = external.valid_until
     max_cost = _decimal_text(authorization.max_cost_usd)
     estimated_cost = _decimal_text(estimated_extra_cost_usd)
+    external_ceiling = _decimal_text(estimated_cost_ceiling_usd)
     material = {
         "authority": authorization.authorized_by,
         "reference": authorization.evidence,
@@ -757,8 +788,12 @@ def canonical_authorization_material(
             "max_cost_usd": max_cost,
             "expires_at": _iso(authorization.expires_at),
             "estimated_extra_cost_usd": estimated_cost,
+            "estimated_cost_ceiling_usd": external_ceiling,
         },
         "estimated_extra_cost_usd": estimated_cost,
+        "estimated_cost_ceiling_usd": external_ceiling,
+        "validated_at": _iso(validated_at),
+        "valid_until": _iso(valid_until),
     }
     return json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -766,11 +801,19 @@ def canonical_authorization_material(
 def authorization_material_sha256(
     authorization: "PaidAuthorization",
     estimated_extra_cost_usd: Decimal | None = None,
+    *,
+    estimated_cost_ceiling_usd: Decimal | None = None,
+    validated_at: datetime | None = None,
+    valid_until: datetime | None = None,
 ) -> str:
     """Digest de integridade do material — NÃO é assinatura nem autoridade."""
     return hashlib.sha256(
         canonical_authorization_material(
-            authorization, estimated_extra_cost_usd
+            authorization,
+            estimated_extra_cost_usd,
+            estimated_cost_ceiling_usd=estimated_cost_ceiling_usd,
+            validated_at=validated_at,
+            valid_until=valid_until,
         ).encode("utf-8")
     ).hexdigest()
 
@@ -783,12 +826,32 @@ def authorization_material_sha256_from_mapping(
     if not isinstance(value, Mapping):
         raise ValueError("authorization material: mapping required")
     raw = {key: item for key, item in value.items() if key != "external_validation"}
+    external = value.get("external_validation")
+    if external is None:
+        external = {}
+    if not isinstance(external, Mapping):
+        raise ValueError(
+            "authorization material.external_validation: mapping required"
+        )
     estimate = _decimal(
         estimated_extra_cost_usd,
         "authorization_material.estimated_extra_cost_usd",
     )
     return authorization_material_sha256(
-        PaidAuthorization.from_mapping(raw), estimate
+        PaidAuthorization.from_mapping(raw),
+        estimate,
+        estimated_cost_ceiling_usd=_decimal(
+            external.get("estimated_cost_ceiling_usd"),
+            "authorization_material.estimated_cost_ceiling_usd",
+        ),
+        validated_at=_utc(
+            external.get("validated_at"),
+            "authorization_material.validated_at",
+        ),
+        valid_until=_utc(
+            external.get("valid_until"),
+            "authorization_material.valid_until",
+        ),
     )
 
 

@@ -1,4 +1,4 @@
-# MODEL_POLICY — Free First / 1M Preferred (COORD-05B/P3)
+# MODEL_POLICY — Free First / 1M Preferred (COORD-05B/P4)
 
 **Estado:** proposta em PR Draft; não integrada a sessões, pilotos, ao PR #64 ou ao componente de autoridade do PR #72.
 **Escopo:** motor determinístico de **seleção e recomendação** de modelos a partir de inventário, política, missão, disponibilidade e benchmark injetados.
@@ -214,18 +214,20 @@ A autorização é específica e limitada:
     "scope": "coord05b:test",
     "mission_id": "coord05b-p1",
     "validated_at": "2026-11-26T10:00:00Z",
+    "valid_until": "2026-11-27T00:00:00Z",
     "estimated_extra_cost_usd": "0.10",
     "estimated_cost_ceiling_usd": "0.50",
-    "material_sha256": "f403bfb0f026eee941d4c4b24131fd37b2716a73f0a244959cbb4d52feb5c24d"
+    "material_sha256": "c36a9e1051ff34930de5771adda1545ab99f4260db6076b79427e1c509826e54"
   }
 }
 ```
 
-Validação: autorização concedida; `mission_id` presente e igual à missão; escopo da missão presente e igual ao escopo da autorização; validação externa estruturada presente e vinculada a autoridade, escopo, missão e referência; categoria coberta; identidade exata coberta; não expirada; `estimated_extra_cost_usd` da missão igual ao estimado na evidência e `<=` teto aprovado e teto externo; `material_sha256` igual ao digest do material financeiro integral. Caso contrário, não há seleção.
+Validação: autorização concedida; `mission_id` presente e igual à missão; escopo da missão presente e igual ao escopo da autorização; validação externa estruturada presente e vinculada a autoridade, escopo, missão, referência e janela explícita `validated_at`/`valid_until`; categoria coberta; identidade exata coberta; não expirada; `estimated_extra_cost_usd` da missão igual ao estimado na evidência e `<=` teto aprovado e teto externo; `material_sha256` igual ao digest do material financeiro integral. Caso contrário, não há seleção.
 
-O material canônico cobre missão, escopo, autoridade, referência, categorias, modelos/variantes, teto, validade, condições de custo e **custo estimado efetivamente usado na avaliação**. Decimais são normalizados e listas ordenadas antes do JSON canônico (`sort_keys=True`, separadores compactos, UTF-8). Uma prova inalterada de US$ 0,50 não acompanha autorização de US$ 5,00 nem custo estimado diferente.
+O material canônico cobre missão, escopo, autoridade, referência, categorias, modelos/variantes, teto aprovado, validade, condições de custo, **custo estimado efetivamente usado**, **teto externo adicional** e **janela de validade da evidência**. Decimais são normalizados e listas ordenadas antes do JSON canônico (`sort_keys=True`, separadores compactos, UTF-8). Uma prova inalterada de US$ 0,50 não acompanha autorização de US$ 5,00, custo estimado diferente, teto externo diferente ou validade adulterada.
 
 - A validação externa é um **registro estruturado**, não uma frase ou referência textual isolada. O digest detecta adulteração material; **não é assinatura, não autentica a autoridade e não contata nenhum serviço externo**.
+- `valid_until` é obrigatório e explícito. Evidência vencida, com janela inválida ou sem `valid_until` é recusada; não há presunção de frescor por `validated_at` isolado.
 - `included` não é chamado de gratuito.
 - `additional` permanece bloqueado por padrão.
 - O motor não mede franquia, tokens ou billing; apenas aplica a política e a evidência injetada.
@@ -279,7 +281,7 @@ O motor **não** cria, altera, ocupa ou troca sessão. Qualquer troca efetiva ex
 
 `python3 .opencode/scripts/test_coord_model_policy.py -v`
 
-Cobertura atual (65 testes host-only, rede/LLM desativados):
+Cobertura atual (70 testes host-only, rede/LLM desativados):
 
 - gratuitos de 1M × gratuitos menores;
 - indisponibilidade confirmada e troca para outro gratuito;
@@ -294,6 +296,8 @@ Cobertura atual (65 testes host-only, rede/LLM desativados):
 - custo estimado real vinculado ao digest; prova antiga não acompanha estimativa diferente;
 - adulteração de missão, escopo, autoridade, referência, categorias, modelos/variantes, teto, validade, custo estimado interno/externo e digest;
 - estimativa externa ausente não autoriza;
+- teto externo adicional vinculado ao digest; alteração isolada 0,05→0,50 com prova anterior é rejeitada;
+- `validated_at` vinculado ao digest; validade explícita `valid_until`, evidência vencida, com janela inválida ou sem janela recusada;
 - identidade canônica `none`/ausente em igualdade, hash, evidência, autorização e duplicidade;
 - missão sem estado, estado inválido, `RUNNING` sem intenção operacional;
 - rotação desativada nos caminhos gratuito e pago, com seleção inicial ainda permitida;
@@ -322,6 +326,7 @@ Cobertura atual (65 testes host-only, rede/LLM desativados):
 - `697d055b`/`4e6986f7` — ampliação de autorização/benchmark, continuidade Free First, estado explícito, referência canônica e 37 testes offline; preservados no histórico.
 - Revisão P2.1 — fecha divergências entre código e relatório: identidade canônica interna, autorização vinculada a missão/escopo/validação externa, estado obrigatório, rotação em todos os caminhos e revalidação de objetos tipados. **58 testes offline PASS**; PR #71 permanece Draft; nenhum merge.
 - Revisão P3 — vincula a evidência externa ao material financeiro integral, incluindo o custo estimado real, e adiciona regressões de adulteração. **65 testes offline PASS**; PR #71 permanece Draft; nenhum merge.
+- Revisão P4 — vincula teto externo adicional, `validated_at` e janela `valid_until` ao material; frescor explícito e recusa de replay vencido. **70 testes offline PASS**; PR #71 permanece Draft; nenhum merge.
 
 ## 13. Limitações explícitas
 
@@ -332,6 +337,7 @@ Cobertura atual (65 testes host-only, rede/LLM desativados):
 - Benchmark é interface futura; sem observação verificada, não há score.
 - A validação externa é declarada e vinculada por contrato; o motor não autentica o emissor nem verifica assinatura, credencial ou canal externo.
 - O `material_sha256` é SHA-256 de material canônico: detecta adulteração, mas **não é assinatura** e não prova autoridade.
+- A janela `validated_at`/`valid_until` impede replay fora do prazo declarado, mas não prova que a janela foi definida por autoridade autenticada.
 - Objetos tipados são revalidados nas fronteiras `Inventory`, `Policy` e `Mission`; isso não transforma entrada declarada em evidência física.
 - Não há exactly-once, troca de sessão, transmissão, ledger ou autorização automática.
 
@@ -377,3 +383,17 @@ Correção focal do P1 do parecer QA-COORD-71 (`7193729654`). Delta restrito aos
 **Integração futura com PR #72 (não implementada):** o validador `coord_authority.py` injeta um `TrustContract` com pins de autoridade externa e produz uma decisão consultiva sem efeito. Antes de qualquer uso operacional pago, o motor deve consumir essa decisão — verificando que o pin corresponde ao `material_sha256` aqui definido e que a operação está elegível — em vez de criar outra âncora de confiança, outro ledger ou autenticar criptograficamente por conta própria. Nenhuma infraestrutura de confiança externa foi duplicada neste PR.
 
 **Limitações:** digest não é assinatura; nenhuma autoridade externa é contatada; inventário/disponibilidade/custo permanecem entradas declaradas; execução, troca de sessão, faturamento e transmissão continuam desativados; ciência da disponibilidade real depende de D. Sem merge, release, bump, provider, schema, ADB, sessão, credencial ou HealthAgentForms.
+
+## 16. COORD-05B/P4 — teto externo e frescor explícito
+
+Correção focal do P1/P2 residuais do parecer QA-COORD-71/P2 (`7194768546`) no HEAD `cedad101`.
+
+**Fail-first:** cinco sondas independentes falharam antes da correção: (1) prova válida para teto externo de US$ 0,05 autorizava após alteração isolada para US$ 0,50; (2) alteração de `validated_at` preservava a prova; (3) `valid_until` ausente era aceito; (4) janela explicitamente vencida era aceita; (5) janela inválida (`valid_until <= validated_at`) era aceita. Após a correção: **70/70 PASS**, host-only, rede bloqueada, sem LLM.
+
+- **Teto externo:** `estimated_cost_ceiling_usd` entra no material canônico e no `material_sha256`. Uma prova de 0,05 não pode ser reutilizada para 0,50.
+- **`validated_at`:** quando usado como controle, entra no material e no digest. Alterá-lo sem nova prova produz `authorization_external_material_mismatch`.
+- **Frescor:** `valid_until` é obrigatório e explícito, deve ser posterior a `validated_at` e ao instante da avaliação. Ausente, inválida ou vencida resulta em `authorization_external_validity_missing`, `authorization_external_validity_invalid` ou `authorization_external_validation_expired`.
+- **Sem presunção de autenticidade:** a janela e o digest são controles de integridade/frescor contratual; não autenticam a autoridade. Replay dentro da janela declarada continua possível; replay fora dela é recusado.
+- **Preservação:** Free First/1M, continuidade do modelo atual e ausência de fallback pago não autorizado permanecem cobertos pelas 65 regressões anteriores, mais 5 sondas P4.
+
+**Integração futura com PR #72:** permanece documental. O pin externo deve corresponder ao `material_sha256` que agora inclui teto externo e janela de validade; o componente de autoridade do PR #72 deve verificar autenticidade, pin e revogação. Nenhum `TrustContract`, trust store, pin, ledger ou `PilotApproval` é duplicado neste PR.
