@@ -3,8 +3,9 @@
 **Status:** proposta documental em PR Draft. **Não entra em vigor, não ativa modos, não concede autoridade e não altera nenhum documento de governança.**
 **Data:** 26/11/2026 · **Main de referência:** `02b89856837d03cbaa11d2f30d5931b4d7e43bd3`
 **Fonte normativa:** [COORDINATOR.md](COORDINATOR.md) (carta do Agente S), [DECISIONS.md](DECISIONS.md), [TEAM_COORDINATION.md](TEAM_COORDINATION.md), [ACTIVE_TASKS.md](ACTIVE_TASKS.md), [DELIVERY_POLICY.md](DELIVERY_POLICY.md), [ROADMAP_STATUS.md](ROADMAP_STATUS.md) e contratos COORD-04 no PR #64 (`COMMUNICATION.md`, `PILOT.md`, `coord_pilot*`).
+**Certificação COORD-04/P9:** [issuecomment-7191305574](https://github.com/guilhermemellojw/better-talker/pull/64#issuecomment-7191305574) (26/11/2026).
 
-> **Meta:** independência operacional da coordenação via ChatGPT até **10/12/2026**, com supervisão humana. A data é **meta de planejamento**, não autorização para reduzir controles. Se a certificação mínima não estiver completa, aplica-se o plano de continuidade (§11) — nunca a ativação parcial de ASSISTED/DELEGATED.
+> **Meta:** independência operacional da coordenação via ChatGPT até **10/12/2026**, com supervisão humana. A data é **estimativa de planejamento, não garantia** nem autorização para reduzir controles. O plano distingue **três níveis** (§6.1); só o Nível 2 exige ASSISTED e o Nível 3 exige DELEGATED, sempre por decisão registrada do mantenedor. Se a certificação do nível pretendido não estiver completa, aplica-se o plano de continuidade (§11) — nunca a ativação parcial de modos.
 
 ---
 
@@ -20,7 +21,25 @@
 3. **Falha segura:** na dúvida, não despachar, não reenviar, registrar e escalar.
 4. **Reutilizar a fundação COORD-04**; nenhum segundo motor, ledger ou canal.
 5. **Mantenedor conserva autoridade final** sobre merge, release, schema, política TRUST/provedor, custo extraordinário, dispositivo e mudança de modo.
-6. **Data não reduz controle:** itens da lista A (§6) são gates; itens B podem aguardar piloto supervisionado.
+6. **Data não reduz controle:** os requisitos de entrada de cada nível (§6) são gates; itens B podem aguardar piloto supervisionado.
+
+### 0.1 Estado factual da COORD-04 (P9, 26/11/2026)
+
+Registro do que foi **efetivamente validado**, sem presumir etapas posteriores:
+
+| Item | Estado |
+|---|---|
+| Autenticação real (Basic experimental) | **VALIDADA** — `source=real`, `service_contacted=true`, `authentication_succeeded=true`, HTTP 200 |
+| Contrato OpenAPI v2.3.2 | **CONFIRMADO** — `POST /api/session`, `operationId=session.create`, `location.directory` no corpo, `model{id,providerID}`, `permissions[{action,resource,effect}]`, sem prompt inicial |
+| Testes COORD-04 | **323/323** certificados anteriormente (host-only); não reexecutados nesta rodada documental |
+| Modelo anterior (`opencode-go/hungerg-free#default`) | **INDISPONÍVEL** na instância isolada |
+| `opencode/hy4-flash-free` | **AUTORIZADO PELO MANTENEDOR EXCLUSIVAMENTE PARA O PILOTO** (decisão registrada; ainda não exercitado) |
+| Criação da sessão experimental | **PENDENTE** — nenhuma sessão criada |
+| Transmissão real | **NÃO AUTORIZADA** |
+| Política experimental | **Free First / 1M Preferred** — modelos gratuitos primeiro; contexto ~1M+ quando adequado; nenhum fallback pago sem autorização |
+| P3B.3.1 | **NÃO CONCLUÍDA** — não presumir conclusão |
+
+**Limite:** a autorização do modelo não autoriza POST, prompt ou transmissão; a criação continua sujeita ao procedimento do PR #64 (`PILOT.md`), à confirmação do contrato real e a nova decisão humana.
 
 ---
 
@@ -118,7 +137,11 @@ Executar **somente leitura**, nesta ordem, antes de qualquer proposta:
 
 ## 6. Critérios de aceitação da coordenação semiautônoma
 
-### A. Indispensáveis antes de dispensar o ChatGPT Plus
+### A. Requisitos essenciais — gates por nível (A1–A15)
+
+> A lista A reúne os controles essenciais; **nem todos são pré-condição de todos os níveis**. A proporcionalidade está em §6.2: N1 usa A1/A12/A13/A14/A15; N2 acrescenta A2–A11; N3 exige N2 estável + certificação. A trilha de auditoria (A13), o modo vigente (A14) e o handoff (A15) **não podem ser omitidos** de nenhum nível.
+>
+> **Modo vigente confirmado em 26/11/2026:** SHADOW; D-005 permanece PROPOSTA; nenhum contrato de delegação vigente; nenhuma ativação implícita.
 
 | # | Critério | Evidência exigida | Estado atual (26/11) |
 |---|---|---|---|
@@ -129,8 +152,8 @@ Executar **somente leitura**, nesta ordem, antes de qualquer proposta:
 | A5 | Autorização humana registrada e vinculada (missão+HEAD+escopo+modelo+timeout) | registro da decisão + manifesto `approved=false` até aprovação | **PARCIAL** — contrato implementado; nenhuma autorização real exercida |
 | A6 | Retomada após reinício sem duplicidade | cenário reinício antes/depois do POST | **NÃO EXECUTADO** (simulado apenas) |
 | A7 | Revogação imediata e efetiva; pendentes bloqueados | cenário de revogação durante missão | **NÃO IMPLEMENTADO** (revogação em memória apenas) |
-| A8 | Modelo permitido (free-first) e ausência de fallback pago | allowlist + bloqueio quando modelo ausente | **PARCIAL** — allowlist existe; modelo autorizado ausente na instância; decisão humana pendente |
-| A9 | Guarda de custo/orçamento com bloqueio | telemetria de tokens + limite efetivo | **NÃO IMPLEMENTADO** (quota não observável; sem enforcement) |
+| A8 | Modelo permitido (Free First) e bloqueio efetivo de não autorizados | allowlist + recusa de modelo ausente/não autorizado | **PARCIAL** — `hy4-flash-free` autorizado exclusivamente para o piloto; bloqueio exercitado apenas host-only |
+| A9 | Custo extraordinário zero no piloto (A9-B); orçamento financeiro é evolução (A9-C) | política explícita + allowlist gratuita; telemetria/limite como evolução | **PARCIAL** — política zero para modelos gratuitos confirmados; backend financeiro (A9-C) não implementado |
 | A10 | Permissões efetivas (privilégio mínimo, sem credenciais, sem escrita fora do escopo) | configuração + teste de efetividade | **NÃO IMPLEMENTADO** (D-008 é proposta; controles são política) |
 | A11 | Suspensão emergencial documentada e testada | simulação de gatilho + evidência | **PARCIAL** — procedimento documentado; sem teste |
 | A12 | QA independente e proibição de autocertificação | pareceres com autor≠revisor | **VERIFICADO** nos PRs recentes |
@@ -138,7 +161,7 @@ Executar **somente leitura**, nesta ordem, antes de qualquer proposta:
 | A14 | Nenhuma ativação implícita; SHADOW até decisão | registro em DECISIONS | **VERIFICADO** (modo atual SHADOW; D-005 PROPOSTA) |
 | A15 | Handoff documental atualizado | este documento + runbooks | **PARCIAL** — este PR |
 
-**Conclusão A:** a independência do Plus **não está pronta** em 26/11. Faltam A2/A3 (ledger operacional persistente), A5/A6 (autorização/retomada reais), A7 (revogação efetiva), A9 (orçamento), A10 (permissões efetivas). Nenhuma delas pode ser substituída por instrução de prompt.
+**Conclusão A:** o **Nível 1 (consultivo)** pode ser atingido com A1/A13/A14/A15 e não depende do Plus. O **Nível 2 (operacional supervisionado)** ainda **não está pronto** em 26/11: faltam A2/A3 (ledger operacional persistente), A5/A6 (autorização/retomada reais), A7 (revogação efetiva), A9-B (custo zero exercitado no piloto) e A10 (permissões efetivas). Nenhuma delas pode ser substituída por instrução de prompt. O **Nível 3 (delegação)** exige adicionalmente a certificação completa e o contrato de delegação.
 
 ### B. Posteriores — não impedem piloto supervisionado
 
@@ -151,6 +174,55 @@ Executar **somente leitura**, nesta ordem, antes de qualquer proposta:
 | B5 | Failover automático de modelo | proibido por política; decisão humana |
 | B6 | Automação completa de incidentes | procedimento manual supervisionado basta no piloto |
 | B7 | Arquivamento de longo prazo | pode ser posterior à estabilização |
+
+### 6.1 Três níveis de independência (não confundir com os modos)
+
+| Nível | Objetivo | O que o supervisor pode | O que permanece humano | Modo/dependência |
+|---|---|---|---|---|
+| **N1 — Independência consultiva** | recuperar contexto, consolidar estado, analisar entregas e propor próximas missões **localmente** | leitura, checkpoints, pareceres, propostas de missão e de priorização | **todo despacho** e toda autorização | **SHADOW**; não depende permanentemente do ChatGPT Plus |
+| **N2 — Independência operacional supervisionada** | distribuir missões **previamente autorizadas**, receber relatórios, preservar estado e recuperar operações | despacho autorizado, acompanhamento, reconciliação, consolidação | autorização de cada missão; merge/release/schema/TRUST/custo/dispositivo | **ASSISTED** expressamente autorizado; exige os controles essenciais (destinatário, ledger, autorização, revogação, custos, permissões) |
+| **N3 — Delegação operacional** | organizar e distribuir missões elegíveis dentro de contrato certificado | distribuição em escopos delegados, sem aprovação individual | **autoridade crítica permanece humana**; exceções e mudanças de política | **DELEGATED**; exige certificação completa e contrato de delegação |
+
+**Invariante:** nenhum nível transfere ao supervisor merge, release, tag/bump, schema, política TRUST/provedor, custo extraordinário, dispositivo/ADB, credenciais ou mudança de modo. N1 não é ASSISTED; N2 não é DELEGATED.
+
+### 6.2 Entrada vs permanência por nível (requisitos proporcionais)
+
+| Nível | Requisitos de **entrada** | Critérios de **permanência** | Explicitamente **não exigido** para este nível |
+|---|---|---|---|
+| **N1** | A1 (checkpoint), A12 (QA independente), A13 (trilha de auditoria por checkpoint/pareceres), A14 (modo confirmado), A15 (handoff disponível) | checkpoints por ciclo; somente leitura + escrita documental em branch própria; relatório de divergências; nenhuma autorização presumida | ledger de despacho, revogação distribuída, orçamento, permissões de execução, verificação de destinatário de despacho |
+| **N2** | N1 + A2/A3 (ledger persistente e anti-duplicidade), A4 (destinatário), A5 (autorização vinculada), A6 (retomada), A7 (revogação eficaz), A8 (modelo autorizado/bloqueio), A9-B (custo zero no piloto), A10 (permissões efetivas), A11 (suspensão testada) | ausência de duplicidade, de reenvio em `UNKNOWN`, de modelo/custo não autorizado; QA independente; revogação e suspensão reprovadas periodicamente; nenhum escopo proibido | sistema financeiro completo de quotas (A9-C); multi-projeto/multi-instância; exactly-once distribuído |
+| **N3** | N2 estável + certificação de auditoria + contrato de delegação + testes de revogação/orçamento/limites + escopo nominal | auditoria periódica; nenhuma violação de escopo; revogação imediata; orçamento com telemetria; incidentes P0 suspendem o modo | backend completo de cobrança/quotas se o escopo permanecer exclusivamente em modelos gratuitos confirmados |
+
+**Regra:** não tratar requisitos de delegação plena (N3) como pré-condição de consulta SHADOW (N1). Controles de despacho real (N2) não podem ser reduzidos por prazo.
+
+### 6.3 Matriz de prontidão por nível (26/11/2026)
+
+| Nível | Status | Lacunas bloqueantes | Próximo gate |
+|---|---|---|---|
+| **N1 — consultivo** | **PRONTO COM RESSALVAS** | A13 parcial (ledger ausente, mas checkpoints/pareceres existem); A15 em revisão neste PR | merge deste documento + confirmação de handoff |
+| **N2 — operacional supervisionado** | **NÃO PRONTO** | A2/A3 (ledger persistente), A5/A6 (autorização/retomada reais), A7 (revogação), A9-B (custo zero exercitado), A10 (permissões efetivas), A11 (suspensão testada) | fechar A2–A11 + decisão ASSISTED do mantenedor |
+| **N3 — delegação** | **NÃO PRONTO** | tudo de N2 + certificação de auditoria, contrato de delegação, testes de orçamento/revogação | decisão DELEGATED do mantenedor |
+
+### 6.4 Política de modelos e custos (Free First / 1M Preferred)
+
+**Preferência registrada do mantenedor, aplicável ao piloto experimental:**
+
+1. **Free First:** modelos gratuitos confirmados são a primeira e única opção do piloto.
+2. **Contexto ~1M+ quando adequado:** preferir modelos com janela de contexto de aproximadamente 1 milhão de tokens ou superior quando a tarefa exigir; contexto menor é aceitável para missões curtas e delimitadas.
+3. **Rotação futura entre modelos gratuitos** diante de limite/indisponibilidade — sempre com atualização explícita da allowlist e nova autorização quando o modelo mudar; **nunca** rotação automática para modelo pago.
+4. **Nenhum fallback pago sem autorização** humana registrada; ausência do modelo autorizado **bloqueia**, não substitui.
+5. **Preservação de contexto:** troca de modelo/instância exige checkpoint e handoff (§3/§4); não se presume memória ou continuidade.
+6. **Nenhum reenvio cego em `UNKNOWN`:** rotação de modelo não é mecanismo de recuperação de missão; `UNKNOWN` só se resolve por evidência ou decisão humana.
+
+**Três conceitos que não devem ser confundidos:**
+
+| Conceito | O que é | O que exige | O que **não** exige |
+|---|---|---|---|
+| **A. Bloqueio efetivo de modelos não autorizados** | allowlist + recusa de modelo ausente/não autorizado antes do envio | validação exata de `providerID`/`id` e bloqueio sem fallback | backend financeiro, telemetria de tokens ou quota global |
+| **B. Política de custo extraordinário zero no piloto** | piloto restrito a modelos gratuitos confirmados; qualquer custo não previsto é bloqueante e escalado | declaração de política + allowlist gratuita + revisão humana | cobrança/quotas automáticas; cobrir todos os cenários de provedor |
+| **C. Sistema futuro de orçamento financeiro** | telemetria de tokens, limites, alertas e bloqueio automático | backend de medição/enforcement, testes e auditoria | ser pré-condição de um piloto limitado a modelos gratuitos confirmados |
+
+**Ressalva de custo:** custo nominal zero no catálogo **não prova**, por si só, ausência de qualquer cobrança em todos os cenários (limites de plano, política do provedor, mudança de catálogo). Por isso: (i) o piloto permanece restrito a modelos gratuitos confirmados; (ii) qualquer indício de cobrança suspende o piloto (§8); (iii) o sistema C continua sendo evolução necessária para N3.
 
 ---
 
@@ -175,14 +247,21 @@ Executar **somente leitura**, nesta ordem, antes de qualquer proposta:
 
 ## 8. Procedimento de suspensão emergencial
 
-**Gatilhos:** instrução maliciosa; suspeita de vazamento de credencial; consumo pago não autorizado; risco iminente a dados de usuário; conflito de escrita ativo; corrupção de estado/ledger; repetição de despacho.
+**Gatilhos:** instrução maliciosa; suspeita de vazamento de credencial; consumo pago não autorizado ou indício de cobrança; risco iminente a dados de usuário; conflito de escrita ativo; corrupção de estado/ledger; repetição de despacho; perda de vínculo de instância/destinatário.
 
 **Ações imediatas (Agente S):**
-1. Parar **toda** escrita/despacho; manter apenas leituras inofensivas.
+1. Parar **toda** nova escrita/despacho; manter apenas leituras inofensivas.
 2. Não apagar evidências; preservar logs, estados e artefatos.
 3. Registrar incidente no checkpoint/arquivo de incidentes com horário UTC, escopo, evidências e ações já tomadas.
 4. Notificar o mantenedor e a coordenação; aguardar direção.
 5. Não retomar automaticamente; retomada exige decisão humana registrada.
+
+**Limites explícitos da suspensão:**
+- A suspensão bloqueia **ações novas**; **não cancela retroativamente** transmissão já realizada.
+- **Não se presume** capacidade de interromper LLM ou operação já em andamento; o estado deve ser classificado como `RUNNING`/`UNKNOWN` e reconciliado por evidência.
+- Encerramento de processo/serviço só ocorre **mediante autorização específica** e apenas sobre PIDs expressamente identificados; processos produtivos e de A–E são preservados.
+- Revogação/rotação de credencial é ato do mantenedor; o Agente S não lê, copia ou expõe segredo.
+- Operação em `UNKNOWN` **não** é “resolvida” por suspensão, reinício ou reenvio; permanece bloqueada até evidência positiva ou decisão humana.
 
 **Limite de autoridade:** o Agente S **não** registra decisões de autoridade em DECISIONS em nome do mantenedor; propõe o texto e o mantenedor decide/registra.
 
@@ -195,25 +274,37 @@ Executar **somente leitura**, nesta ordem, antes de qualquer proposta:
 | 1 | Identificar autoridade a revogar (modo, contrato de delegação, autorização de missão, credencial, sessão) | escopo e detentor explícitos |
 | 2 | Registrar a revogação (mantenedor) com data/UTC e motivo | entrada em DECISIONS/registro operacional |
 | 3 | Invalidar autorizações vinculadas | tentativas subsequentes rejeitadas |
-| 4 | Bloquear despachos pendentes | nenhum novo envio; `UNKNOWN` permanece bloqueado |
-| 5 | Revogar/rotacionar credenciais quando aplicável | sem leitura/exposição do valor |
-| 6 | Encerrar sessões/processos sob autoridade revogada | somente PIDs autorizados; produtivos intactos |
-| 7 | Confirmar efeito | sonda de recusa + registro |
-| 8 | Comunicar e atualizar checkpoint | estado e pendências documentados |
+| 4 | Bloquear **novos** despachos | nenhum novo envio a partir da revogação |
+| 5 | Classificar operações existentes por estado (§9.1) | transmitida, em andamento e `UNKNOWN` tratadas de forma distinta |
+| 6 | Revogar/rotacionar credenciais **quando aplicável e autorizado** | sem leitura/exposição do valor |
+| 7 | Encerrar sessões/processos **somente com autorização específica** | somente PIDs autorizados; produtivos intactos |
+| 8 | Confirmar efeito | sonda de recusa + registro |
+| 9 | Comunicar e atualizar checkpoint | estado e pendências documentados |
 
-**Critério:** revogação é imediata e não depende de reinício do modelo/serviço; autorização revogada não sobrevive em cache.
+**Critério:** a revogação bloqueia **novas** ações de imediato, sem depender de reinício do modelo/serviço; autorização revogada não sobrevive em cache. Ela **não** promete cancelamento retroativo nem interrupção de operação já transmitida.
+
+### 9.1 Efeito da revogação por estado da operação
+
+| Estado | Efeito da revogação | O que **não** presumir |
+|---|---|---|
+| **Autorizada, ainda não transmitida** | bloqueio total; autorização invalidada; nenhum POST | que o bloqueio dependa de novo deploy |
+| **Já transmitida (`DELIVERED`)** | nenhuma ação nova; acompanhar por evidência; registrar | cancelamento retroativo da entrega |
+| **Em andamento (`RUNNING`)** | bloquear novas ações; não iniciar outra missão; observar | capacidade de interromper LLM/execução em curso |
+| **`UNKNOWN`** | permanece bloqueada; reconciliação somente por evidência ou decisão humana | que reenvio, reinício ou troca de modelo resolvam |
+| **Processo/serviço** | encerrar apenas o PID autorizado, com autorização específica | encerrar processos produtivos, de A–E ou compartilhados |
+| **Credencial** | rotação/revogação pelo mantenedor, quando aplicável | leitura, cópia ou exposição do segredo pelo supervisor |
 
 ---
 
 ## 10. Plano SHADOW → ASSISTED → DELEGATED
 
-> **Nenhum modo é ativado por este documento.** D-005 permanece PROPOSTA; transição exige decisão registrada do mantenedor (DECISIONS).
+> **Nenhum modo é ativado por este documento.** D-005 permanece PROPOSTA; transição exige decisão registrada do mantenedor (DECISIONS). Correspondência: **SHADOW ↔ N1**, **ASSISTED ↔ N2**, **DELEGATED ↔ N3**; um nível não ativa o outro automaticamente.
 
 | Modo | Quem coordena | O que o Agente S pode | O que permanece humano | Gate de entrada | Rollback |
 |---|---|---|---|---|---|
-| **SHADOW** (atual) | ChatGPT + mantenedor | observar, verificar, propor; **sem despacho** | toda autorização e despacho | — | — |
-| **ASSISTED** (piloto) | mantenedor + S em escopos | despachar missões **previamente autorizadas**, acompanhar, consolidar | merge/release/schema/TRUST/custo/dispositivo; aprovação de cada missão | A1–A12 verificados; contrato de delegação com escopo/limites/revogação; piloto único | volta a SHADOW por decisão |
-| **DELEGATED** (futuro) | S em escopos delegados | organizar e distribuir missões elegíveis sem aprovação individual | autoridade crítica e exceções | ASSISTED estável + certificação de auditoria + orçamento/revogação testados | revogação imediata |
+| **SHADOW** (atual, N1) | ChatGPT + mantenedor | observar, verificar, propor; **sem despacho** | toda autorização e despacho | N1 (§6.2): A1/A12/A13/A14/A15 | — |
+| **ASSISTED** (piloto, N2) | mantenedor + S em escopos | despachar missões **previamente autorizadas**, acompanhar, consolidar | merge/release/schema/TRUST/custo/dispositivo; aprovação de cada missão | N2 (§6.2): N1 + A2–A11 verificados; escopo/limites/revogação; piloto único | volta a SHADOW por decisão |
+| **DELEGATED** (futuro, N3) | S em escopos delegados | organizar e distribuir missões elegíveis sem aprovação individual | autoridade crítica e exceções | N3: N2 estável + certificação de auditoria + contrato de delegação + orçamento/revogação testados | revogação imediata |
 
 **Critérios de permanência:** nenhuma violação de escopo, nenhum reenvio em `UNKNOWN`, nenhuma duplicidade, nenhum custo não autorizado, QA independente preservado. Qualquer incidente P0 suspende o modo.
 
@@ -221,7 +312,7 @@ Executar **somente leitura**, nesta ordem, antes de qualquer proposta:
 
 ## 11. Continuidade se o ChatGPT Plus terminar antes da certificação
 
-**Cenário:** o acesso termina antes de A1–A12 completos.
+**Cenário:** o acesso termina antes de os requisitos de entrada do nível pretendido estarem completos (para N2: A2–A11; para N3: certificação integral).
 
 **Operação degradada mínima (segura):**
 1. **Congelar novos despachos** pelo supervisor; manter apenas checkpoints somente leitura e consolidação de estado.
@@ -236,33 +327,64 @@ Executar **somente leitura**, nesta ordem, antes de qualquer proposta:
 
 ---
 
-## 12. Matriz de dependências
+## 12. Matriz de dependências e mapa de integração
 
-| Capacidade | Depende de | Estado | Bloqueia A? | Bloqueia B? |
+### 12.1 Distribuição atual de responsabilidades (proposta × certificado)
+
+| Frente | Responsável | Escopo | Estado em 26/11 | Evidência |
+|---|---|---|---|---|
+| **COORD-04** — comunicação | **S** | fundação, adaptador, CLI, preflight, contrato OpenAPI, runbook | **EM CERTIFICAÇÃO** — autenticação real/OpenAPI validados (P9); criação de sessão pendente; transmissão não autorizada | PR #64; P9 `issuecomment-7191305574` |
+| **COORD-05A** — ledger persistente | **B** | registro durável de missão, ID, anti-duplicidade, estados | **PROPOSTA/ATRIBUÍDA — não certificada** | nenhuma implementação certificada anexada |
+| **COORD-05B** — política de modelos | **C** | allowlist Free First, rotação gratuita, bloqueio sem fallback pago | **PROPOSTA/ATRIBUÍDA — não certificada** | nenhuma implementação certificada anexada |
+| **COORD-05C** — recursos locais | **D** | instância isolada, portas, HOME/XDG, banco, PID, encerramento | **PROPOSTA/ATRIBUÍDA — não certificada** | nenhuma implementação certificada anexada |
+| **COORD-08/09 PREP** — transferência e prontidão | **E** | este protocolo, critérios, cenários e auditorias independentes | **EM REVISÃO** (documento) + auditorias certificadas | PR #69; pareceres P8/P9 e anteriores |
+
+**Regra:** tarefa atribuída **não** é implementação certificada; nenhuma frente pode ser considerada pronta por menção em documento ou por relato de agente. A certificação exige evidência primária (PR/SHA/CI/artefato).
+
+### 12.2 Cadeia de dependências para a independência
+
+| # | Dependência | Bloqueia | Estado |
+|---|---|---|---|
+| 1 | **Comunicação** (COORD-04) | tudo | parcial — fundação validada host-only; criação/transmissão pendentes |
+| 2 | **Ledger persistente** (COORD-05A) | N2/N3 | não certificado |
+| 3 | **Integração dos componentes** (comunicação + ledger + modelos + recursos) | N2/N3 | não certificada |
+| 4 | **Segurança operacional essencial** (autorização vinculada, revogação, permissões, custo zero, suspensão) | N2/N3 | parcial/não implementada |
+| 5 | **Piloto supervisionado** (N2/ASSISTED) | N3 | não iniciado |
+| 6 | **Delegação certificada** (N3/DELEGATED) | — | não iniciada |
+
+**Leitura:** a comunicação existe e foi validada (host-only); o que falta para N2 é **governança operacional persistente e integrada** (ledger, revogação, orçamento, permissões efetivas) — não um novo canal. A meta de **10/12/2026 permanece estimativa de planejamento**, não garantia.
+
+### 12.3 Matriz de bloqueio por capacidade
+
+| Capacidade | Depende de | Estado | Bloqueia N2? | Bloqueia N3? |
 |---|---|---|---|---|
 | Checkpoint confiável | GitHub/CI + sessões somente leitura | disponível | — | — |
 | Despacho seguro | autorização + destinatário verificado + ledger | parcial | **sim (A2/A3/A5)** | — |
 | Prevenção de duplicidade | ID único + registro persistente + bloqueio UNKNOWN | parcial | **sim (A2/A3)** | — |
 | Retomada após reinício | ledger + reconciliação + revinculação | parcial | **sim (A6)** | — |
 | Revogação efetiva | autoridade + mecanismo + teste | não implementada | **sim (A7)** | — |
-| Free-first / modelo | catálogo + allowlist + decisão humana | parcial (modelo ausente) | **sim (A8)** | — |
-| Orçamento/custo | telemetria + limite + bloqueio | não implementado | **sim (A9)** | — |
+| Free-first / modelo | catálogo + allowlist + decisão humana | parcial — `hy4-flash-free` autorizado, não exercitado | **sim (A8)** | — |
+| Custo zero no piloto | allowlist gratuita + política + revisão | parcial — política definida; sem exercício real | **sim (A9-B)** | — |
+| Orçamento financeiro | telemetria + limite + bloqueio | não implementado | — (piloto restrito a gratuitos) | **sim (A9-C)** |
 | Permissões efetivas | configuração + teste + revisão | não implementado | **sim (A10)** | — |
 | QA independente | matriz de revisores + evidência | disponível | — | — |
 | Suspensão/incidente | procedimento + autoridade | parcial | **sim (A11)** | — |
 | Multi-instância/exactly-once | lock/ledger distribuído | ausente | — | **sim (B1/B2)** |
-| Backend/quotas | infra + política | ausente | — | **sim (B3)** |
-
-**Leitura:** comunicação existe e foi validada (host-only); o que falta para independência é **governança operacional persistente** (ledger, revogação, orçamento, permissões efetivas) — não um novo canal.
+| Backend/quotas | infra + política | ausente | — (piloto único) | **sim (B3)** |
 
 ---
 
 ## 13. Scorecard e conclusão
 
-**Verificado:** checkpoint, QA independente, contratos de comunicação, autenticação real somente leitura, validação OpenAPI, bloqueio de modelo ausente, encerramento seguro, preservação de A–E.
+**Verificado:** checkpoint, QA independente, contratos de comunicação (host-only), autenticação real somente leitura, contrato OpenAPI, bloqueio por modelo anterior ausente, encerramento seguro, preservação de A–E e ausência de transmissão.
 
-**Parcial:** ledger operacional, autorização real exercida, retomada, suspensão testada, handoff.
+**Parcial:** ledger operacional, autorização real exercida, retomada, suspensão testada, handoff, modelo autorizado ainda não exercitado.
 
-**Não implementado:** revogação efetiva, orçamento com bloqueio, permissões efetivas configuradas/testadas.
+**Não implementado:** revogação efetiva, permissões efetivas configuradas/testadas, integração COORD-05 e backend de orçamento (este último **não exigido** para piloto restrito a modelos gratuitos confirmados).
 
-**Conclusão:** a transferência é **viável e recomendada**, mas **não está certificada** para 10/12 sem fechar A2/A3/A5/A6/A7/A9/A10. O caminho seguro é: (1) piloto ASSISTED supervisionado após A1–A12; (2) manter merge/release/schema/TRUST/custo sob o mantenedor; (3) se o Plus terminar antes, operar no modo degradado do §11. Nenhuma decisão de autoridade é emitida aqui; qualquer ativação depende do mantenedor e de registro em DECISIONS.
+**Conclusão por nível:**
+- **N1 (consultivo):** **PRONTO COM RESSALVAS** — depende do merge deste handoff e da confirmação do modo SHADOW; não depende do ChatGPT Plus.
+- **N2 (operacional supervisionado):** **NÃO PRONTO** — faltam A2/A3/A5/A6/A7/A9-B/A10/A11 e a integração COORD-05; exige decisão ASSISTED do mantenedor.
+- **N3 (delegação):** **NÃO PRONTO** — exige N2 estável, certificação de auditoria, contrato de delegação e orçamento/revogação testados.
+
+**Conclusão:** a transferência é **viável e recomendada**, mas a independência operacional até 10/12/2026 **não está certificada** sem fechar os gates de N2. O caminho seguro é: (1) concluir N1 e operar em SHADOW com checkpoints locais; (2) fechar A2–A11 e a integração COORD-05 antes de qualquer piloto ASSISTED; (3) manter merge/release/schema/TRUST/custo sob o mantenedor; (4) se o Plus terminar antes, operar no modo degradado do §11. **Nenhuma decisão de autoridade é emitida aqui**; qualquer ativação depende do mantenedor e de registro em DECISIONS.
