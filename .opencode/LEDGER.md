@@ -100,9 +100,11 @@ componente futuro, com autorização registrada.
 python3 .opencode/scripts/test_coord_ledger.py
 ```
 
-16 testes cobrem persistência, concorrência entre processos, reserva duplicada,
-operação repetida, payload divergente, transição inválida, recuperação, falha de
-armazenamento, `UNKNOWN`, estados terminais e reinício da instância.
+49 testes cobrem persistência, concorrência simultânea entre processos,
+exclusividade individual, duplicidade, payload divergente, transição inválida,
+reconciliação atômica, recuperação, rollback transacional, falha de
+armazenamento, `UNKNOWN`, estados terminais, privacidade, compatibilidade de
+esquema, bootstrap interrompido e reinício da instância.
 
 ## Contrato futuro (sem implementação)
 
@@ -119,5 +121,5 @@ armazenamento, `UNKNOWN`, estados terminais e reinício da instância.
 
 ## Fora de escopo
 
-Transporte real,OpenCode, LLM, credenciais, HealthAgentForms, ASSISTED/DELEGATED,
+Transporte real, OpenCode, LLM, credenciais, HealthAgentForms, ASSISTED/DELEGATED,
 integração com COORD-04, notificações e autorização automática.

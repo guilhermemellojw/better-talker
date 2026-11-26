@@ -721,5 +721,27 @@ class LedgerTest(unittest.TestCase):
             Ledger(self.db, project_id=PROJECT, repository_id=REPO)
         self.assertEqual(before, journal.read_bytes())
 
+
+    def test_p32_permissoes_restritivas_desde_criacao(self):
+        previous = os.umask(0o022)
+        try:
+            ledger = Ledger(
+                Path(self._tmp.name) / "private" / "ledger.sqlite3",
+                project_id=PROJECT,
+                repository_id=REPO,
+            )
+        finally:
+            os.umask(previous)
+        self.assertEqual(0o700, stat.S_IMODE(ledger.db_path.parent.stat().st_mode))
+        self.assertEqual(0o600, stat.S_IMODE(ledger.db_path.stat().st_mode))
+
+    def test_p32_wal_simbolico_bloqueia_antes_abertura(self):
+        db = Path(self._tmp.name) / "wal-link.sqlite3"
+        wal = Path(str(db) + "-wal")
+        wal.symlink_to(Path(self._tmp.name) / "alvo")
+        with self.assertRaises(LedgerStorageError):
+            Ledger(db, project_id=PROJECT, repository_id=REPO)
+        self.assertTrue(wal.is_symlink())
+
 if __name__ == "__main__":
     unittest.main()

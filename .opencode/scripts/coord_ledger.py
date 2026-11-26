@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, Optional
 
 SCHEMA_VERSION = "coord-ledger-1.0"
+_UMASK_LOCK = threading.Lock()
 
 PROPOSED = "PROPOSED"
 AUTHORIZED = "AUTHORIZED"
@@ -201,11 +202,27 @@ class Ledger:
             except OSError as exc:
                 raise LedgerStorageError(f"falha ao proteger {path}: {exc}") from exc
 
+    @contextmanager
+    def _private_umask(self) -> Iterator[None]:
+        """Umask restritivo desde a criação; restaurado sempre."""
+        with _UMASK_LOCK:
+            previous = os.umask(0o077)
+            try:
+                yield
+            finally:
+                os.umask(previous)
+
     def _validate_paths(self) -> bool:
         """Valida caminhos em modo somente leitura; retorna se o pai já existia."""
         for path in (self.db_path, *self.db_path.parents):
             if path.is_symlink():
                 raise LedgerStorageError("caminho simbólico não é permitido")
+        for suffix in ("-wal", "-shm"):
+            aux = Path(str(self.db_path) + suffix)
+            if aux.is_symlink():
+                raise LedgerStorageError(
+                    f"arquivo auxiliar simbólico antes da abertura: {aux}"
+                )
         parent_existed = self.db_path.parent.exists()
         if parent_existed:
             mode = self.db_path.parent.stat().st_mode
@@ -252,76 +269,78 @@ class Ledger:
             raise LedgerStorageError(f"falha ao validar banco: {exc}") from exc
 
     def _initialize(self) -> None:
-        parent_existed = self._validate_paths()
-        fresh = self._check_compatibility()
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        if not parent_existed:
-            os.chmod(self.db_path.parent, 0o700)
-        try:
-            if fresh:
-                # Meta e versão primeiro, em transação própria. Se a
-                # inicialização for interrompida, o rollback deixa um banco
-                # vazio (reconhecido como novo na reabertura). Se o commit
-                # ocorreu, o schema é reparado por CREATE IF NOT EXISTS.
-                with self._write() as conn:
-                    conn.execute(
-                        "CREATE TABLE IF NOT EXISTS meta "
-                        "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        with self._private_umask():
+            parent_existed = self._validate_paths()
+            fresh = self._check_compatibility()
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            if not parent_existed:
+                os.chmod(self.db_path.parent, 0o700)
+            try:
+                if fresh:
+                    # Meta e versão primeiro, em transação própria. Se a
+                    # inicialização for interrompida, o rollback deixa um banco
+                    # vazio (reconhecido como novo na reabertura). Se o commit
+                    # ocorreu, o schema é reparado por CREATE IF NOT EXISTS.
+                    with self._write() as conn:
+                        conn.execute(
+                            "CREATE TABLE IF NOT EXISTS meta "
+                            "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                        )
+                        conn.execute(
+                            "INSERT OR IGNORE INTO meta (key, value) "
+                            "VALUES ('schema_version', ?)",
+                            (SCHEMA_VERSION,),
+                        )
+                with self._connect() as conn:
+                    conn.executescript(
+                        """
+                        PRAGMA journal_mode=WAL;
+                        CREATE TABLE IF NOT EXISTS meta (
+                            key TEXT PRIMARY KEY, value TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS missions (
+                            mission_id TEXT PRIMARY KEY,
+                            operation_id TEXT NOT NULL UNIQUE,
+                            project_id TEXT NOT NULL,
+                            repository_id TEXT NOT NULL,
+                            coordinator_id TEXT NOT NULL,
+                            agent TEXT NOT NULL,
+                            session_id TEXT NOT NULL,
+                            instance_id TEXT NOT NULL,
+                            worktree TEXT NOT NULL,
+                            authorization_reference TEXT NOT NULL,
+                            payload_sha256 TEXT NOT NULL,
+                            identity_hash TEXT NOT NULL,
+                            state TEXT NOT NULL,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            dispatched_at TEXT,
+                            timeout_seconds INTEGER NOT NULL DEFAULT 0
+                        );
+                        CREATE TABLE IF NOT EXISTS transitions (
+                            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                            mission_id TEXT NOT NULL,
+                            from_state TEXT,
+                            to_state TEXT NOT NULL,
+                            evidence TEXT NOT NULL,
+                            actor TEXT NOT NULL,
+                            at TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS reservations (
+                            project_id TEXT NOT NULL,
+                            agent TEXT NOT NULL,
+                            session_id TEXT NOT NULL,
+                            mission_id TEXT NOT NULL,
+                            PRIMARY KEY (project_id, agent, session_id),
+                            UNIQUE (project_id, agent),
+                            UNIQUE (project_id, session_id)
+                        );
+                        """
                     )
-                    conn.execute(
-                        "INSERT OR IGNORE INTO meta (key, value) "
-                        "VALUES ('schema_version', ?)",
-                        (SCHEMA_VERSION,),
-                    )
-            with self._connect() as conn:
-                conn.executescript(
-                    """
-                    PRAGMA journal_mode=WAL;
-                    CREATE TABLE IF NOT EXISTS meta (
-                        key TEXT PRIMARY KEY, value TEXT NOT NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS missions (
-                        mission_id TEXT PRIMARY KEY,
-                        operation_id TEXT NOT NULL UNIQUE,
-                        project_id TEXT NOT NULL,
-                        repository_id TEXT NOT NULL,
-                        coordinator_id TEXT NOT NULL,
-                        agent TEXT NOT NULL,
-                        session_id TEXT NOT NULL,
-                        instance_id TEXT NOT NULL,
-                        worktree TEXT NOT NULL,
-                        authorization_reference TEXT NOT NULL,
-                        payload_sha256 TEXT NOT NULL,
-                        identity_hash TEXT NOT NULL,
-                        state TEXT NOT NULL,
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        dispatched_at TEXT,
-                        timeout_seconds INTEGER NOT NULL DEFAULT 0
-                    );
-                    CREATE TABLE IF NOT EXISTS transitions (
-                        seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                        mission_id TEXT NOT NULL,
-                        from_state TEXT,
-                        to_state TEXT NOT NULL,
-                        evidence TEXT NOT NULL,
-                        actor TEXT NOT NULL,
-                        at TEXT NOT NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS reservations (
-                        project_id TEXT NOT NULL,
-                        agent TEXT NOT NULL,
-                        session_id TEXT NOT NULL,
-                        mission_id TEXT NOT NULL,
-                        PRIMARY KEY (project_id, agent, session_id),
-                        UNIQUE (project_id, agent),
-                        UNIQUE (project_id, session_id)
-                    );
-                    """
-                )
-            self._harden_files()
-        except sqlite3.Error as exc:
-            raise LedgerStorageError(f"falha ao inicializar banco: {exc}") from exc
+                self._harden_files()
+            except sqlite3.Error as exc:
+                raise LedgerStorageError(f"falha ao inicializar banco: {exc}") from exc
+
 
     def _assert_scope(self, row: sqlite3.Row) -> None:
         if (
