@@ -5,7 +5,7 @@
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `f138b0c46b07ea3ec2eced13d4f52dbfcfc82c1a`
 - Checks da `main` consultada: **Pendente**
-- PRs encontrados na janela de consulta: **69** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-26.
+- PRs encontrados na janela de consulta: **70** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-26.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
 
@@ -18,14 +18,15 @@
 | TRUST | 0 | 11 | 0 |
 | Beta e infraestrutura | 0 | 5 | 0 |
 | Documentação | 2 | 8 | 0 |
-| Outros | 4 | 5 | 0 |
+| Outros | 5 | 5 | 0 |
 
 ## PRs abertos
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
+| [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `83316bd24aae` | Pendente |
 | [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `5d7791388842` | Verde |
-| [#71 — feat(coord): motor deterministico Free First/1M de selecao de modelos (COORD-05B) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/71) | Outros | `cedad1018ceb` | Pendente |
+| [#71 — feat(coord): motor deterministico Free First/1M de selecao de modelos (COORD-05B) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/71) | Outros | `cedad1018ceb` | Verde |
 | [#70 — feat(coord05): ledger persistente de missões (Draft)](https://github.com/guilhermemellojw/better-talker/pull/70) | Outros | `e321a07bed43` | Verde |
 | [#69 — docs(coord): transferência operacional e prontidão do supervisor (COORD-08/09 PREP) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/69) | Documentação | `db58380af3b3` | Verde |
 | [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `dfa57fa0b4ec` | Verde |
@@ -71,11 +72,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-26 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **6**; desses, Drafts: **5**.
+- PRs abertos: **7**; desses, Drafts: **6**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=63.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.1 dias (referência fixa: 2026-11-26).
-- Estados de check dos PRs abertos: Pendente=1, Verde=5.
+- Estados de check dos PRs abertos: Pendente=1, Verde=6.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
