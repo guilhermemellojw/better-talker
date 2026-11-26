@@ -26,10 +26,10 @@
 | --- | --- | --- | --- |
 | [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `5d7791388842` | Verde |
 | [#71 — feat(coord): motor deterministico Free First/1M de selecao de modelos (COORD-05B) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/71) | Outros | `8fb26b64c453` | Verde |
-| [#70 — feat(coord05): ledger persistente de missões (Draft)](https://github.com/guilhermemellojw/better-talker/pull/70) | Outros | `7138c41ff8c4` | Verde |
+| [#70 — feat(coord05): ledger persistente de missões (Draft)](https://github.com/guilhermemellojw/better-talker/pull/70) | Outros | `e321a07bed43` | Pendente |
 | [#69 — docs(coord): transferência operacional e prontidão do supervisor (COORD-08/09 PREP) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/69) | Documentação | `db58380af3b3` | Verde |
 | [#68 — HOTFIX P0: compatibilidade ICU/Android das regex pedagógicas (Draft)](https://github.com/guilhermemellojw/better-talker/pull/68) | Outros | `6533b45734c7` | Verde |
-| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `bd14ad8a780c` | Pendente |
+| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `bd14ad8a780c` | Verde |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `be669824b63d` | Verde |
 
 ## Integrações recentes
@@ -75,7 +75,7 @@
 - PRs abertos: **7**; desses, Drafts: **6**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=62.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.0 dias (referência fixa: 2026-11-26).
+- Mediana de idade dos PRs abertos: 0.1 dias (referência fixa: 2026-11-26).
 - Estados de check dos PRs abertos: Pendente=1, Verde=6.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
