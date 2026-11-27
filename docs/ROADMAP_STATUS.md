@@ -5,7 +5,7 @@
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `26c82f5cd6b5412cdce2dde68068a9a2f5e12fd8`
 - Checks da `main` consultada: **Verde**
-- PRs encontrados na janela de consulta: **80** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-27.
+- PRs encontrados na janela de consulta: **81** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-27.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
 
@@ -15,7 +15,7 @@
 | --- | ---: | ---: | ---: |
 | Mentor | 0 | 22 | 0 |
 | Referências e UX | 0 | 12 | 0 |
-| TRUST | 1 | 11 | 0 |
+| TRUST | 2 | 11 | 0 |
 | Beta e infraestrutura | 1 | 9 | 0 |
 | Documentação | 1 | 9 | 0 |
 | Outros | 3 | 11 | 0 |
@@ -24,7 +24,8 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | `cb4c95c5a8cc` | Pendente |
+| [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `beb1d62ee5cc` | Pendente |
+| [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | `cb4c95c5a8cc` | Verde |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
@@ -71,11 +72,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-27 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **6**; desses, Drafts: **6**.
+- PRs abertos: **7**; desses, Drafts: **7**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=74.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-27).
-- Estados de check dos PRs abertos: Pendente=1, Verde=5.
+- Mediana de idade dos PRs abertos: 0.3 dias (referência fixa: 2026-11-27).
+- Estados de check dos PRs abertos: Pendente=1, Verde=6.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
