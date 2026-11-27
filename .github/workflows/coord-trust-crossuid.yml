@@ -1,0 +1,109 @@
+name: COORD-TRUST-BOUNDARY/P4 — certificação cross-UID descartável
+
+# Job exclusivamente opt-in. Não roda em push/PR. O runner hospedado é
+# descartável; nenhum usuário persistente, secret de produção, serviço
+# instalado, LLM, API externa ou transporte real é utilizado. O harness roda
+# como root apenas para preparar UIDs numéricos, spawnar processos e reiniciar
+# o serviço; serviço e consumidores executam sem root e sem capabilities.
+on:
+  workflow_dispatch:
+    inputs:
+      crossuid_full:
+        description: 'Executar a certificação cross-UID completa G1-G9'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coord-trust-crossuid
+  cancel-in-progress: false
+
+jobs:
+  crossuid:
+    if: ${{ inputs.crossuid_full }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout (somente leitura)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Pré-condições do runner descartável
+        run: |
+          set -euo pipefail
+          sudo -n true
+          command -v setpriv
+          command -v unshare
+          command -v ssh-keygen
+          command -v python3
+          test "$(id -u)" != "0"
+          python3 -c 'import sys; assert sys.version_info >= (3, 12), sys.version_info'
+          test -f "$GITHUB_WORKSPACE/.opencode/scripts/coord_trust_crossuid_harness.py"
+          echo "CROSSUID-PRECONDITIONS-OK"
+
+      - name: Certificação cross-UID G1-G9 (runner descartável)
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/crossuid-out"
+          HOME_DIR="$RUNNER_TEMP/crossuid-home"
+          TMP_DIR="$RUNNER_TEMP/crossuid-tmp"
+          mkdir -p "$OUT" "$HOME_DIR" "$TMP_DIR"
+          sudo -n unshare -n -- /usr/bin/env -i \
+            HOME="$HOME_DIR" TMPDIR="$TMP_DIR" \
+            PATH="$pythonLocation/bin:/usr/local/bin:/usr/bin:/bin" \
+            LANG=C LC_ALL=C \
+            PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts" \
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/coord_trust_crossuid_harness.py" \
+              --repo "$GITHUB_WORKSPACE" \
+              --output "$OUT" \
+              --deadline-seconds 480
+
+      - name: Sanitizar logs e resumo
+        if: always()
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/crossuid-out"
+          mkdir -p "$OUT"
+          python3 - "$RUNNER_TEMP" "$GITHUB_WORKSPACE" "$OUT" <<'PY'
+          import os
+          import sys
+          runner_temp, workspace, out = sys.argv[1:4]
+          replacements = (runner_temp, workspace, "/tmp/coord-trust-p4-")
+          for name in ("crossuid.log", "service-logs.log", "summary.json"):
+              source = os.path.join(out, name)
+              if not os.path.isfile(source):
+                  continue
+              with open(source, encoding="utf-8", errors="replace") as handle:
+                  text = handle.read()
+              for value in replacements:
+                  text = text.replace(value, "<path>")
+              target = os.path.join(out, name + ".sanitized")
+              with open(target, "w", encoding="utf-8") as handle:
+                  handle.write(text)
+          print("CROSSUID-LOGS-SANITIZED")
+          PY
+          if [ -f "$OUT/crossuid.log.sanitized" ]; then
+            cat "$OUT/crossuid.log.sanitized"
+          fi
+
+      - name: Publicar artefatos sanitizados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coord-trust-crossuid
+          path: |
+            ${{ runner.temp }}/crossuid-out/summary.json.sanitized
+            ${{ runner.temp }}/crossuid-out/crossuid.log.sanitized
+            ${{ runner.temp }}/crossuid-out/service-logs.log.sanitized
+          if-no-files-found: warn

@@ -696,6 +696,11 @@ class ServiceState:
                     outcome TEXT NOT NULL,
                     detail_sha256 TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS service_recovery_nonces (
+                    nonce TEXT PRIMARY KEY,
+                    epoch INTEGER NOT NULL,
+                    used_at TEXT NOT NULL
+                );
             """)
             columns = {
                 row[1] for row in conn.execute(
@@ -756,6 +761,25 @@ class ServiceState:
     def clear_requests(self) -> None:
         with self._write() as conn:
             conn.execute("DELETE FROM service_requests")
+
+    def consume_recovery_nonce(self, nonce: str, epoch: int,
+                               now: datetime) -> None:
+        """Consome o nonce de recuperação de forma persistente e irreversível.
+
+        A epoch já bloqueia a repetição da mesma declaração; o nonce persistido
+        também impede que uma nova declaração assinada reutilize o mesmo nonce
+        para uma epoch futura. Falhas posteriores à gravação queimam o nonce
+        (fail closed); a autoridade deve emitir outro.
+        """
+        with self._write() as conn:
+            try:
+                conn.execute(
+                    """INSERT INTO service_recovery_nonces
+                       (nonce, epoch, used_at) VALUES (?,?,?)""",
+                    (nonce, int(epoch), _iso(now)))
+            except sqlite3.IntegrityError as exc:
+                raise ServiceConflict(
+                    "nonce de recuperação já utilizado") from exc
 
     def get_mission(self, mission_id: str) -> cc.MissionEnvelope:
         with self._read() as conn:
@@ -1221,7 +1245,10 @@ class TrustService:
             self.state.audit(
                 consumer.consumer_id, action, "ok", {"request_id": request_id},
                 self._now())
-            if action != "recover" and not self.quarantined:
+            # A recuperação também precisa selar a âncora DEPOIS do audit
+            # final; caso contrário um restart veria service_seq à frente da
+            # âncora e entraria em quarentena imediatamente após recuperar.
+            if not self.quarantined:
                 self._seal_anchor()
             response = {"ok": True, "request_id": request_id,
                         "result": dict(result)}
@@ -1315,6 +1342,7 @@ class TrustService:
             approver=approver, namespace=RECOVERY_NAMESPACE)
         if not ok:
             raise AuthenticationError(f"assinatura de recuperação inválida: {detail}")
+        self.state.consume_recovery_nonce(statement.nonce, statement.new_epoch, now)
         self.epoch = statement.new_epoch
         self.quarantined = False
         self.quarantine_reason = None

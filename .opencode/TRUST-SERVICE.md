@@ -1,4 +1,4 @@
-# COORD-TRUST-BOUNDARY/P3 — serviço local de autoridade e ledger
+# COORD-TRUST-BOUNDARY/P3/P4 — serviço local de autoridade e ledger
 
 **Estado:** fundação em PR Draft; nenhuma operação real, instalação, usuário,
 sudo, migração, credencial ou transporte real foi executado.
@@ -109,9 +109,10 @@ permanece desabilitado (`real_transport=false`).
   `service_id` público; não basta um path.
 - A âncora de rollback é monotônica fora do `state_dir`. Ledger ou service
   state atrasado entra em quarentena; recuperação exige declaração assinada
-  por autoridade externa e cria nova epoch. Restaurar ledger e service state
-  juntos ainda exige política forward-only e revogação externa — a âncora não é
-  distribuída.
+  por autoridade externa e cria nova epoch. O nonce da declaração é consumido
+  de forma persistente e não pode ser reutilizado em epoch futura. Restaurar
+  ledger e service state juntos ainda exige política forward-only e revogação
+  externa — a âncora não é distribuída.
 - Trust store/consumer registry são arquivos 0600 do serviço; alteração exige
   reinício controlado e não é feita pelo agente.
 
@@ -127,20 +128,26 @@ credenciais SCM ausentes/divergentes/truncadas, replay histórico vs atual,
 autoconcessão, least privilege, hardlinks/sidecars, substituição de socket,
 autenticação do servidor, timeout total, adulteração de ledger/service state,
 quarentena/rollback, revogação, interrupção, atestação forjada/relatório
-adulterado, transporte desabilitado e jornada completa sintética.
+adulterado, transporte desabilitado, nonce de recuperação e jornada completa
+sintética.
 
 Evidência local (`unshare -rn`):
 
 | Suíte | Resultado |
 |---|---|
 | `test_coord_trust_service.py` | **40/40 OK** |
-| `unittest discover` | **546/546 OK** |
+| `unittest discover` (inclui 7 testes P4) | **553/553 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **713/713** |
+| Total | **720/720** |
 
-Teste cross-UID com dois UIDs reais é **BLOCKED** neste host (sem privilégio
-para criar/menorizar UID; usuários reais não são criados). O procedimento
-descartável está no runbook e deve ser executado por B/CI antes do piloto.
+A certificação cross-UID real é um job **opt-in** em
+`.github/workflows/coord-trust-crossuid.yml` (`workflow_dispatch`, input
+`crossuid_full=true`, timeout de 10 min). O harness
+`.opencode/scripts/coord_trust_crossuid_harness.py` cobre G1–G9 em runner
+descartável, com dois UIDs numéricos efêmeros, sem criar usuários. Ele **não foi
+disparado** nesta rodada e não substitui a autorização/janela do mantenedor.
+O teste local com dois UIDs reais continua **BLOCKED** neste host (sem
+privilégio para criar/menorizar UID; usuários reais não são criados).
 
 ## 6. Limitações
 

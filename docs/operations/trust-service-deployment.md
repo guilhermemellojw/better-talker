@@ -181,45 +181,98 @@ trust store, chave privada ou âncora.
 8. **Rotação:** pública primeiro, sobreposição, revogação explícita; nunca
    copiar chave privada para o host do agente.
 
-## 7. Teste cross-UID descartável
+## 7. Teste cross-UID descartável (P4)
 
-**Estado local: BLOCKED** — o host desta auditoria não permite criar/menorizar
-um segundo UID sem privilégio; usuários reais não foram criados.
+**Estado local: BLOCKED** — o host desta rodada não permite criar/menorizar um
+segundo UID sem privilégio; usuários reais não foram criados. O teste com dois
+UIDs reais só roda em runner/VM descartável.
 
-O CI prepara um probe descartável que executa um cliente como UID 65534
-(`nobody`, sem criar usuário) contra socket `AF_UNIX`/`SOCK_SEQPACKET` 0666 em
-diretório temporário e exige `SCM_CREDENTIALS` com UID/GID distintos:
+A certificação P4 é um job **exclusivamente opt-in** em
+`.github/workflows/coord-trust-crossuid.yml`:
+
+- gatilho único `workflow_dispatch` com input booleano `crossuid_full=true`;
+- `permissions: contents: read`, sem secrets de produção;
+- `runs-on: ubuntu-latest`, `timeout-minutes: 10`;
+- o harness roda como root **apenas** para preparar arquivos, spawnar UIDs
+  numéricos e matar/reiniciar o serviço; serviço e consumidores rodam sem root,
+  sem capabilities e com `no_new_privs`;
+- todo o job roda em `unshare -n` (sem rede), com guarda Python AF_UNIX
+  adicional quando aplicável;
+- chaves, ledger, trust store, relatórios e evidências são sintéticos;
+- `real_transport=false` durante toda a execução; `transmit` deve retornar
+  `TRANSPORT_DISABLED`.
+
+UIDs numéricos efêmeros (sem `useradd`/`adduser`):
+
+| Papel | UID:GID |
+|---|---|
+| serviço | `65533:65533` |
+| executor | `65534:65533` (grupo comum apenas para o socket) |
+| observer | `65531:65533` |
+| não registrado/helper | `65532:65533` (UID divergente) |
+| GID divergente | UID `65534`, GID `65532` |
+
+Layout descartável: `state/` 0700 do serviço, `anchor/` 0700 **fora** do
+`state/`, `run/` 0750 do grupo, socket 0660, chaves privadas sintéticas 0700
+root, config/trust/registry/DBs 0600. O harness valida ancestrais, hardlinks,
+symlinks, sidecars SQLite, autenticação do servidor e limites.
+
+Cobertura obrigatória do job:
+
+1. **G1** — jornada cross-UID completa (`propose` → `authorize` → `reserve` →
+   `assert` → `record_evidence` → `reconcile` → `status`), observer com
+   least privilege, UID não registrado, autenticação do servidor por
+   UID/GID/dono/grupo/`service_id`, campos de identidade autodeclarados
+   recusados.
+2. **G2** — transferência real de fd por `SCM_RIGHTS` entre UIDs; fd anexado a
+   request recusado; socket encaminhado a outro UID tem credencial divergente
+   recusada.
+3. **G3** — rollback real de ledger/service state com quarentena, nova epoch
+   assinada, lease/`request_id` antigos não reutilizados e nonce de recuperação
+   persistido contra reutilização.
+4. **G4** — `kill` real (`os._exit(137)`) nos limites antes/depois do commit
+   do ledger, `finish_request` e selagem da âncora; restart, replay do WAL,
+   `OUTCOME_UNKNOWN` antes do ledger e quarentena/sem liberação depois dele.
+5. **G5** — recuperação assinada com testes negativos de assinatura, validade,
+   digest da trust policy, aprovador e epoch obsoleta/repetida.
+6. **G6** — divergência exclusiva de GID com UID correto: mudança de GID na
+   mesma conexão (com `CAP_SETGID` ambiente) ou negação de socket pelo grupo.
+7. **G7** — concorrência, saturação de slots, deadline total, frame acima de
+   `max_frame_bytes` e validação de limites de configuração.
+8. **G8** — sandbox efetivo do consumidor: UID/GID distintos, sem
+   capabilities/`no_new_privs`, leitura de estado/chaves negada, rede bloqueada
+   e sinal ao serviço negado.
+9. **G9** — `real_transport=false`, `transmit` recusado, ausência de
+   `AF_INET`/`create_connection` no serviço e execução sem rede.
+
+Comando previsto (não executado nesta rodada):
 
 ```bash
-python3 .opencode/scripts/coord_trust_cross_uid_probe.py
-# CROSS-UID-SCM-OK uid=65534 gid=65534
-# ou CROSS-UID-BLOCKED ... (quando sudo/setpriv não está disponível)
+sudo -n unshare -n -- /usr/bin/env -i \
+  HOME="$RUNNER_TEMP/crossuid-home" TMPDIR="$RUNNER_TEMP/crossuid-tmp" \
+  PATH="$pythonLocation/bin:/usr/local/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
+  PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts" \
+  python3 "$GITHUB_WORKSPACE/.opencode/scripts/coord_trust_crossuid_harness.py" \
+    --repo "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/crossuid-out" \
+    --deadline-seconds 480
 ```
 
-Procedimento de certificação (VM/CI descartável, nunca o host real):
+Critérios de interrupção/falha fechada:
 
-1. criar dois UIDs efêmeros: serviço e executor, sem root, com grupo comum
-   apenas para o socket;
-2. preparar state 0700 do serviço, runtime 0750 do grupo, socket 0660, âncora
-   0700 fora do state;
-3. iniciar o serviço como UID do serviço; confirmar `id` e ausência de
-   capabilities (`capsh --print` ou `/proc/self/status`);
-4. executar o cliente como UID do executor; confirmar `status` autorizado e
-   `propose`/`authorize` negados conforme registry;
-5. tentar ler ledger/trust store/âncora como executor: deve falhar;
-6. abrir socket com cliente de UID não registrado: deve fechar sem welcome;
-7. transferir o fd para outro UID (SCM_RIGHTS/processo auxiliar): a credencial
-   da mensagem deve divergir e o serviço deve recusar;
-8. repetir `assert` após revogação/expiração/UNKNOWN/terminal: deve retornar
-   `REPLAY_STALE`, nunca lease histórico;
-9. registrar `id`, permissões, hashes e logs sanitizados no PR.
+- qualquer gate G1–G9 falhar, o harness sair com código não zero ou o deadline
+  interno de 8 min estourar;
+- `sudo -n`, `setpriv`, `unshare` ou `ssh-keygen` indisponível; suporte a
+  `--no-new-privs`/`--ambient-caps` ausente;
+- UID de serviço já existente/colidindo, criação inesperada de usuário ou
+  alteração de `/etc/passwd`/`/etc/group`;
+- rede acessível, `real_transport` diferente de `false`, `transmit` não
+  retornar `TRANSPORT_DISABLED`, ou evidência de AF_INET;
+- logs/artefatos sem sanitização de paths.
 
-Sem os passos 1–3, o modo `allow_same_uid=true` é apenas laboratório e não
-certifica a fronteira de produção.
-
-O probe `coord_trust_cross_uid_probe.py` executa apenas a prova de kernel
-`SCM_CREDENTIALS` cross-UID em ambiente descartável com `sudo -n setpriv`; ele
-**não** é executado no host desta rodada e não substitui os passos 1–9.
+O probe `coord_trust_cross_uid_probe.py` continua sendo apenas a prova de
+kernel `SCM_CREDENTIALS` cross-UID; ele **não** substitui os gates acima. O
+workflow P4 não deve ser disparado até a certificação independente do SHA e
+dos limites pelo mantenedor/B; esta rodada apenas publica o Draft.
 
 ## 8. Critérios de aceite da implantação
 
