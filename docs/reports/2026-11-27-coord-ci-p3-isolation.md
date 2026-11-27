@@ -1,6 +1,7 @@
 # COORD-CI/P3 — Isolamento efetivo do CI Python
 
-**PR #79** · branch `ci/coord-python-host-only` · base `feat/coord-communication-foundation` @ `0a21cf5e` · **HEAD final no PR/comentário**.
+**PR #79** · branch `ci/coord-python-host-only` · base `feat/coord-communication-foundation` @ `0a21cf5e`.
+**HEAD de implementação:** `0390cfd332490ff9776845e4a9ab8406aa61864c`; **HEAD final:** commit de evidência no PR/comentário.
 **Propriedade exclusiva confirmada:** `origin/ci/coord-python-host-only` = worktree local = `2c310120`, sem alterações pendentes, antes da modificação.
 **Baseline de auditoria:** `2c310120c2fcaea9b1f1bc34aec02600db3cc687` (green condicional P1/P2).
 **Escopo:** somente workflow/probe/dependências; PRs #64, #77 e #80 não foram alterados.
@@ -79,10 +80,15 @@ Total local: **378 + 167 = 545/545**, rede bloqueada por namespace e guard.
 
 ## 7. Evidência CI
 
-O HEAD final, os run IDs, os counts (`DISCOVER_TESTS=378`, `SUPERVISOR_TESTS=167`, `TOTAL_TESTS=545`), `NETWORK-OS-BLOCKED`, `NETWORK-GUARD-BLOCKED` e `REGRESSION-DETECTION-OK` são registrados no comentário de certificação do PR #79 após o push. O `propose` não é CI Python.
+- `6eed1562` / run `46020039896`: falhou porque `unshare -rn` (user namespace) impedia o root mapeado de abrir o workspace do runner; corrigido com `unshare -n` + `setpriv` para o usuário runner.
+- `0390cfd3` / push `46020329072`: **success**; PR `46020336890`: **success no rerun**.
+- Logs: `NETWORK-OS-BLOCKED`, `NETWORK-GUARD-BLOCKED`, `Ran 378 tests ... OK`, `DISCOVER_TESTS=378`, `SUPERVISOR_TESTS=167`, `TOTAL_TESTS=545`, `REGRESSION-DETECTION-OK rc=1`.
+- O primeiro run do `0390cfd3` (PR) falhou apenas no teste concorrente P14A3 `test_two_processes_do_not_dispatch_same_mission`: o perdedor às vezes chega a `reserve_dispatch` e imprime traceback de `DuplicateReservation`, enquanto o teste exige `erro:`. O rerun passou e o run de push passou; o workflow **não** tem retry automático. Flake residual do teste, não do namespace.
+- `propose` SUCCESS não é CI Python.
 
 ## 8. Limitações
 
 - O runner precisa de `sudo -n`/`unshare` disponíveis; se o runner não permitir user/network namespaces, o job falha fechado.
 - A preparação do PyYAML é online e depende do PyPI; a execução dos testes é offline.
 - Permanecem as fronteiras de P14A/P14B; este PR é somente CI, não autoridade real, transporte ou merge.
+- Flake P1/P2 residual do teste concorrente P14A3: o perdedor pode falhar em `reserve_dispatch` (traceback `DuplicateReservation`) em vez de `erro:`; exige correção no teste/CLI de P14A, sem relaxar a CI. O rerun manual não é retry do workflow.
