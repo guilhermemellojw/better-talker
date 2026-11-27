@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#82 — COORD-04/P14B — integração definitiva sintética (Draft)](https://github.com/guilhermemellojw/better-talker/pull/82) | Outros | `6c56a393d33b` | Pendente |
+| [#82 — COORD-04/P14B — integração definitiva sintética (Draft)](https://github.com/guilhermemellojw/better-talker/pull/82) | Outros | `90cc4b83bb3f` | Pendente |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#80 — COORD-05A-EXT: ledger 1.1 com autorizacao assinada e reconciliacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/80) | Outros | `27506ea379fb` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
