@@ -1,7 +1,7 @@
 # P14B — Adapter de autoridade #77 → ledger 1.1 (#80)
 
-**Estado:** contrato publicado antecipadamente em PR Draft. Implementação e
-regressões na mesma branch, sem merge.
+**Estado:** contrato e implementação em PR Draft, sem merge. Regressões
+host-only verdes neste HEAD; evidência publicada no PR.
 **Branch:** `feat/p14b-authority-adapter`.
 **Base de integração:** `feat/coord05a-ledger-1.1` @
 `27506ea379fbd1d8ee7f6d4dc44717ee099a6048` (#80).
@@ -238,3 +238,21 @@ Falhas de autorização são `AuthorizationRejected`; de revogação,
 - SHADOW/sintético nesta rodada; a fronteira real depende de UID/serviço
   separado, hardware/signer service e allowlist protegida.
 - Fixtures e chaves sintéticas não são autoridade humana.
+
+## 10. Testes e evidências
+
+Host-only, rede isolada (`unshare -rn`), chaves sintéticas descartáveis
+geradas em `tempfile`:
+
+| Comando | Resultado |
+| --- | --- |
+| `unittest test_coord_p14b_authority` | **14/14 OK** |
+| `unittest discover` | **182/182 OK** |
+| `test_supervisor.py` | **167/167 passed** |
+
+Cobrem assinatura válida/forjada, namespace incorreto, V1 insuficiente,
+campos extras, critérios/ambiente/modelo/payload divergentes, identidade
+canônica incompatível, trust policy, chave desconhecida/inativa, fingerprint,
+expiração, revogação válida/forjada/futura, replay bloqueado pelo ledger,
+atestação adulterada/expirada, fixture recusada e integração completa
+`authorize → reserve → assert → evidence → reconcile`.
