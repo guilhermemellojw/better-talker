@@ -1,0 +1,154 @@
+# COORD-TRUST-BOUNDARY/P3 — serviço local de autoridade e ledger
+
+**Estado:** fundação em PR Draft; nenhuma operação real, instalação, usuário,
+sudo, migração, credencial ou transporte real foi executado.
+**Base:** P14B consolidado `7c1c4b1a` (PR #82), sem alterá-lo.
+**Objetivo:** retirar do agente o acesso direto ao ledger 1.1 e ao trust store,
+centralizando autorização/lease/replay/reconciliação em um processo com
+identidade de consumidor fornecida pelo kernel.
+
+## 1. Fronteira de confiança
+
+O agente/consumidor é tratado como potencialmente comprometido. Ele pode
+chamar a API local, tentar autodeclarar identidade/permissões, adulterar
+payloads e fabricar relatórios. Ele **não** deve:
+
+- abrir ou escrever o SQLite do ledger, o service state, o trust store ou a
+  âncora externa;
+- ler a chave privada de autoridade;
+- reutilizar autorização/lease/relatório;
+- iniciar transporte real;
+- conceder a si mesmo uma ação ou papel.
+
+A fronteira é imposta por:
+
+1. **UID exclusivo por consumidor.** Produção usa `allow_same_uid=false` e
+   `test_mode=false`; cada principal tem UID próprio, sem compartilhar UID com
+   o serviço. Configuração com UID duplicado, desconhecido ou igual ao do
+   serviço é recusada.
+2. **Identidade do kernel.** `SO_PEERCRED` fornece PID/UID/GID da conexão;
+   `SO_PASSCRED`/`SCM_CREDENTIALS` fornece credenciais **por mensagem**. Não há
+   leitura obrigatória de `/proc/<pid>/exe`, `CAP_SYS_PTRACE`, root ou hash de
+   executável como prova de identidade.
+3. **Estado privado.** `state_dir` 0700; ledger, service state, trust store,
+   consumer registry e sidecars SQLite 0600, do UID do serviço; hardlinks e
+   symlinks são recusados.
+4. **Socket local.** Somente `AF_UNIX`/`SOCK_SEQPACKET`; diretório de runtime
+   0750 do grupo do serviço, socket 0660. O consumidor precisa do grupo e não
+   recebe paths do estado.
+5. **Trust store do serviço.** Allowlist de chaves públicas e consumer registry
+   ficam no estado privado; o cliente não recebe paths nem conteúdo.
+6. **Ledger do serviço.** O serviço é o único que instancia `Ledger` e chama
+   `authorize_signed`, `reserve_dispatch_signed`, `assert_dispatchable`,
+   `record_dispatch_evidence`, `reconcile_signed`, `revoke_authorization` e a
+   recuperação assinada.
+
+O adapter V2 (`coord_p14b_authority`) é injetado no ledger e exige a
+`MissionEnvelope` #64 armazenada pelo serviço, recalculando a identidade
+canônica em cada gate.
+
+**Limite explícito:** UID identifica um principal, **não** um script, argv ou
+interpretador. Processos que compartilham o mesmo UID pertencem à mesma
+fronteira e não são distinguíveis por este serviço. `exe_sha256` não é
+autoridade. O modo `allow_same_uid=true` exige `test_mode=true` e existe apenas
+para a suíte host-only; não é fronteira de produção.
+
+## 2. Protocolo local
+
+- Unix domain socket `AF_UNIX`/`SOCK_SEQPACKET`; sem TCP, HTTP, DNS ou sockets
+  de rede.
+- Cada frame é um pacote com prefixo de 4 bytes e limite de 1 MiB.
+- `SO_PASSCRED` no servidor; `SCM_CREDENTIALS` é exigido em **cada** frame de
+  hello e request. Credenciais ausentes, truncadas (`MSG_CTRUNC`), múltiplas,
+  inconsistentes ou de UID/PID/GID divergente da conexão são recusadas.
+- `SCM_RIGHTS` e qualquer ancillary não esperado são recusados; transferência
+  de descritor para outro UID é detectada pela credencial da mensagem.
+- Handshake: welcome do serviço; hello e request do cliente; autenticação real
+  por credenciais do kernel, nunca por `consumer_id` da requisição.
+- `request_id` é idempotente por consumidor/ação/material. Resposta histórica
+  não é autorização atual: `assert`/`reserve`/`authorize` são revalidados no
+  ledger; revogação, expiração, `UNKNOWN` ou estado terminal retornam
+  `REPLAY_STALE` em vez de reutilizar o lease/resposta. `status` histórico é
+  marcado `historical=true`/`authorization_current=false`.
+- Respostas não expõem paths, chaves, trust store ou conteúdo do ledger.
+
+Ações: `propose`, `authorize`, `reserve`, `assert`, `record_evidence`,
+`reconcile`, `revoke`, `interrupt`, `status`, `recover`. `transmit` falha
+explicitamente com `TRANSPORT_DISABLED`.
+
+## 3. Fluxo
+
+```text
+consumidor -> propose (MissionEnvelope + material SHADOW)
+           -> humano assina envelope V2 fora do agente
+           -> authorize (envelope + assinatura) [serviço verifica/ledger]
+           -> reserve (lease) [serviço consome]
+           -> assert (lease) [serviço revalida imediatamente antes do limite]
+           -> record_evidence (receipt/evidence sintéticos)
+           -> humano assina atestação terminal
+           -> reconcile (atestação + report/evidence) [serviço verifica/ledger]
+```
+
+`revoke` persiste revogação assinada; `assert`/novas reservas falham.
+`interrupt` leva `DISPATCHING -> UNKNOWN`, preserva reserva/consumo e nunca
+reenvia. A janela `assert` → POST continua residual e o transporte real
+permanece desabilitado (`real_transport=false`).
+
+## 4. Privilégios, armazenamento e recuperação
+
+- O serviço roda como `bt-coord-trust`, sem capabilities, com
+  `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`,
+  `PrivateNetwork` e somente `AF_UNIX`.
+- Estado persistente em `/var/lib/better-talker-coord` (0700 do serviço);
+  runtime/socket em `/run/better-talker-coord` (0750 do grupo); âncora externa
+  em `/var/lib/better-talker-coord-anchor` (0700), fora do backup do ledger.
+- Ledger/service state/trust store/registry e sidecars `-wal`/`-shm`/`-journal`
+  são 0600, regulares, sem hardlink/symlink. O runtime valida os ancestrais
+  relevantes e recusa socket regular, symlink ou de outro dono.
+- O cliente autentica o servidor por `SO_PEERCRED`/dono/grupo do socket e pelo
+  `service_id` público; não basta um path.
+- A âncora de rollback é monotônica fora do `state_dir`. Ledger ou service
+  state atrasado entra em quarentena; recuperação exige declaração assinada
+  por autoridade externa e cria nova epoch. Restaurar ledger e service state
+  juntos ainda exige política forward-only e revogação externa — a âncora não é
+  distribuída.
+- Trust store/consumer registry são arquivos 0600 do serviço; alteração exige
+  reinício controlado e não é feita pelo agente.
+
+## 5. Implantação e testes
+
+O contrato único de UIDs/GIDs, paths, permissões, socket, unidade systemd,
+sandbox do consumidor, chave privada fora do agente e rollback forward-only
+está em `docs/operations/trust-service-deployment.md`. Nenhuma unidade,
+usuário ou serviço é instalado por esta fundação.
+
+A suíte host-only cobre comunicação local real, UID desconhecido/duplicado,
+credenciais SCM ausentes/divergentes/truncadas, replay histórico vs atual,
+autoconcessão, least privilege, hardlinks/sidecars, substituição de socket,
+autenticação do servidor, timeout total, adulteração de ledger/service state,
+quarentena/rollback, revogação, interrupção, atestação forjada/relatório
+adulterado, transporte desabilitado e jornada completa sintética.
+
+Evidência local (`unshare -rn`):
+
+| Suíte | Resultado |
+|---|---|
+| `test_coord_trust_service.py` | **40/40 OK** |
+| `unittest discover` | **546/546 OK** |
+| `test_supervisor.py` | **167/167 passed** |
+| Total | **713/713** |
+
+Teste cross-UID com dois UIDs reais é **BLOCKED** neste host (sem privilégio
+para criar/menorizar UID; usuários reais não são criados). O procedimento
+descartável está no runbook e deve ser executado por B/CI antes do piloto.
+
+## 6. Limitações
+
+- Não há instalação, criação de usuário, sudo, migração operacional,
+  credencial real, transporte real, POST, LLM, sessão, Android/ADB ou merge.
+- A implementação é fundação; o contrato do adapter/ledger continua sendo a
+  autoridade operacional, não este processo isoladamente.
+- Mesmo UID é apenas laboratório; UID não prova qual script roda.
+- A janela `assert` → POST, comprometimento do UID do serviço, rotação de
+  chaves/consumer registry e rollback integral do host exigem operação
+  protegida e auditoria independente.
