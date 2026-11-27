@@ -102,7 +102,7 @@ jobs:
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_network_probe.py" --mode guard
 
-      - name: unittest discover dentro do namespace (baseline 554)
+      - name: unittest discover dentro do namespace (baseline 557)
         run: |
           set -euo pipefail
           COORD_HOME="$RUNNER_TEMP/coord-home"
@@ -117,7 +117,7 @@ jobs:
               "$GITHUB_WORKSPACE/.opencode/scripts" 2>&1 | tee "$COORD_LOGS/discover.log"
           count=$(grep -Eo 'Ran [0-9]+ tests' "$COORD_LOGS/discover.log" | awk '{print $2}')
           echo "DISCOVER_TESTS=$count"
-          [ "$count" = "554" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }
+          [ "$count" = "557" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }
 
       - name: Serviço de fronteira de confiança (baseline 40)
         run: |
@@ -184,9 +184,9 @@ jobs:
           count=$(grep -Eo '[0-9]+ passed, 0 failed' "$COORD_LOGS/supervisor.log" | awk '{print $1}')
           echo "SUPERVISOR_TESTS=$count"
           [ "$count" = "167" ] || { echo "BASELINE-SUPERVISOR-DIVERGENT"; exit 1; }
-          total=$((count + 554))
+          total=$((count + 557))
           echo "TOTAL_TESTS=$total"
-          [ "$total" = "721" ] || { echo "BASELINE-TOTAL-DIVERGENT"; exit 1; }
+          [ "$total" = "724" ] || { echo "BASELINE-TOTAL-DIVERGENT"; exit 1; }
 
       - name: Sanitizar logs e publicar resultado
         if: always()
@@ -209,7 +209,7 @@ jobs:
                   handle.write(text)
           print("LOGS-SANITIZED")
           PY
-          echo "RESULTADO: discover=554 supervisor=167 total=721 (namespace sem rede; guard adicional)"
+          echo "RESULTADO: discover=557 supervisor=167 total=724 (namespace sem rede; guard adicional)"
 
       - name: Publicar logs sanitizados
         if: always()
@@ -221,7 +221,7 @@ jobs:
 
   crossuid:
     name: Cross-UID descartável (manual, SHA certificado)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.crossuid_full == true }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.crossuid_full == true && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
@@ -229,24 +229,28 @@ jobs:
       cancel-in-progress: false
     env:
       PYTHONDONTWRITEBYTECODE: '1'
+      CERTIFIED_SHA: ${{ inputs.certified_sha }}
+      RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      WORK_ROOT: /tmp/coord-trust-p4-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Validar SHA certificado informado
         run: |
           set -euo pipefail
-          certified="${{ inputs.certified_sha }}"
+          certified="${CERTIFIED_SHA:-}"
           [[ "$certified" =~ ^[0-9a-f]{40}$ ]] || { echo "CERTIFIED-SHA-INVALID"; exit 1; }
+          [ "$GITHUB_SHA" = "$certified" ] || { echo "GITHUB-SHA-DIVERGENT"; exit 1; }
           echo "CERTIFIED-SHA-FORMAT-OK"
 
       - name: Checkout do SHA certificado (somente leitura)
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.certified_sha }}
+          ref: ${{ env.CERTIFIED_SHA }}
           persist-credentials: false
 
       - name: Verificar SHA certificado após checkout
         run: |
           set -euo pipefail
-          certified="${{ inputs.certified_sha }}"
+          certified="${CERTIFIED_SHA:-}"
           actual="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
           [ "$actual" = "$certified" ] || { echo "CERTIFIED-SHA-DIVERGENT"; exit 1; }
           echo "CERTIFIED-SHA-OK $certified"
@@ -262,9 +266,11 @@ jobs:
           sudo -n true
           command -v setpriv
           command -v unshare
+          command -v setsid
           command -v ssh-keygen
           command -v python3
           test "$(id -u)" != "0"
+          [ "${GITHUB_RUN_ATTEMPT:-}" = "1" ] || { echo "RUN-ATTEMPT-BLOCKED"; exit 1; }
           python3 -c 'import sys; assert sys.version_info >= (3, 12), sys.version_info'
           test -f "$GITHUB_WORKSPACE/.opencode/scripts/coord_trust_crossuid_harness.py"
           echo "CROSSUID-PRECONDITIONS-OK"
@@ -276,14 +282,17 @@ jobs:
           HOME_DIR="$RUNNER_TEMP/crossuid-home"
           TMP_DIR="$RUNNER_TEMP/crossuid-tmp"
           mkdir -p "$OUT" "$HOME_DIR" "$TMP_DIR"
-          sudo -n unshare -n -- /usr/bin/env -i \
+          sudo -n setsid unshare -n -- /usr/bin/env -i \
             HOME="$HOME_DIR" TMPDIR="$TMP_DIR" \
             PATH="$pythonLocation/bin:/usr/local/bin:/usr/bin:/bin" \
             LANG=C LC_ALL=C \
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts" \
+            COORD_TRUST_RUN_ID="$RUN_ID" \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/coord_trust_crossuid_harness.py" \
               --repo "$GITHUB_WORKSPACE" \
               --output "$OUT" \
+              --run-id "$RUN_ID" \
+              --work-root "$WORK_ROOT" \
               --deadline-seconds 480
 
       - name: Sanitizar logs e resumo
@@ -292,11 +301,15 @@ jobs:
           set -euo pipefail
           OUT="$RUNNER_TEMP/crossuid-out"
           mkdir -p "$OUT"
-          python3 - "$RUNNER_TEMP" "$GITHUB_WORKSPACE" "$OUT" <<'PY'
+          python3 - "$RUNNER_TEMP" "$GITHUB_WORKSPACE" "$OUT" "$WORK_ROOT" <<'PY'
           import os
+          import re
           import sys
-          runner_temp, workspace, out = sys.argv[1:4]
-          replacements = (runner_temp, workspace, "/tmp/coord-trust-p4-")
+          runner_temp, workspace, out, work_root = sys.argv[1:5]
+          replacements = (runner_temp, workspace, work_root)
+          private_key = re.compile(
+              r"-----BEGIN (?:OPENSSH )?PRIVATE KEY-----.*?"
+              r"-----END (?:OPENSSH )?PRIVATE KEY-----", re.S)
           for name in ("crossuid.log", "service-logs.log", "summary.json"):
               source = os.path.join(out, name)
               if not os.path.isfile(source):
@@ -305,6 +318,7 @@ jobs:
                   text = handle.read()
               for value in replacements:
                   text = text.replace(value, "<path>")
+              text = private_key.sub("<redacted-private-key>", text)
               target = os.path.join(out, name + ".sanitized")
               with open(target, "w", encoding="utf-8") as handle:
                   handle.write(text)
@@ -324,3 +338,73 @@ jobs:
             ${{ runner.temp }}/crossuid-out/crossuid.log.sanitized
             ${{ runner.temp }}/crossuid-out/service-logs.log.sanitized
           if-no-files-found: warn
+
+      - name: Limpeza independente do runner
+        if: always()
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/crossuid-out"
+          MANIFEST="$OUT/cleanup.json"
+          case "$WORK_ROOT" in
+            /tmp/coord-trust-p4-*) ;;
+            *) echo "CROSSUID-CLEANUP-WORK-ROOT-INVALID"; exit 1 ;;
+          esac
+          sudo -n python3 - "$MANIFEST" "$RUN_ID" "$WORK_ROOT" <<'PY'
+          import json
+          import os
+          import signal
+          import sys
+          import time
+
+          manifest_path, run_id, work_root = sys.argv[1:4]
+          marker = ("COORD_TRUST_RUN_ID=" + run_id).encode("ascii", "strict")
+          pgrps = set()
+          if os.path.isfile(manifest_path):
+              try:
+                  with open(manifest_path, encoding="utf-8") as handle:
+                      manifest = json.load(handle)
+                  if manifest.get("run_id") == run_id:
+                      expected_work = manifest.get("work_root")
+                      if expected_work != work_root:
+                          print("CROSSUID-CLEANUP-MANIFEST-DIVERGENT")
+                          raise SystemExit(1)
+                      pgrps.update(int(value) for value in manifest.get(
+                          "process_groups", []))
+              except (OSError, ValueError, TypeError):
+                  print("CROSSUID-CLEANUP-MANIFEST-INVALID")
+          # Escopo por marcador único da execução, nunca por nome de processo.
+          for entry in os.listdir("/proc"):
+              if not entry.isdigit():
+                  continue
+              pid = int(entry)
+              try:
+                  with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
+                      fields = handle.read().split()
+                  pgrp = int(fields[4])
+                  with open(f"/proc/{pid}/environ", "rb") as handle:
+                      environ = handle.read()
+              except (OSError, ValueError, IndexError):
+                  continue
+              if marker in environ:
+                  pgrps.add(pgrp)
+          for pgid in sorted(pgrps):
+              if pgid <= 1:
+                  continue
+              try:
+                  os.killpg(pgid, signal.SIGTERM)
+              except OSError:
+                  pass
+          time.sleep(0.2)
+          for pgid in sorted(pgrps):
+              if pgid <= 1:
+                  continue
+              try:
+                  os.killpg(pgid, signal.SIGKILL)
+              except OSError:
+                  pass
+          print(f"CROSSUID-CLEANUP-PGRPS={len(pgrps)}")
+          PY
+          sudo -n rm -rf -- "$WORK_ROOT" \
+            "$RUNNER_TEMP/crossuid-home" "$RUNNER_TEMP/crossuid-tmp" \
+            "$OUT"
+          echo "CROSSUID-CLEANUP-OK"

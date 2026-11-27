@@ -191,10 +191,15 @@ A certificação P4 é um job **exclusivamente opt-in** no workflow
 `.github/workflows/coord-python.yml`:
 
 - `workflow_dispatch` com input booleano `crossuid_full=true` e
-  `certified_sha=<40-hex>`; o job só roda com `crossuid_full=true`;
+  `certified_sha=<40-hex>`; o job só roda com `crossuid_full=true` e
+  `run_attempt=1` (reexecução não executa o job);
 - a suíte ordinária `coord-python` é omitida quando `crossuid_full=true`;
-- checkout exato de `certified_sha`, com `persist-credentials: false`, e guarda
-  `git rev-parse HEAD == certified_sha`;
+- `certified_sha` é recebido por `env`, sem interpolação direta no shell;
+  formato 40-hex, `GITHUB_SHA` e `git rev-parse HEAD` precisam coincidir;
+- checkout exato de `certified_sha`, com `persist-credentials: false`;
+- etapa `if: always()` de limpeza remove apenas `$RUNNER_TEMP/crossuid-*` e o
+  `WORK_ROOT` da execução; process groups vêm do manifesto e são validados
+  pelo marcador `COORD_TRUST_RUN_ID`, nunca por nome de processo;
 - `permissions: contents: read`, sem secrets de produção;
 - `runs-on: ubuntu-latest`, `timeout-minutes: 10`;
 - o harness roda como root **apenas** para preparar arquivos, spawnar UIDs
@@ -239,34 +244,40 @@ Cobertura obrigatória do job:
    `OUTCOME_UNKNOWN` antes do ledger e quarentena/sem liberação depois dele.
 5. **G5** — recuperação assinada com testes negativos de assinatura, validade,
    digest da trust policy, aprovador e epoch obsoleta/repetida.
-6. **G6** — divergência exclusiva de GID com UID correto: mudança de GID na
-   mesma conexão (com `CAP_SETGID` ambiente) ou negação de socket pelo grupo.
+6. **G6** — divergência exclusiva de GID com UID correto: exige rejeição pelo
+   serviço após mudança de GID na mesma conexão (`CAP_SETGID` ambiente). Se a
+   capacidade não estiver disponível, o gate é **BLOCKED**; `EACCES` de socket
+   é apenas informativo e nunca produz PASS.
 7. **G7** — concorrência, saturação de slots, deadline total, frame acima de
    `max_frame_bytes` e validação de limites de configuração.
 8. **G8** — sandbox efetivo do consumidor: UID/GID distintos, sem
    capabilities/`no_new_privs`, leitura de estado/chaves negada, rede bloqueada
    e sinal ao serviço negado.
 9. **G9** — `real_transport=false`, `transmit` recusado, ausência de
-   `AF_INET`/`create_connection` no serviço e execução sem rede.
+   `AF_INET`/`create_connection` no serviço/crash service; no cliente,
+   `create_connection` só é aceito como probe negativa com rede comprovadamente
+   bloqueada no netns.
 
 Comando previsto (não executado nesta rodada):
 
 ```bash
-sudo -n unshare -n -- /usr/bin/env -i \
+sudo -n setsid unshare -n -- /usr/bin/env -i \
   HOME="$RUNNER_TEMP/crossuid-home" TMPDIR="$RUNNER_TEMP/crossuid-tmp" \
   PATH="$pythonLocation/bin:/usr/local/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
   PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts" \
+  COORD_TRUST_RUN_ID="$RUN_ID" \
   python3 "$GITHUB_WORKSPACE/.opencode/scripts/coord_trust_crossuid_harness.py" \
     --repo "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/crossuid-out" \
-    --deadline-seconds 480
+    --run-id "$RUN_ID" --work-root "$WORK_ROOT" --deadline-seconds 480
 ```
 
 Critérios de interrupção/falha fechada:
 
 - qualquer gate G1–G9 falhar, o harness sair com código não zero ou o deadline
   interno de 8 min estourar;
-- `sudo -n`, `setpriv`, `unshare` ou `ssh-keygen` indisponível; suporte a
-  `--no-new-privs`/`--ambient-caps` ausente;
+- `sudo -n`, `setpriv`, `unshare`, `setsid` ou `ssh-keygen` indisponível;
+  `--no-new-privs` ausente; `--ambient-caps` ausente torna G6 **BLOCKED**
+  (EACCES de socket não é aceito como certificação);
 - UID de serviço já existente/colidindo, criação inesperada de usuário ou
   alteração de `/etc/passwd`/`/etc/group`;
 - rede acessível, `real_transport` diferente de `false`, `transmit` não

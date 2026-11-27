@@ -85,24 +85,44 @@ class CrossUidHarnessTest(unittest.TestCase):
         job = jobs["crossuid"]
         self.assertEqual(
             "${{ github.event_name == 'workflow_dispatch' && "
-            "inputs.crossuid_full == true }}", job["if"])
+            "inputs.crossuid_full == true && github.run_attempt == 1 }}",
+            job["if"])
         self.assertEqual(10, job["timeout-minutes"])
         self.assertEqual("coord-trust-crossuid", job["concurrency"]["group"])
+        self.assertEqual("${{ inputs.certified_sha }}", job["env"]["CERTIFIED_SHA"])
+        self.assertIn("${{ github.run_id }}-${{ github.run_attempt }}",
+                      job["env"]["RUN_ID"])
         checkout = next(
             step for step in job["steps"]
             if step.get("uses") == "actions/checkout@v4")
         self.assertEqual(False, checkout["with"]["persist-credentials"])
-        self.assertEqual("${{ inputs.certified_sha }}", checkout["with"]["ref"])
+        self.assertEqual("${{ env.CERTIFIED_SHA }}", checkout["with"]["ref"])
         names = [step.get("name", "") for step in job["steps"]]
         self.assertIn("Validar SHA certificado informado", names)
         self.assertIn("Verificar SHA certificado após checkout", names)
+        validation = next(
+            step for step in job["steps"]
+            if step.get("name") == "Validar SHA certificado informado")
+        self.assertIn('certified="${CERTIFIED_SHA:-}"', validation["run"])
+        self.assertIn('"$GITHUB_SHA" = "$certified"', validation["run"])
+        self.assertNotIn("${{ inputs.certified_sha }}", validation["run"])
         guard = next(
             step for step in job["steps"]
             if step.get("name") == "Verificar SHA certificado após checkout")
         self.assertIn("rev-parse HEAD", guard["run"])
         self.assertIn("CERTIFIED-SHA-DIVERGENT", guard["run"])
+        self.assertIn("RUN-ATTEMPT-BLOCKED", raw)
+        cleanup = next(
+            step for step in job["steps"]
+            if step.get("name") == "Limpeza independente do runner")
+        self.assertEqual("always()", cleanup["if"])
+        self.assertIn("CROSSUID-CLEANUP-PGRPS", cleanup["run"])
+        self.assertIn("COORD_TRUST_RUN_ID", cleanup["run"])
+        self.assertNotIn("pkill", cleanup["run"])
+        self.assertNotIn("killall", cleanup["run"])
         self.assertIn(".opencode/scripts/coord_trust_crossuid_harness.py", raw)
-        self.assertIn("sudo -n unshare -n", raw)
+        self.assertIn("sudo -n setsid unshare -n", raw)
+        self.assertIn("command -v setsid", raw)
         self.assertIn("actions/upload-artifact@v4", raw)
 
     def test_plan_is_production_shaped_and_anchor_is_outside_state(self):
@@ -153,6 +173,15 @@ class CrossUidHarnessTest(unittest.TestCase):
         self.assertNotIn("/repo/wt", clean)
         self.assertNotIn("OPENSSH PRIVATE KEY", clean)
         self.assertIn("<redacted-private-key>", clean)
+        mapped = common.sanitize_value({
+            "detail": "traceback /tmp/state/ledger.db",
+            "fingerprint": "SHA256:synthetic",
+            "private": private,
+        }, ("/tmp/state",))
+        self.assertNotIn("/tmp/state", mapped["detail"])
+        self.assertEqual("SHA256:synthetic", mapped["fingerprint"])
+        self.assertNotIn("OPENSSH PRIVATE KEY", mapped["private"])
+        self.assertIn("<redacted-private-key>", mapped["private"])
 
     def test_service_rejects_invalid_resource_limits(self):
         from test_coord_trust_service import Fixture
@@ -266,6 +295,198 @@ class CrossUidHarnessTest(unittest.TestCase):
                                  os.getegid() + 1))
         with self.assertRaises(svc.AuthenticationError):
             svc._credentials_from_ancillary([wrong_gid], 0, expected=expected)
+
+    def test_run_main_gates_executes_transmit_path(self):
+        """Regressão A1: exercita run_main_gates até o check de transmit.
+
+        Não é certificação cross-UID nem usa root; os processos e o socket são
+        substituídos por resultados determinísticos para executar o caminho
+        Python real que antes referenciava `results` indefinido.
+        """
+        import types
+
+        import coord_trust_crossuid_harness as harness_module
+
+        with tempfile.TemporaryDirectory() as root:
+            output = os.path.join(root, "out")
+            harness = harness_module.Harness(
+                repo=str(ROOT), output=output, deadline_seconds=30)
+            self.addCleanup(harness.cleanup)
+            layout_plan = common.build_plan(os.path.join(root, "layout"))
+            os.makedirs(layout_plan.artifacts_dir, exist_ok=True)
+            signer = p14b.SyntheticSigner(
+                harness.signer_dir, persist=True)
+            allowlist = cas.ApproverAllowlist(
+                (signer.approver_key(NOW),))
+            harness.signer = signer
+            harness.allowlist = allowlist
+            layout = harness_module.Layout(
+                plan=layout_plan,
+                config={
+                    "real_transport": False,
+                    "test_mode": False,
+                    "allow_same_uid": False,
+                })
+            harness.paths.append(layout_plan.root)
+            harness.layouts.append(layout)
+            harness.new_layout = lambda tag: layout
+            harness.prepare_trust = lambda value: None
+            harness.write_config = lambda value, mapping=None: None
+            harness.start_service = lambda value, **kwargs: types.SimpleNamespace(
+                proc=types.SimpleNamespace(pid=1234))
+            harness.check_layout_permissions = lambda value: None
+            harness.check_runtime_files = lambda value: None
+            harness.stop_service = lambda: None
+            harness.wait_for_path = lambda path, timeout=10: None
+            harness.start_client = lambda *args, **kwargs: (
+                types.SimpleNamespace(), "/dev/null", "/dev/null")
+            harness.wait_client = lambda *args, **kwargs: {"ok": True}
+            harness.setpriv_has_ambient = True
+            assert_calls = {"count": 0}
+
+            def fake_client(layout_value, job_path, mode, **kwargs):
+                if mode == "prepare":
+                    return {
+                        "ok": True,
+                        "results": {
+                            "propose": {"ok": True},
+                            "authorize": {"ok": True},
+                        },
+                    }
+                if mode == "reserve":
+                    return {"ok": True, "lease_id": "lease-test"}
+                if mode == "assert":
+                    assert_calls["count"] += 1
+                    if assert_calls["count"] == 1:
+                        return {"ok": True}
+                    return {
+                        "ok": False,
+                        "response": {"error": {"code": "REPLAY_STALE"}},
+                    }
+                if mode == "record-evidence":
+                    return {"ok": True}
+                if mode == "reconcile":
+                    return {"ok": True}
+                if mode == "status":
+                    return {
+                        "ok": True,
+                        "response": {
+                            "ok": True,
+                            "result": {
+                                "state": "COMPLETED",
+                                "real_transport": False,
+                                "reserved": False,
+                            },
+                        },
+                    }
+                if mode == "transmit":
+                    return {"ok": True, "code": "TRANSPORT_DISABLED"}
+                if mode == "forbidden":
+                    return {"ok": True, "code": "PERMISSION_DENIED"}
+                if mode == "observer":
+                    return {"ok": True}
+                if mode == "unregistered":
+                    return {"closed_without_response": True}
+                if mode == "auth-wrong":
+                    return {"blocked": True}
+                if mode == "fd-attach":
+                    return {"closed_without_response": True}
+                if mode == "fd-relay-helper":
+                    return {
+                        "fd_received": True,
+                        "service_closed": True,
+                        "uid": common.UNREGISTERED_UID,
+                        "gid": common.UNREGISTERED_GID,
+                    }
+                if mode == "gid-divergence":
+                    return {
+                        "ok": True,
+                        "gid_changed": True,
+                        "closed_without_response": True,
+                    }
+                if mode == "gid-socket-denied":
+                    return {"blocked": True}
+                if mode == "sandbox":
+                    return {
+                        "ok": True,
+                        "cap_eff": "0",
+                        "no_new_privs": "1",
+                        "state_read_blocked": True,
+                        "network_error": "OSError",
+                        "read_results": {},
+                    }
+                raise AssertionError("modo inesperado: " + mode)
+
+            harness.run_client = fake_client
+            harness.run_main_gates()
+            transmit_checks = [
+                check for check in harness.checks
+                if check.gate == "G9" and "transmit" in check.name]
+            self.assertTrue(transmit_checks, harness.checks)
+            self.assertTrue(transmit_checks[0].passed, transmit_checks)
+            self.assertTrue(all(check.passed for check in harness.checks),
+                            [check.to_mapping() for check in harness.checks
+                             if not check.passed])
+
+    def test_g6_requires_service_rejection_not_socket_eacces(self):
+        import types
+
+        import coord_trust_crossuid_harness as harness_module
+
+        with tempfile.TemporaryDirectory() as root:
+            harness = harness_module.Harness(
+                repo=str(ROOT), output=os.path.join(root, "out"),
+                deadline_seconds=30)
+            self.addCleanup(harness.cleanup)
+            layout = types.SimpleNamespace(
+                plan=types.SimpleNamespace(client_job_path="job"))
+            harness.setpriv_has_ambient = False
+            harness.run_client = lambda *args, **kwargs: {
+                "blocked": True, "ok": True}
+            harness.check_g6(layout)
+            blocked = harness.checks[-1]
+            self.assertTrue(blocked.blocked)
+            self.assertFalse(blocked.passed)
+            self.assertIn("EACCES", blocked.detail)
+
+            harness.setpriv_has_ambient = True
+            harness.run_client = lambda *args, **kwargs: {
+                "ok": False, "gid_changed": True,
+                "closed_without_response": False}
+            harness.check_g6(layout)
+            accepted = harness.checks[-1]
+            self.assertFalse(accepted.blocked)
+            self.assertFalse(accepted.passed)
+
+            harness.run_client = lambda *args, **kwargs: {
+                "ok": True, "gid_changed": True,
+                "closed_without_response": True}
+            harness.check_g6(layout)
+            self.assertTrue(harness.checks[-1].passed)
+
+    def test_summary_and_traceback_are_sanitized(self):
+        import coord_trust_crossuid_harness as harness_module
+
+        private = ("-----BEGIN OPENSSH PRIVATE KEY-----\n"
+                   "AAAA\n-----END OPENSSH PRIVATE KEY-----")
+        with tempfile.TemporaryDirectory() as root:
+            output = os.path.join(root, "out")
+            harness = harness_module.Harness(
+                repo=str(ROOT), output=output, deadline_seconds=30)
+            self.addCleanup(harness.cleanup)
+            harness.paths.append("/tmp/state")
+            harness.check(
+                "X", "detalhe com path", False,
+                {"path": "/tmp/state/ledger.db", "private": private,
+                 "fingerprint": "SHA256:synthetic"})
+            harness.write_output("traceback /tmp/state/ledger.db")
+            summary = common.read_json(os.path.join(output, "summary.json"))
+            serialized = common.canonical_json(summary)
+            self.assertNotIn("/tmp/state", serialized)
+            self.assertNotIn("OPENSSH PRIVATE KEY", serialized)
+            self.assertIn("<redacted-private-key>", serialized)
+            self.assertIn("SHA256:synthetic", serialized)
+            self.assertEqual("FAIL", summary["result"])
 
     def test_service_state_nonce_survives_restart(self):
         with tempfile.TemporaryDirectory() as root:

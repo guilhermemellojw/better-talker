@@ -1,5 +1,9 @@
 # COORD-TRUST-BOUNDARY/P4.1 — entrada de dispatch consolidada
 
+> **P4.2:** este relatório é histórico. As correções de preflight, contagens,
+> SHA certificado por env, `run_attempt`, limpeza e G6 estrito estão em
+> `docs/reports/2026-11-27-coord-trust-crossuid-p42-preflight.md`.
+
 **Estado:** Draft; job cross-UID **não disparado** nesta rodada. Nenhum merge,
 deploy, usuário persistente, secret de produção, transporte real, POST, LLM,
 Android ou ADB foi executado.

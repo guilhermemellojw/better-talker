@@ -563,3 +563,21 @@ def sanitize_text(value: str, paths: tuple[str, ...] = ()) -> str:
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
         "<redacted-private-key>", text, flags=re.S)
     return text
+
+
+def sanitize_value(value: Any, paths: tuple[str, ...] = ()) -> Any:
+    """Sanitiza recursivamente resultados de cliente/tracebacks/resumo.
+
+    UIDs, GIDs, fingerprints e SHAs sintéticos são preservados como
+    rastreabilidade; paths e blocos de chave privada são redigidos.
+    """
+    if isinstance(value, str):
+        return sanitize_text(value, paths)
+    if isinstance(value, Mapping):
+        return {
+            str(key): sanitize_value(child, paths)
+            for key, child in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [sanitize_value(child, paths) for child in value]
+    return value

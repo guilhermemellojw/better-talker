@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import pwd
+import re
 import shutil
 import signal
 import sqlite3
@@ -53,12 +54,14 @@ class Check:
     name: str
     passed: bool
     detail: str
+    blocked: bool = False
 
     def to_mapping(self) -> dict[str, Any]:
         return {
             "gate": self.gate,
             "name": self.name,
             "passed": self.passed,
+            "blocked": self.blocked,
             "detail": self.detail,
         }
 
@@ -92,10 +95,23 @@ class Deadline:
 
 class Harness:
     def __init__(self, *, repo: str, output: str, deadline_seconds: float,
-                 keep: bool = False) -> None:
+                 keep: bool = False, run_id: Optional[str] = None,
+                 work_root: Optional[str] = None) -> None:
         self.repo = os.path.abspath(repo)
         self.output = os.path.abspath(output)
         os.makedirs(self.output, mode=0o755, exist_ok=True)
+        self.run_id = run_id or str(os.getpid())
+        if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", self.run_id):
+            raise HarnessError("run_id inválido")
+        if work_root is None:
+            self.work_root = tempfile.mkdtemp(
+                prefix="coord-trust-p4-work-", dir="/tmp")
+        else:
+            self.work_root = os.path.abspath(work_root)
+            os.makedirs(self.work_root, mode=0o711, exist_ok=True)
+        os.chmod(self.work_root, 0o711)
+        if os.geteuid() == 0:
+            os.chown(self.work_root, 0, 0)
         self.deadline_seconds = float(deadline_seconds)
         self.deadline = Deadline(deadline_seconds)
         self.keep = keep
@@ -104,8 +120,10 @@ class Harness:
         self.service: Optional[ServiceProcess] = None
         self.service_logs: dict[str, str] = {}
         self.signer_dir = tempfile.mkdtemp(
-            prefix="coord-trust-p4-keys-", dir="/tmp")
-        self.paths: list[str] = [self.signer_dir]
+            prefix="keys-", dir=self.work_root)
+        self.paths: list[str] = [self.work_root, self.signer_dir, self.output]
+        self.process_groups: set[int] = set()
+        self.cleanup_manifest = os.path.join(self.output, "cleanup.json")
         self.now = datetime.now(timezone.utc)
         self.signer: Optional[p14b.SyntheticSigner] = None
         self.allowlist: Optional[cas.ApproverAllowlist] = None
@@ -114,6 +132,7 @@ class Harness:
         self.setpriv_has_no_new_privs = self._supports_setpriv(
             "--no-new-privs")
         self.setpriv_has_ambient = self._supports_setpriv("--ambient-caps")
+        self._write_cleanup_manifest()
 
     @staticmethod
     def _supports_setpriv(option: str) -> bool:
@@ -130,22 +149,46 @@ class Harness:
         print(f"\n=== {name} ===", flush=True)
 
     def check(self, gate: str, name: str, passed: bool,
-              detail: Any = "") -> None:
+              detail: Any = "", *, blocked: bool = False) -> None:
         text = detail if isinstance(detail, str) else common.canonical_json(
             detail)
         text = common.sanitize_text(text, tuple(self.paths + [self.repo]))
         if len(text) > 1600:
             text = text[:1597] + "..."
-        check = Check(gate, name, bool(passed), text)
+        if blocked and passed:
+            raise HarnessError("check bloqueado não pode ser PASS")
+        check = Check(gate, name, bool(passed) and not blocked, text, blocked)
         self.checks.append(check)
-        print(f"{'PASS' if passed else 'FAIL'} [{gate}] {name}"
+        status = "BLOCKED" if blocked else ("PASS" if check.passed else "FAIL")
+        print(f"{status} [{gate}] {name}"
               + (f" — {text[:240]}" if text else ""), flush=True)
+
+    def _write_cleanup_manifest(self) -> None:
+        """Manifesto exato para a limpeza independente do workflow.
+
+        Não contém chave ou credencial; contém somente paths do runner, run_id
+        e process groups criados por esta execução. A etapa de limpeza valida o
+        marcador `COORD_TRUST_RUN_ID` antes de sinalizar qualquer grupo.
+        """
+        common.write_json(
+            self.cleanup_manifest,
+            {
+                "schema": "BT-COORD-TRUST-CROSSUID-CLEANUP-V1",
+                "run_id": self.run_id,
+                "work_root": self.work_root,
+                "output": self.output,
+                "process_groups": sorted(self.process_groups),
+                "updated_at": common.iso(datetime.now(timezone.utc)),
+            },
+            mode=0o644,
+        )
 
     # ---------- layout / ownership ----------
 
     def new_layout(self, tag: str) -> Layout:
         self.deadline.check()
-        root = tempfile.mkdtemp(prefix=f"coord-trust-p4-{tag}-", dir="/tmp")
+        root = tempfile.mkdtemp(
+            prefix=f"coord-trust-p4-{tag}-", dir=self.work_root)
         plan = common.build_plan(root)
         self.paths.append(root)
         self._create_layout(plan)
@@ -232,6 +275,7 @@ class Harness:
             "PYTHONPATH": SCRIPTS_DIR,
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
+            "COORD_TRUST_RUN_ID": self.run_id,
         }
 
     def client_env(self, plan: common.Plan, uid: int) -> dict[str, str]:
@@ -250,6 +294,7 @@ class Harness:
             "PYTHONPATH": SCRIPTS_DIR,
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
+            "COORD_TRUST_RUN_ID": self.run_id,
         }
 
     def _setpriv_prefix(self, uid: int, gid: int, *,
@@ -294,6 +339,8 @@ class Harness:
         finally:
             out.close()
             err.close()
+        self.process_groups.add(proc.pid)
+        self._write_cleanup_manifest()
         return ServiceProcess(
             proc=proc, stdout_path=stdout_path, stderr_path=stderr_path,
             label=label, config={})
@@ -373,6 +420,8 @@ class Harness:
                         sp.proc.kill()
                     sp.proc.wait(timeout=5)
         finally:
+            self.process_groups.discard(sp.proc.pid)
+            self._write_cleanup_manifest()
             self._collect_logs(sp)
 
     @staticmethod
@@ -407,6 +456,35 @@ class Harness:
         self.service_logs[sp.label] = common.sanitize_text(
             "\n".join(chunks), tuple(self.paths + [self.repo]))
 
+    def _run_foreground(self, cmd: list[str], env: Mapping[str, str],
+                        timeout: float) -> tuple[str, str, bool, int, float]:
+        started = time.monotonic()
+        try:
+            proc = subprocess.Popen(
+                cmd, env=dict(env), stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, start_new_session=True)
+        except OSError as exc:
+            return "", type(exc).__name__ + ": " + str(exc), False, -1, 0.0
+        self.process_groups.add(proc.pid)
+        self._write_cleanup_manifest()
+        try:
+            stdout, stderr = proc.communicate(
+                timeout=min(timeout, max(1.0, self.deadline.left())))
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                proc.kill()
+            stdout, stderr = proc.communicate()
+            self.process_groups.discard(proc.pid)
+            self._write_cleanup_manifest()
+            return stdout, stderr, True, proc.returncode, round(
+                time.monotonic() - started, 3)
+        self.process_groups.discard(proc.pid)
+        self._write_cleanup_manifest()
+        return stdout, stderr, False, proc.returncode, round(
+            time.monotonic() - started, 3)
+
     def run_client(self, layout: Layout, job_path: str, mode: str, *,
                    uid: int = common.CONSUMER_UID,
                    gid: int = common.CONSUMER_GID,
@@ -421,45 +499,42 @@ class Harness:
         if use_unshare:
             cmd = [UNSHARE, "-n", "--"] + cmd
         env = self.client_env(layout.plan, uid)
-        started = time.monotonic()
-        try:
-            result = subprocess.run(
-                cmd, env=env, capture_output=True, text=True,
-                timeout=min(timeout, max(1.0, self.deadline.left())))
-        except subprocess.TimeoutExpired as exc:
+        paths = tuple(self.paths + [self.repo])
+        stdout, stderr, timed_out, rc, elapsed = self._run_foreground(
+            cmd, env, timeout)
+        if timed_out:
             return {"ok": False, "error": "client-timeout",
-                    "stdout": (exc.stdout or b"").decode("utf-8", "replace")
-                    if isinstance(exc.stdout, bytes) else str(exc.stdout or ""),
-                    "stderr": "timeout"}
-        except OSError as exc:
-            return {"ok": False, "error": type(exc).__name__ + ": " + str(exc)}
-        parsed = self._parse_client_stdout(result.stdout)
+                    "stdout": common.sanitize_text(stdout or "", paths),
+                    "stderr": "timeout", "elapsed": elapsed}
+        if rc < 0 and not stdout:
+            return {"ok": False, "error": common.sanitize_text(
+                stderr or "client-launch-error", paths)}
+        parsed = self._parse_client_stdout(stdout)
         parsed.update({
-            "rc": result.returncode,
-            "elapsed": round(time.monotonic() - started, 3),
-            "stderr": common.sanitize_text(
-                result.stderr, tuple(self.paths + [self.repo]))[-4000:],
+            "rc": rc,
+            "elapsed": elapsed,
+            "stderr": common.sanitize_text(stderr or "", paths)[-4000:],
         })
+        parsed = common.sanitize_value(parsed, paths)
         if parsed.get("error") == "no-json" and use_unshare:
             # O runner pode negar um netns aninhado; o harness já executa no
             # netns externo sem rede. Registra o fallback sem mascarar o teste.
             fallback_cmd = self._client_command(
                 uid, gid, job_path, mode, extra,
                 ambient_setgid=ambient_setgid)
-            try:
-                fallback = subprocess.run(
-                    fallback_cmd, env=env, capture_output=True, text=True,
-                    timeout=min(timeout, max(1.0, self.deadline.left())))
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                return {"ok": False, "error": "fallback: " + str(exc)}
-            parsed = self._parse_client_stdout(fallback.stdout)
+            stdout, stderr, timed_out, rc, elapsed = self._run_foreground(
+                fallback_cmd, env, timeout)
+            if timed_out:
+                return {"ok": False, "error": "fallback-timeout",
+                        "unshare_fallback": True}
+            parsed = self._parse_client_stdout(stdout)
             parsed.update({
-                "rc": fallback.returncode,
-                "elapsed": round(time.monotonic() - started, 3),
+                "rc": rc,
+                "elapsed": elapsed,
                 "unshare_fallback": True,
-                "stderr": common.sanitize_text(
-                    fallback.stderr, tuple(self.paths + [self.repo]))[-4000:],
+                "stderr": common.sanitize_text(stderr or "", paths)[-4000:],
             })
+            parsed = common.sanitize_value(parsed, paths)
         return parsed
 
     def start_client(self, layout: Layout, job_path: str, mode: str, *,
@@ -485,6 +560,8 @@ class Harness:
         finally:
             out.close()
             err.close()
+        self.process_groups.add(proc.pid)
+        self._write_cleanup_manifest()
         return proc, stdout_path, stderr_path
 
     def wait_client(self, proc: subprocess.Popen, stdout_path: str,
@@ -497,6 +574,8 @@ class Harness:
             except OSError:
                 proc.kill()
             proc.wait(timeout=5)
+        self.process_groups.discard(proc.pid)
+        self._write_cleanup_manifest()
         try:
             with open(stdout_path, encoding="utf-8", errors="replace") as handle:
                 stdout = handle.read()
@@ -507,13 +586,13 @@ class Harness:
                 stderr = handle.read()
         except OSError:
             stderr = ""
+        paths = tuple(self.paths + [self.repo])
         parsed = self._parse_client_stdout(stdout)
         parsed.update({
             "rc": proc.returncode,
-            "stderr": common.sanitize_text(
-                stderr, tuple(self.paths + [self.repo]))[-4000:],
+            "stderr": common.sanitize_text(stderr, paths)[-4000:],
         })
-        return parsed
+        return common.sanitize_value(parsed, paths)
 
     @staticmethod
     def _parse_client_stdout(stdout: str) -> dict[str, Any]:
@@ -631,18 +710,116 @@ class Harness:
             self.before_hashes == self.after_hashes,
             {"before": self.before_hashes, "after": self.after_hashes})
 
-    def check_source_transport_disabled(self) -> None:
-        source = open(svc.__file__, encoding="utf-8").read()
-        forbidden = [token for token in ("AF_INET", "create_connection")
-                     if token in source]
-        self.check("G9", "serviço não contém AF_INET/create_connection",
+    def check_source_transport_disabled(self,
+                                        sandbox_value: Optional[Mapping[str, Any]] = None
+                                        ) -> None:
+        service_sources = {}
+        for name, path in (
+            ("coord_trust_service.py", svc.__file__),
+            ("coord_trust_crossuid_crash_service.py", CRASH_SERVICE),
+        ):
+            with open(path, encoding="utf-8") as handle:
+                service_sources[name] = handle.read()
+        forbidden = {}
+        for name, source in service_sources.items():
+            tokens = [token for token in ("AF_INET", "create_connection")
+                      if token in source]
+            if tokens:
+                forbidden[name] = tokens
+        self.check("G9", "serviço/crash service sem AF_INET/create_connection",
                    not forbidden, {"forbidden": forbidden})
+        with open(CLIENT, encoding="utf-8") as handle:
+            client_source = handle.read()
+        client_network_tokens = [
+            token for token in ("AF_INET", "create_connection")
+            if token in client_source
+        ]
+        self.check(
+            "G9", "cliente só usa rede como probe negativa em netns",
+            (not client_network_tokens)
+            or (sandbox_value is not None
+                and sandbox_value.get("network_error") is not None),
+            {"client_tokens": client_network_tokens,
+             "network_error": (sandbox_value or {}).get("network_error")},
+        )
         config = self.layouts[0].config if self.layouts else {}
         self.check("G9", "configuração real_transport=false",
                    config.get("real_transport") is False,
                    {"real_transport": config.get("real_transport")})
 
     # ---------- G1/G2/G8/G9 ----------
+
+    def check_runtime_files(self, layout: Layout) -> None:
+        runtime_files = {}
+        for name, path in (
+            ("ledger", os.path.join(layout.plan.state_dir, "ledger.db")),
+            ("service_db", os.path.join(layout.plan.state_dir, "service.db")),
+            ("anchor", layout.plan.anchor_path),
+        ):
+            try:
+                info = os.lstat(path)
+                runtime_files[name] = {
+                    "uid": info.st_uid, "gid": info.st_gid,
+                    "mode": oct(info.st_mode & 0o777),
+                    "nlink": info.st_nlink,
+                }
+            except OSError as exc:
+                runtime_files[name] = type(exc).__name__
+        self.check(
+            "G1", "ledger/service state/âncora privados e sem hardlink",
+            all(
+                isinstance(value, Mapping)
+                and value.get("uid") == common.SERVICE_UID
+                and value.get("gid") == common.SERVICE_GID
+                and value.get("mode") == "0o600"
+                and value.get("nlink") == 1
+                for value in runtime_files.values()),
+            runtime_files)
+
+    def check_g6(self, layout: Layout) -> None:
+        gid_socket = self.run_client(
+            layout, layout.plan.client_job_path, "gid-socket-denied",
+            gid=common.WRONG_GID)
+        gid_socket_value = gid_socket.get("json") if "json" in gid_socket \
+            else gid_socket
+        if not self.setpriv_has_ambient:
+            self.check(
+                "G6", "GID divergente com UID correto é recusado pelo serviço",
+                False,
+                {"blocked": "setpriv sem --ambient-caps; EACCES de socket "
+                            "não certifica a rejeição de credencial",
+                 "socket_fallback": gid_socket_value},
+                blocked=True,
+            )
+            return
+        gid_div = self.run_client(
+            layout, layout.plan.client_job_path, "gid-divergence",
+            ambient_setgid=True)
+        gid_value = gid_div.get("json") if "json" in gid_div else gid_div
+        if gid_value.get("ok"):
+            self.check(
+                "G6", "GID divergente com UID correto é recusado pelo serviço",
+                True,
+                {"per_message": gid_value,
+                 "socket_fallback": gid_socket_value},
+            )
+        elif (gid_value.get("gid_changed") is False
+              and gid_value.get("gid_change_error")):
+            self.check(
+                "G6", "GID divergente com UID correto é recusado pelo serviço",
+                False,
+                {"blocked": "não foi possível mudar o GID no consumidor",
+                 "per_message": gid_value,
+                 "socket_fallback": gid_socket_value},
+                blocked=True,
+            )
+        else:
+            self.check(
+                "G6", "GID divergente com UID correto é recusado pelo serviço",
+                False,
+                {"per_message": gid_value,
+                 "socket_fallback": gid_socket_value},
+            )
 
     def run_main_gates(self) -> None:
         self.stage("G1 — jornada cross-UID completa")
@@ -735,31 +912,7 @@ class Harness:
                    and bool(reconciled_value.get("ok"))
                    and bool(status_value.get("ok")),
                    {"status": "COMPLETED" if status_result.get("state") == "COMPLETED" else status_result})
-        runtime_files = {}
-        for name, path in (
-            ("ledger", os.path.join(layout.plan.state_dir, "ledger.db")),
-            ("service_db", os.path.join(layout.plan.state_dir, "service.db")),
-            ("anchor", layout.plan.anchor_path),
-        ):
-            try:
-                info = os.lstat(path)
-                runtime_files[name] = {
-                    "uid": info.st_uid, "gid": info.st_gid,
-                    "mode": oct(info.st_mode & 0o777),
-                    "nlink": info.st_nlink,
-                }
-            except OSError as exc:
-                runtime_files[name] = type(exc).__name__
-        self.check(
-            "G1", "ledger/service state/âncora privados e sem hardlink",
-            all(
-                isinstance(value, Mapping)
-                and value.get("uid") == common.SERVICE_UID
-                and value.get("gid") == common.SERVICE_GID
-                and value.get("mode") == "0o600"
-                and value.get("nlink") == 1
-                for value in runtime_files.values()),
-            runtime_files)
+        self.check_runtime_files(layout)
 
         observer = self.run_client(
             layout, layout.plan.client_job_path, "observer",
@@ -815,22 +968,7 @@ class Harness:
                    and helper_value.get("service_closed") is True,
                    {"source": source_value, "helper": helper_value})
 
-        if self.setpriv_has_ambient:
-            gid_div = self.run_client(
-                layout, layout.plan.client_job_path, "gid-divergence",
-                ambient_setgid=True)
-            gid_value = gid_div.get("json") if "json" in gid_div else gid_div
-        else:
-            gid_value = {"ok": False,
-                         "error": "setpriv sem ambient caps"}
-        gid_socket = self.run_client(
-            layout, layout.plan.client_job_path, "gid-socket-denied",
-            gid=common.WRONG_GID)
-        gid_socket_value = gid_socket.get("json") if "json" in gid_socket \
-            else gid_socket
-        self.check("G6", "GID divergente com UID correto é recusado",
-                   bool(gid_value.get("ok")) or bool(gid_socket_value.get("blocked")),
-                   {"per_message": gid_value, "socket": gid_socket_value})
+        self.check_g6(layout)
 
         self.stage("G8 — sandbox do consumidor")
         sandbox = common.sandbox_job(
@@ -860,14 +998,19 @@ class Harness:
                     "unshare_fallback": sandbox_run.get("unshare_fallback")})
 
         self.stage("G9 — transporte real desabilitado")
-        self.check_source_transport_disabled()
+        self.check_source_transport_disabled(sandbox_value)
         self.check("G9", "status reporta real_transport=false",
                    status_result.get("real_transport") is False,
                    status_result)
         self.check("G9", "transmit recusado durante a execução",
-                   (results.get("transmit", {}).get("error") or {}).get(
-                       "code") == "TRANSPORT_DISABLED",
-                   results.get("transmit", {}))
+                   transmit_value.get("code") == "TRANSPORT_DISABLED",
+                   transmit_value)
+        self.check(
+            "G9", "execução cross-UID comprovadamente sem rede",
+            sandbox_value.get("network_error") is not None,
+            {"network_error": sandbox_value.get("network_error"),
+             "unshare_fallback": sandbox_run.get("unshare_fallback")},
+        )
         self.stop_service()
 
     # ---------- G3/G5 ----------
@@ -1251,13 +1394,14 @@ class Harness:
 
     def write_output(self, error: Optional[str] = None) -> None:
         deadline_left = max(0.0, self.deadline.left())
+        blocked = [check.to_mapping() for check in self.checks if check.blocked]
         summary = {
             "schema": common.REPORT_SCHEMA,
             "generated_at": common.iso(datetime.now(timezone.utc)),
             "repo_head": self._repo_head(),
             "base": "main cc7b4522 (#83 fa89ebb2)",
             "workflow": ".github/workflows/coord-python.yml",
-            "root_execution": True,
+            "root_execution": os.geteuid() == 0,
             "network_namespace": "external unshare -n (harness)",
             "service_uid": common.SERVICE_UID,
             "service_gid": common.SERVICE_GID,
@@ -1269,10 +1413,18 @@ class Harness:
             "deadline_seconds": self.deadline_seconds,
             "deadline_remaining_seconds": round(deadline_left, 3),
             "checks": [check.to_mapping() for check in self.checks],
-            "result": "PASS" if self.checks and all(
-                check.passed for check in self.checks) else "FAIL",
+            "blocked": blocked,
+            "result": ("BLOCKED" if blocked else
+                       "PASS" if self.checks and all(
+                           check.passed and not check.blocked
+                           for check in self.checks) else "FAIL"),
             "error": error,
+            "sanitization": (
+                "paths/private-key blocks redigidos; SHAs, UIDs/GIDs e "
+                "fingerprints sintéticos preservados para rastreabilidade"),
         }
+        paths = tuple(self.paths + [self.repo])
+        summary = common.sanitize_value(summary, paths)
         common.write_json(os.path.join(self.output, "summary.json"), summary)
         lines = [
             f"COORD-TRUST-BOUNDARY/P4 — {summary['result']}",
@@ -1314,13 +1466,33 @@ class Harness:
             pass
         return os.environ.get("GITHUB_SHA", "UNKNOWN")
 
+    def _terminate_process_groups(self) -> None:
+        own = os.getpgrp()
+        for pgid in sorted(self.process_groups):
+            if pgid == own:
+                continue
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except OSError:
+                continue
+        time.sleep(0.1)
+        for pgid in sorted(self.process_groups):
+            if pgid == own:
+                continue
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except OSError:
+                pass
+
     def cleanup(self) -> None:
         self.stop_service()
+        self._terminate_process_groups()
         if self.keep:
             return
         for layout in self.layouts:
             shutil.rmtree(layout.plan.root, ignore_errors=True)
-        shutil.rmtree(self.signer_dir, ignore_errors=True)
+        shutil.rmtree(self.work_root, ignore_errors=True)
+        # Mantém self.cleanup_manifest no OUT até a etapa always() do workflow.
 
     def run(self) -> int:
         error = None
@@ -1368,16 +1540,20 @@ class Harness:
             self.check_passwd_unchanged()
             self.stage("resultado")
         except Exception as exc:  # noqa: BLE001 - falha é evidência
-            error = type(exc).__name__ + ": " + str(exc)
-            self.check("X", "harness concluiu sem exceção", False,
-                       traceback.format_exc()[-4000:])
-            print(traceback.format_exc(), file=sys.stderr, flush=True)
+            paths = tuple(self.paths + [self.repo])
+            error = common.sanitize_text(
+                type(exc).__name__ + ": " + str(exc), paths)
+            trace = common.sanitize_text(traceback.format_exc()[-4000:], paths)
+            self.check("X", "harness concluiu sem exceção", False, trace)
+            print(trace, file=sys.stderr, flush=True)
         finally:
             self.stop_service()
             self.write_output(error)
             self.cleanup()
-        return 0 if not error and self.checks and all(
-            check.passed for check in self.checks) else 1
+        return 0 if (not error
+                     and not any(check.blocked for check in self.checks)
+                     and self.checks
+                     and all(check.passed for check in self.checks)) else 1
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -1387,12 +1563,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--deadline-seconds", type=float, default=480.0)
     parser.add_argument("--keep", action="store_true")
+    parser.add_argument("--run-id", default=None)
+    parser.add_argument("--work-root", default=None)
     args = parser.parse_args(argv)
     harness = Harness(
         repo=args.repo, output=args.output,
-        deadline_seconds=args.deadline_seconds, keep=args.keep)
+        deadline_seconds=args.deadline_seconds, keep=args.keep,
+        run_id=args.run_id, work_root=args.work_root)
     return harness.run()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception:  # noqa: BLE001 - último anteparo de sanitização
+        print(common.sanitize_text(
+            traceback.format_exc(), (os.getcwd(), "/tmp/coord-trust-p4-")),
+            file=sys.stderr, flush=True)
+        sys.exit(1)
