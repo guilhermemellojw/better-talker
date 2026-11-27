@@ -31,6 +31,21 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Instalar dependência de teste (PyYAML)
+        run: |
+          set -euo pipefail
+          python3 -m pip install --no-cache-dir 'PyYAML==6.0.2'
+          python3 -c 'import yaml; print("PY-YAML-READY", yaml.__version__)'
+
+      - name: Preparar caminhos experimentais esperados
+        run: |
+          set -euo pipefail
+          sudo -n mkdir -p /home/guilherme/Documentos
+          sudo -n ln -sfn "$GITHUB_WORKSPACE" /home/guilherme/Documentos/better-talker
+          sudo -n ln -sfn "$GITHUB_WORKSPACE" /home/guilherme/Documentos/better-talker-coord-supervisor-shadow
+          readlink -f /home/guilherme/Documentos/better-talker-coord-supervisor-shadow
+          echo "EXPECTED-WORKTREE-READY"
+
       - name: Isolar HOME/TMPDIR/armazenamento
         run: |
           set -euo pipefail
