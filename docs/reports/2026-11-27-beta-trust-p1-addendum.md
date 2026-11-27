@@ -44,6 +44,12 @@ Regressões pré-existentes (AI-01, AI-02, AI-05, AI-06, AI-08, AI-10) permanece
 
 Arquivos compartilhados modificados: `CopilotViewModel.kt` (gate de entrega, corpus do turno, `eligibleTextForUse`, `cardEligible`, `applyCard`, saneamento de parcial/cancelamento), `ChatScreen.kt` (cópias de resposta e card passam pelo contrato), `DraftSheet.kt` (aceite desabilitado sem fidelidade). Componentes de card (`CardFirst.kt`) não tiveram regras alteradas; a decisão de proveniência foi adicionada no ponto de uso (`applyCard`), não no status. Recomenda-se que C revise estes pontos antes do merge beta.
 
-## F. Limitações
+## F. Verificação JVM e correções de compilação
+
+`./gradlew :app:testPublicAppDebugUnitTest --tests com.bettertalker.app.data.copilot.BetaTrustSourceFidelityTest --offline --no-daemon` com heap do Kotlin elevado por `-Pkotlin.daemon.jvmargs` e JIT limitado: **11 testes, 0 falhas, 0 erros** (`TEST-…BetaTrustSourceFidelityTest.xml`). Nenhum ADB, dispositivo, rede ou chamada paga.
+
+As duas primeiras execuções falharam por ambiente: SIGSEGV do JIT no daemon Gradle e heap insuficiente do KAPT. A terceira revelou dois erros reais, corrigidos: chamada `suspend` em `cardEligible` (removida; a função agora é pura e recebe texto) e um typo preexistente `CopilotViewilotViewModel` em `appliedProposalUi` no mesmo arquivo compartilhado. Ambos registrados para coordenação com C.
+
+## G. Limitações
 
 O contrato é puro e determinístico; a fronteira de confiança (acervo recuperado de fonte certificada, verificação efetiva do modelo) permanece responsabilidade da solução de fidelidade em desenvolvimento. Nenhuma transmissão real, prompt pago, chamada de LLM ou operação de dispositivo foi executada.
