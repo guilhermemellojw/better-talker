@@ -3,7 +3,7 @@
 **Relatório gerado automaticamente com dados verificáveis da API do GitHub.** As alterações são propostas por PR; o planejamento estratégico não é modificado automaticamente.
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
-- `main` consultada: `365653937443c5c069bf3041b414037bc1c3669e`
+- `main` consultada: `05176ada16bce1e6bd162e494e290b0bd02b0bb4`
 - Checks da `main` consultada: **Pendente**
 - PRs encontrados na janela de consulta: **75** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-27.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
@@ -16,7 +16,7 @@
 | Mentor | 0 | 22 | 0 |
 | Referências e UX | 0 | 12 | 0 |
 | TRUST | 0 | 11 | 0 |
-| Beta e infraestrutura | 1 | 8 | 0 |
+| Beta e infraestrutura | 0 | 9 | 0 |
 | Documentação | 1 | 9 | 0 |
 | Outros | 4 | 7 | 0 |
 
@@ -24,7 +24,6 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#78 — chore(release): beta 6.1.1-beta.1 (82) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/78) | Beta e infraestrutura | `8af628cd0376` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
 | [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `f6205e02fc55` | Verde |
 | [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `cfc498e0b6f2` | Verde |
@@ -35,6 +34,7 @@
 
 | PR | Frente inferida | Data UTC |
 | --- | --- | --- |
+| [#78 — chore(release): beta 6.1.1-beta.1 (82)](https://github.com/guilhermemellojw/better-talker/pull/78) | Beta e infraestrutura | 2026-11-27 13:34 |
 | [#75 — BETA-HOTFIX-J05: leitura biblia explicita sem materia tematica](https://github.com/guilhermemellojw/better-talker/pull/75) | Beta e infraestrutura | 2026-11-27 12:22 |
 | [#76 — fix(beta-a15): barra inferior adaptativa a largura e fonte](https://github.com/guilhermemellojw/better-talker/pull/76) | Beta e infraestrutura | 2026-11-27 11:55 |
 | [#70 — feat(coord05): ledger persistente de missões](https://github.com/guilhermemellojw/better-talker/pull/70) | Outros | 2026-11-26 17:20 |
@@ -59,7 +59,6 @@
 | [#53 — feat(ux-simple-p1): simplificar consulta documental no leitor](https://github.com/guilhermemellojw/better-talker/pull/53) | Referências e UX | 2026-11-24 23:08 |
 | [#45 — qa(ops): executor seguro para testes instrumentados sem uninstall](https://github.com/guilhermemellojw/better-talker/pull/45) | Outros | 2026-11-24 17:25 |
 | [#44 — fix(bug-ref-d1): recuperação estrutural de unidades e truncamento confiável](https://github.com/guilhermemellojw/better-talker/pull/44) | Outros | 2026-11-24 16:30 |
-| [#48 — fix(trust): fail-safe bíblico do chat — citações sem retorno são marcadas (TRUST-P0A)](https://github.com/guilhermemellojw/better-talker/pull/48) | TRUST | 2026-11-24 15:16 |
 
 ## Interpretação e próximos gates
 
@@ -71,11 +70,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-27 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **6**; desses, Drafts: **6**.
-- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=69.
-- Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
+- PRs abertos: **5**; desses, Drafts: **5**.
+- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=70.
+- Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 1.0 dias (referência fixa: 2026-11-27).
-- Estados de check dos PRs abertos: Verde=6.
+- Estados de check dos PRs abertos: Verde=5.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
