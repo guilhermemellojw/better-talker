@@ -4,7 +4,7 @@
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `365653937443c5c069bf3041b414037bc1c3669e`
-- Checks da `main` consultada: **Verde**
+- Checks da `main` consultada: **Pendente**
 - PRs encontrados na janela de consulta: **75** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-27.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -24,12 +24,12 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#78 — chore(release): beta 6.1.1-beta.1 (82) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/78) | Beta e infraestrutura | `8af628cd0376` | Pendente |
+| [#78 — chore(release): beta 6.1.1-beta.1 (82) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/78) | Beta e infraestrutura | `8af628cd0376` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
 | [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `f6205e02fc55` | Verde |
 | [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `cfc498e0b6f2` | Verde |
 | [#69 — docs(coord): transferência operacional e prontidão do supervisor (COORD-08/09 PREP) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/69) | Documentação | `db58380af3b3` | Verde |
-| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `e92bedca90d0` | Pendente |
+| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `e92bedca90d0` | Verde |
 
 ## Integrações recentes
 
@@ -75,7 +75,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=69.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 1.0 dias (referência fixa: 2026-11-27).
-- Estados de check dos PRs abertos: Pendente=2, Verde=4.
+- Estados de check dos PRs abertos: Verde=6.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
