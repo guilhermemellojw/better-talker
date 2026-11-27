@@ -105,6 +105,7 @@ class LedgerOperationStore:
         self.synthetic_authorization = synthetic_authorization
         self.cache_dir = os.path.abspath(cache_dir) if cache_dir else None
         self._evidence: dict[str, Any] = {}
+        self._cache_invalid = False
         cached = self._read_cache()
         self.authorization_canonical = (
             authorization_canonical or cached.get("authorization_canonical")
@@ -113,8 +114,16 @@ class LedgerOperationStore:
         self.mission_snapshot = dict(
             mission_snapshot or cached.get("mission_snapshot") or {}
         )
+        self._authoritative_snapshot = dict(mission_snapshot) if mission_snapshot else None
+        cached_snapshot = cached.get("mission_snapshot")
+        self._cache_divergent = bool(
+            self._authoritative_snapshot and cached_snapshot
+            and cached_snapshot != self._authoritative_snapshot
+        )
         if cached.get("evidence"):
             self._evidence.update(cached["evidence"])
+        # O cache NÃO é autoridade de environment: isso vem da autorização sintética explícita.
+        self._evidence.pop("environment", None)
 
     def _target_fields(self) -> dict[str, str]:
         return {
@@ -139,19 +148,24 @@ class LedgerOperationStore:
                 except ValueError:
                     pass
                 break
+        evidence = dict(self._evidence)
+        if self.synthetic_authorization is not None:
+            evidence["environment"] = self.synthetic_authorization.environment
+        snapshot = (self._authoritative_snapshot
+                    or ({} if self._cache_divergent else dict(self.mission_snapshot)))
         return pilot.PilotOperationRecord(
             mission_id=row.mission_id,
             operation_id=row.operation_id,
             authorization_id=self.authorization_reference,
             authorization_canonical=self.authorization_canonical,
             target_key=self.target.key(),
-            prompt_sha256=self.payload_hash,
+            prompt_sha256=row.payload_sha256,
             state=row.state,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            evidence=dict(self._evidence),
+            evidence=evidence,
             history=history,
-            mission_snapshot=dict(self.mission_snapshot or self._evidence.get("mission_snapshot", {})),
+            mission_snapshot=snapshot,
         )
 
     def _cache_path(self) -> Optional[str]:
@@ -169,6 +183,7 @@ class LedgerOperationStore:
                 value = json.loads(handle.read().decode("utf-8"))
             return value if isinstance(value, dict) else {}
         except (OSError, ValueError, UnicodeError):
+            self._cache_invalid = True
             return {}
 
     def _write_cache(self) -> None:
@@ -239,15 +254,58 @@ class LedgerOperationStore:
         row = self.db.get(self.mission_id)
         return None if row is None else self._record(row)
 
+    def anchored_snapshot(self) -> dict[str, Any]:
+        """Snapshot canônico: ledger é âncora de payload/identidade; cache é contexto."""
+        row = self.db.get(self.mission_id)
+        if row is None:
+            raise cc.ContractError("missão ausente no ledger")
+        if self._cache_invalid:
+            raise cc.ContractError("cache corrompido; reconciliação bloqueada")
+        if self._authoritative_snapshot is None:
+            raise cc.ContractError("âncora de reconciliação ausente; cache não é autoridade")
+        snapshot = dict(self._authoritative_snapshot)
+        if snapshot.get("payload_sha256") != row.payload_sha256:
+            raise cc.ContractError("payload do snapshot diverge do ledger")
+        # A ordem canônica é (project, repository, agent, session, instance, location).
+        expected = [
+            row.project_id, row.repository_id, row.agent,
+            row.session_id, row.instance_id, row.worktree,
+        ]
+        if list(self.target.key()) != expected:
+            raise cc.ContractError("destino do snapshot diverge do ledger")
+        if row.authorization_reference != self.authorization_reference:
+            raise cc.ContractError("referência de autorização diverge do ledger")
+        snapshot["payload_sha256"] = row.payload_sha256
+        snapshot["target_key"] = list(self.target.key())
+        snapshot["acceptance_criteria"] = tuple(
+            self._authoritative_snapshot.get("acceptance_criteria", ()))
+        return snapshot
+
+    def anchored_payload_sha256(self) -> str:
+        row = self.db.get(self.mission_id)
+        if row is None:
+            raise cc.ContractError("missão ausente no ledger")
+        return row.payload_sha256
+
+    def fixture_environment(self) -> Optional[str]:
+        """Environment vem da autorização sintética, nunca do cache adulterado."""
+        if self.synthetic_authorization is None:
+            return None
+        return self.synthetic_authorization.environment
+
     def _evidence_text(self, evidence: Mapping[str, Any]) -> str:
         return cc.canonical_json(dict(evidence))
 
     def update(self, state: str, evidence: Mapping[str, Any]) -> pilot.PilotOperationRecord:
         self._evidence.update(dict(evidence))
-        if state == ledger.DISPATCHING:
-            # reserve_dispatch já realizou a transição atômica.
-            return self.load() or self._record(self.db.get(self.mission_id))
         text = self._evidence_text(evidence)
+        if state == ledger.DISPATCHING:
+            # reserve_dispatch já realizou a transição atômica; a evidência
+            # pós-transmit é gravada no ledger (não apenas no cache) para
+            # sobreviver a interrupção/reinício sem reconstrução externa.
+            self.db.append_evidence(self.mission_id, evidence=text, actor=self.actor)
+            self._write_cache()
+            return self.load() or self._record(self.db.get(self.mission_id))
         transitions = {
             ledger.UNKNOWN: self.db.mark_unknown,
             ledger.FAILED: self.db.fail,
@@ -329,6 +387,21 @@ class LedgerOperationStore:
                 actor=self.actor,
             )
         return self.load()
+
+    def reconcile_unknown(self, target: str, *, evidence: str = "",
+                          human_decision: bool = False) -> pilot.PilotOperationRecord:
+        """Saída de UNKNOWN pelo Ledger.reconcile, nunca por transição direta."""
+        row = self.db.get(self.mission_id)
+        if row is None or row.state != ledger.UNKNOWN:
+            raise cc.AuthorizationError("reconciliação exige estado UNKNOWN no ledger")
+        result = self.db.reconcile(
+            self.mission_id, target=target,
+            evidence=evidence or "cli-reconcile-explicit",
+            authority_reference=self.authorization_reference,
+            actor=self.actor, human_decision=human_decision)
+        self._evidence["reconciled_from_unknown"] = target
+        self._write_cache()
+        return self._record(result)
 
 
 def select_with_policy(

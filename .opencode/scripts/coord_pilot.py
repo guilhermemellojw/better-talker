@@ -1816,7 +1816,16 @@ class PilotExecutor:
             raise cc.ContractError("registro ausente")
         if record.state in {"COMPLETED", "FAILED"}:
             return {"state": record.state, "changed": False}
-        snapshot = record.mission_snapshot
+        try:
+            if hasattr(self.store, "anchored_snapshot"):
+                snapshot = self.store.anchored_snapshot()
+                expected_payload = self.store.anchored_payload_sha256()
+            else:
+                snapshot = record.mission_snapshot
+                expected_payload = snapshot.get("payload_sha256")
+        except cc.ContractError as e:
+            return {"state": record.state, "changed": False,
+                    "reason": f"âncora de reconciliação inválida: {e}"}
         if not snapshot:
             return {"state": record.state, "changed": False, "reason": "snapshot ausente"}
         try:
@@ -1839,7 +1848,7 @@ class PilotExecutor:
         observation = self.transport.operation_status(record.operation_id, prompt_ids=candidates)
         if (observation.operation_id != record.operation_id
                 or observation.target != target
-                or observation.payload_sha256 not in (None, snapshot.get("payload_sha256"))):
+                or observation.payload_sha256 not in (None, expected_payload)):
             return {"state": record.state, "changed": False, "reason": "observação divergente"}
         prompt_id = observation.message_id
         if (observation.evidence.get("prompt_content_confirmed") is not True

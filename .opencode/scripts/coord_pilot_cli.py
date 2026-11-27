@@ -175,6 +175,8 @@ def _fixture_context(*, store_dir: str, endpoint: Optional[str] = None,
         authorization_reference="AUTH-COORD04-PILOT-001", created_at=NOW,
         expires_at=NOW + timedelta(minutes=30), timeout=60,
         expected_head_sha=None, expected_branch=None)
+    recommendation = fixture_model_recommendation()
+    selected_model = selected_model_for_dispatch(recommendation)
     auth = pilot.PilotAuthorization(
         authorization_id="AUTH-COORD04-PILOT-001", maintainer_id="mantenedor-humano",
         approval_reference="DECISAO-PILOT-001", project_id=mission.project_id,
@@ -185,7 +187,7 @@ def _fixture_context(*, store_dir: str, endpoint: Optional[str] = None,
         operation_id=mission.operation_id, prompt_sha256=prompt_sha256,
         scope=mission.scope, issued_at=NOW, expires_at=NOW + timedelta(hours=1),
         approved=True, environment="FIXTURE", max_transmissions=1,
-        expected_model=pilot.EXPERIMENTAL_MODEL,
+        expected_model=selected_model,
         endpoint=pilot.DEFAULT_ENDPOINT)
     transport = pilot.OpenCodeTransport(
         client, expected_instance_id=client.instance, registered_targets=(auth.target,),
@@ -227,7 +229,8 @@ def _fixture_context(*, store_dir: str, endpoint: Optional[str] = None,
                                    allow_real=False, clock=lambda: NOW)
     return {"client": client, "mission": mission, "auth": auth, "core_auth": core_auth,
             "transport": transport, "store": store, "manifest": manifest,
-            "approval": approval, "executor": executor}
+            "approval": approval, "executor": executor,
+            "model_recommendation": recommendation}
 
 
 ALLOWED_FREE_MODEL = pilot.EXPERIMENTAL_MODEL  # fonte única da política experimental
@@ -922,8 +925,8 @@ def apply_catalog_evidence(observed: dict[str, Any], path: Optional[str]) -> Non
             "source": "model-catalog"}
 
 
-def fixture_model_policy_evidence() -> dict[str, Any]:
-    """Confirma a decisão #71 no caminho sintético, sem duplicar o motor."""
+def fixture_model_recommendation():
+    """Decisão #71 vinculante: a mesma recomendação alimenta evidência e despacho."""
     observed = cc.iso(NOW)
     inventory = {
         "source": "fixture-policy", "observed_at": observed,
@@ -942,8 +945,21 @@ def fixture_model_policy_evidence() -> dict[str, Any]:
         "provider_id": "opencode", "model_id": "hy4-flash-free", "variant": "default",
         "status": "available", "observed_at": observed, "source": "fixture",
     }]
-    result = adapter.select_with_policy(inventory, mission_value, None, availability, (), NOW)
-    return adapter.model_evidence(result)
+    return adapter.select_with_policy(inventory, mission_value, None, availability, (), NOW)
+
+
+def selected_model_for_dispatch(result) -> str:
+    """ModelRef #71 é vinculante ao autorização/transporte, não só evidência."""
+    selected = result.selected
+    if selected is None or (result.requires_authorization and not result.authorized):
+        raise cc.AuthorizationError("política #71 não autorizou modelo para despacho")
+    if selected.variant not in (None, "none", "default"):
+        raise cc.AuthorizationError("variante selecionada não é a autorizada")
+    return pilot.canonical_model_ref(selected.provider_id, selected.model_id, None)
+
+
+def fixture_model_policy_evidence() -> dict[str, Any]:
+    return adapter.model_evidence(fixture_model_recommendation())
 
 
 def external_approval_binding(proposal: dict[str, Any], *, approver_id: str,
@@ -969,7 +985,8 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
                                "catalog": None, "consumer_evidence": None,
                                "policy_evidence": None, "permission_policy": None,
                                "instance_id": None, "agent_id": None,
-                               "authorization_reference": None}
+                               "authorization_reference": None,
+                               "target": None, "reason": None}
     command = None
     index = 0
     while index < len(argv):
@@ -977,7 +994,7 @@ def _parse(argv: list[str]) -> tuple[str, dict[str, Any]]:
         if arg in {"--store-dir", "--endpoint", "--approval", "--session", "--auth-env",
                    "--instance-id", "--agent-id", "--authorization-reference", "--evidence",
                    "--catalog", "--consumer-evidence", "--policy-evidence",
-                   "--permission-policy"}:
+                   "--permission-policy", "--target", "--reason"}:
             index += 1
             if index >= len(argv):
                 raise ValueError(f"{arg} sem valor")
@@ -1330,12 +1347,29 @@ def run(argv: list[str]) -> dict[str, Any]:
             return {"command": command, "mode": mode, "source": source,
                     "service_contacted": False, "read_only": True, "real_calls": 0,
                     "state": None, "changed": False}
-        # Evidência de fixture nunca é aplicada a registro de operação real.
-        if record.evidence.get("environment") != "FIXTURE":
+        # Environment vem da autorização sintética explícita, nunca do cache.
+        if store.fixture_environment() is None:
             return {"command": command, "mode": mode, "source": source,
                     "service_contacted": False, "read_only": True, "real_calls": 0,
                     "state": record.state, "changed": False,
                     "reason": "registro não-fixture; reconciliação real exige P3B"}
+        if record.state == ledger.UNKNOWN:
+            target = options["target"]
+            if target not in {ledger.COMPLETED, ledger.FAILED}:
+                return {"command": command, "mode": mode, "source": source,
+                        "read_only": True, "real_calls": 0, "state": record.state,
+                        "changed": False,
+                        "reason": "UNKNOWN exige --target COMPLETED|FAILED ou evidência"}
+            try:
+                resolved = store.reconcile_unknown(
+                    target, evidence=options["reason"] or "reconciliação CLI explícita")
+            except (ledger.LedgerError, cc.AuthorizationError) as e:
+                return {"command": command, "mode": mode, "source": source,
+                        "read_only": True, "real_calls": 0, "state": record.state,
+                        "changed": False, "reason": f"reconciliação bloqueada: {e}"}
+            return {"command": command, "mode": mode, "source": source,
+                    "read_only": True, "real_calls": 0, "state": resolved.state,
+                    "changed": True, "from": ledger.UNKNOWN, "target": target}
         context = _fixture_context(store_dir=options["store_dir"], with_report=True)
         result = context["executor"].reconcile()
         return {"command": command, "mode": mode, "source": source,
