@@ -166,4 +166,21 @@ class DeliveryProvenanceTest {
         assertNull(provenanceForMessage(emptyMap(), "manual-1", "note-1"))
         assertNull(DeliveryProvenance.fromPayload(mapOf("text" to sourceText)))
     }
+
+    @Test
+    fun provenienciaNaoPodeSerReatribuidaAOutraMensagem() {
+        val source = source()
+        // Payload válido, mas registrado sob o id de outra mensagem: falha.
+        assertNull(
+            provenanceForMessage(
+                mapOf("outra-mensagem" to source),
+                "outra-mensagem",
+                "note-1",
+            ),
+        )
+        // E o vínculo original continua válido.
+        assertNotNull(
+            provenanceForMessage(mapOf("msg-source" to source), "msg-source", "note-1"),
+        )
+    }
 }

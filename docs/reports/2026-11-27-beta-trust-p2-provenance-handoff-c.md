@@ -22,8 +22,10 @@ materiais recuperados do turno original; **nunca** o texto gerado.
 
 `DeliveryProvenance.fromPayload(map)` recalcula o SHA-256 e rejeita JSON
 ausente, schema desconhecido, digest divergente, listas inválidas ou hash de
-conteúdo inválido. `ChatDao.get(id)` lê a mensagem por id (query nova, sem
-coluna/tabela/migração).
+conteúdo inválido. O `messageId` interno também precisa coincidir com a
+`ChatEntity` proprietária: `deliveryProvenanceFor` e `provenanceForMessage`
+rejeitam um vínculo reatribuído a outra mensagem. `ChatDao.get(id)` lê a
+mensagem por id (query nova, sem coluna/tabela/migração).
 
 ## 2. API para C/AI-09
 

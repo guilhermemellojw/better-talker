@@ -45,7 +45,7 @@ Todas as rotas leem a proveniência vinculada à mensagem; nenhuma usa apenas o 
 - Range e listas lidos no texto após o casamento da regex, com todos os versículos exigidos.
 - Citação aceita somente se **uma** entrada do corpus contém o texto **e** a referência vizinha; fim de exceções `be`/`th`.
 - `redactUnfinished`: remove aspas abertas e referência truncada do parcial copiável/persistível.
-- `DeliveryProvenance`: hash do conteúdo, nota/escopo, corpus/refs e validade persistidos no payload da mensagem; `rewriteFrom` exige hash da fonte; falha fechada sem vínculo.
+- `DeliveryProvenance`: hash do conteúdo, nota/escopo, corpus/refs e validade persistidos no payload da mensagem; o id interno precisa coincidir com a mensagem proprietária; `rewriteFrom` exige hash da fonte; falha fechada sem vínculo.
 
 ## D. Preservação
 
@@ -55,7 +55,7 @@ Conteúdo fundamentado (TNM recuperada) permanece integral; autoria manual e con
 
 - Fail-first: 9 sondas, 6 falhas antes da correção.
 - Pós-correção: suíte focada `BetaTrustP2FailFirstTest` + `BetaTrustSourceFidelityTest` **21/21 PASS**.
-- Suíte JVM completa: `BUILD SUCCESSFUL` em execução isolada com `--max-workers=1`; 460 classes XML, **4620 testes, 0 falhas, 0 erros, 0 skips**.
+- Suíte JVM completa: `BUILD SUCCESSFUL` em execução isolada com `--max-workers=1`; 460 classes XML, **4621 testes, 0 falhas, 0 erros, 0 skips**.
 - Builds anteriores falharam por ambiente (SIGSEGV do JIT, heap do KAPT e escrita concorrente de XML por build paralelo), não por regressão de código.
 
 ## F. Veredito

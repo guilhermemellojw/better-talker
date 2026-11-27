@@ -172,4 +172,6 @@ fun provenanceForMessage(
     provenance: Map<String, DeliveryProvenance>,
     messageId: String,
     noteId: String?,
-): DeliveryProvenance? = provenance[messageId]?.takeIf { it.noteId == noteId }
+): DeliveryProvenance? = provenance[messageId]?.takeIf {
+    it.messageId == messageId && it.noteId == noteId
+}

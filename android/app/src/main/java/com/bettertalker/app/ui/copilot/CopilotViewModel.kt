@@ -1623,6 +1623,7 @@ class CopilotViewModel(
     suspend fun deliveryProvenanceFor(messageId: String): DeliveryProvenance? {
         val entity = db.chatDao().get(messageId) ?: return null
         return DeliveryProvenance.fromPayload(ChatCodec.unescMap(entity.payload))
+            ?.takeIf { it.messageId == messageId }
     }
 
     /** Verificação warn-only: informa, nunca remove texto nem bloqueia insert. */
@@ -1669,11 +1670,13 @@ class CopilotViewModel(
             now = System.currentTimeMillis(),
         )
         val rebased = map.toMutableMap()
-        DeliveryProvenance.fromPayload(map)?.let { bound ->
-            val updated = bound.withTargetKey(cardTargetKey(picked))
-            rebased.putAll(updated.toPayload())
-            deliveryProvenance[messageId] = updated
-        }
+        DeliveryProvenance.fromPayload(map)
+            ?.takeIf { it.messageId == messageId }
+            ?.let { bound ->
+                val updated = bound.withTargetKey(cardTargetKey(picked))
+                rebased.putAll(updated.toPayload())
+                deliveryProvenance[messageId] = updated
+            }
         updateCardPayload(messageId, rebased, picked)
         logCard(messageId, "USER_PICK", picked, 0)
         CardMetrics.target(
@@ -1771,7 +1774,7 @@ class CopilotViewModel(
         val card = CardPayload.fromMap(map) ?: return
         val rawText = extractCardText(map["text"].orEmpty()) ?: return
         val bound = DeliveryProvenance.fromPayload(map)
-        if (bound == null ||
+        if (bound == null || bound.messageId != messageId ||
             !bound.authorizesCard(entity.noteId, cardTargetKey(card), rawText)
         ) {
             _cardEvents.tryEmit(
@@ -2081,6 +2084,7 @@ class CopilotViewModel(
         deliveryProvenance.keys.retainAll(ids)
         entities.forEach { entity ->
             DeliveryProvenance.fromPayload(ChatCodec.unescMap(entity.payload))
+                ?.takeIf { it.messageId == entity.id }
                 ?.let { deliveryProvenance[entity.id] = it }
         }
     }
