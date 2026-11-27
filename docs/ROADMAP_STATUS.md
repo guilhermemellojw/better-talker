@@ -26,10 +26,10 @@
 | --- | --- | --- | --- |
 | [#76 — fix(beta-a15): barra inferior adaptativa a largura e fonte (Draft)](https://github.com/guilhermemellojw/better-talker/pull/76) | Beta e infraestrutura | `e0b8e40b0f32` | Pendente |
 | [#75 — BETA-HOTFIX-J05: leitura biblia explicita sem materia tematica (Draft)](https://github.com/guilhermemellojw/better-talker/pull/75) | Beta e infraestrutura | `129d30d4bb7d` | Verde |
-| [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `83316bd24aae` | Verde |
+| [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `f6205e02fc55` | Pendente |
 | [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `cfc498e0b6f2` | Verde |
 | [#69 — docs(coord): transferência operacional e prontidão do supervisor (COORD-08/09 PREP) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/69) | Documentação | `db58380af3b3` | Verde |
-| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `1707cdb9710d` | Pendente |
+| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `1707cdb9710d` | Verde |
 
 ## Integrações recentes
 
