@@ -31,16 +31,29 @@ data class DeliveryProvenance(
     fun matches(noteId: String?, targetKey: String?): Boolean =
         this.noteId == noteId && this.targetKey == targetKey
 
-    /** Contrato único de cópia/histórico: nota correta e conteúdo não alterado. */
-    fun authorizesMessage(noteId: String?, text: String): Boolean =
-        this.noteId == noteId && binds(text)
+    /** Contrato único de cópia/histórico: nota, escopo de origem e conteúdo. */
+    fun authorizesMessage(
+        noteId: String?,
+        text: String,
+        scopeId: String? = null,
+    ): Boolean = this.noteId == noteId && binds(text) &&
+        (this.scopeId == null || scopeId == null || this.scopeId == scopeId)
 
-    /** Contrato único de inserção: nota, alvo e conteúdo não alterados. */
-    fun authorizesCard(noteId: String?, targetKey: String?, text: String): Boolean =
-        matches(noteId, targetKey) && binds(text)
+    /** Contrato único de inserção: nota, origem, alvo, escopo e conteúdo. */
+    fun authorizesCard(
+        noteId: String?,
+        targetKey: String?,
+        text: String,
+        scopeId: String? = null,
+    ): Boolean = matches(noteId, targetKey) && binds(text) &&
+        (this.scopeId == null || scopeId == null || this.scopeId == scopeId)
 
-    fun withTargetKey(targetKey: String?): DeliveryProvenance =
-        copy(targetKey = targetKey)
+    /**
+     * Troca de alvo só com autorização explícita do usuário; um mero
+     * identificador novo não reautoriza o conteúdo.
+     */
+    fun withTargetKey(targetKey: String?, authorized: Boolean): DeliveryProvenance? =
+        if (!authorized) null else copy(targetKey = targetKey)
 
     /** Payload persistido na própria ChatEntity; nenhum schema novo. */
     fun toPayload(): Map<String, String> {
@@ -103,9 +116,14 @@ data class DeliveryProvenance(
             scopeId: String?,
             targetKey: String?,
             boundAt: Long,
+            explicitTargetChange: Boolean = false,
         ): DeliveryProvenance? {
             if (!source.binds(sourceText) || revisedText.isBlank()) return null
             if (source.noteId != noteId) return null
+            // Revisão não muda escopo implicitamente; troca de alvo exige
+            // autorização explícita e revalidação do vínculo.
+            if (source.scopeId != scopeId) return null
+            if (source.targetKey != targetKey && !explicitTargetChange) return null
             return DeliveryProvenance(
                 messageId = messageId,
                 turnId = turnId,
