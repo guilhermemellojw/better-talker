@@ -11,6 +11,7 @@ import base64
 import json
 import os
 import socket
+import shutil
 import sqlite3
 import struct
 import tempfile
@@ -331,6 +332,7 @@ class CrossUidHarnessTest(unittest.TestCase):
             harness.layouts.append(layout)
             harness.new_layout = lambda tag: layout
             harness.prepare_trust = lambda value: None
+            harness.verify_runtime_access = lambda value: True
             harness.write_config = lambda value, mapping=None: None
             harness.start_service = lambda value, **kwargs: types.SimpleNamespace(
                 proc=types.SimpleNamespace(pid=1234))
@@ -487,6 +489,60 @@ class CrossUidHarnessTest(unittest.TestCase):
             self.assertIn("<redacted-private-key>", serialized)
             self.assertIn("SHA256:synthetic", serialized)
             self.assertEqual("FAIL", summary["result"])
+
+    def test_runtime_bundle_is_minimal_read_only_and_outside_source(self):
+        import coord_trust_crossuid_harness as harness_module
+
+        with tempfile.TemporaryDirectory() as root:
+            source = os.path.join(root, "source")
+            os.makedirs(source, mode=0o700)
+            for name in harness_module.RUNTIME_FILES:
+                shutil.copyfile(
+                    os.path.join(harness_module.SCRIPTS_DIR, name),
+                    os.path.join(source, name))
+            harness = harness_module.Harness(
+                repo=str(ROOT), output=os.path.join(root, "out"),
+                deadline_seconds=30)
+            self.addCleanup(harness.cleanup)
+            harness.prepare_runtime_bundle(source)
+            self.assertTrue(harness.verify_runtime_bundle(source))
+            runtime = harness.runtime_dir
+            plan = common.build_plan(root)
+            self.assertFalse(runtime.startswith(source + os.sep))
+            self.assertEqual(0o700, os.stat(source).st_mode & 0o777)
+            self.assertEqual(runtime,
+                             harness.service_env(plan)["PYTHONPATH"])
+            self.assertEqual(runtime,
+                             harness.client_env(
+                                 plan, common.CONSUMER_UID)["PYTHONPATH"])
+            self.assertTrue(harness.service_cli.startswith(runtime + os.sep))
+            self.assertTrue(
+                harness.client_script.startswith(runtime + os.sep))
+            self.assertEqual(0o555, os.stat(runtime).st_mode & 0o777)
+            manifest = common.read_json(
+                os.path.join(runtime, "runtime-manifest.json"))
+            self.assertEqual(set(harness_module.RUNTIME_FILES),
+                             set(manifest["files"]))
+            for name in harness_module.RUNTIME_FILES:
+                path = os.path.join(runtime, name)
+                self.assertEqual(0o444, os.stat(path).st_mode & 0o777)
+                with open(path, "rb") as handle:
+                    actual = __import__("hashlib").sha256(
+                        handle.read()).hexdigest()
+                self.assertEqual(manifest["files"][name], actual)
+            self.assertNotIn("state_dir", manifest["files"])
+            self.assertNotIn("ledger", manifest["files"])
+            imported = __import__("subprocess").run(
+                [__import__("sys").executable, "-c",
+                 "import coord_trust_service; "
+                 "import coord_trust_crossuid_client; "
+                 "import coord_trust_crossuid_common; "
+                 "import coord_trust_crossuid_crash_service"],
+                env={"PATH": os.environ.get("PATH", ""),
+                     "PYTHONPATH": runtime,
+                     "PYTHONDONTWRITEBYTECODE": "1"},
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(0, imported.returncode, imported.stderr)
 
     def test_service_state_nonce_survives_restart(self):
         with tempfile.TemporaryDirectory() as root:

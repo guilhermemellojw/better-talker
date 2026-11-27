@@ -16,14 +16,16 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 import coord_authority as ca
 import coord_authority_signed as cas
 import coord_communication as cc
-import coord_p14b as p14b
 import coord_p14b_authority as p14ba
 import coord_trust_service as svc
+
+if TYPE_CHECKING:
+    import coord_p14b as p14b
 
 PROJECT = "better-talker"
 REPOSITORY = "guilhermemellojw/better-talker"

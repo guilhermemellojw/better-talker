@@ -15,6 +15,8 @@ foi removido. Ver
 `always()`, sanitização de resumo/tracebacks, SHA certificado por env,
 `run_attempt`, G9 ampliado e documentação reconciliada). Ver
 `docs/reports/2026-11-27-coord-trust-crossuid-p42-preflight.md`.
+**P4.3:** o runtime bundle/ancestrais está em
+`docs/reports/2026-11-27-coord-trust-crossuid-p43-runner-fs.md`.
 **Branch:** `feat/coord-trust-crossuid-cert`.
 **HEAD do código:** preenchido no relatório P4.2 e no comentário do PR.
 **HEAD final do PR:** publicado no corpo/comentário do PR.
@@ -28,7 +30,7 @@ foi removido. Ver
 | `.opencode/scripts/coord_trust_crossuid_client.py` | cliente executado como consumidor; jornada, SCM_RIGHTS, GID, saturação, frames, sandbox e recuperação |
 | `.opencode/scripts/coord_trust_crossuid_common.py` | fixtures sintéticas, job do cliente sem material privado, layout/config, assinatura dinâmica da atestação |
 | `.opencode/scripts/coord_trust_crossuid_crash_service.py` | crash real CI-only após COMMIT/limite, preservando WAL para replay |
-| `.opencode/scripts/test_coord_trust_crossuid.py` | 11 testes host-only (workflow, layout, job, sanitizador, limites, GID, nonce, A1, A2 e resumo) |
+| `.opencode/scripts/test_coord_trust_crossuid.py` | 12 testes host-only (workflow, layout, job, sanitizador, limites, GID, nonce, A1, A2, resumo e bundle runtime) |
 | `docs/operations/trust-service-deployment.md §7` | procedimento P4, UIDs, isolamento, comando previsto e critérios de interrupção |
 | `.opencode/TRUST-SERVICE.md` | contrato atualizado com nonce persistido e certificação opt-in |
 
@@ -109,10 +111,10 @@ em quarentena indevidamente. A suíte P3 continua 40/40.
 | Suíte | Resultado |
 |---|---|
 | `test_coord_trust_service.py` (P3) | **40/40 OK** |
-| `test_coord_trust_crossuid.py` (P4.2) | **11/11 OK** |
-| `unittest discover` | **557/557 OK** |
+| `test_coord_trust_crossuid.py` (P4.2) | **12/12 OK** |
+| `unittest discover` | **558/558 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **724** |
+| Total | **725** |
 
 Os logs locais não são versionados; as contagens acima são reproduzíveis pelos
 comandos do workflow. Evidência CI do HEAD final fica no comentário do PR.
@@ -131,8 +133,8 @@ UID); o harness não foi executado como root e o workflow não foi disparado.
   restart imediatamente após recuperação.
 - Crash wrapper CI-only com `os._exit(137)` após COMMIT, preservando WAL para
   replay real; não há hook de crash no serviço normal.
-- 11 testes P4 no `unittest discover`; baseline do workflow `coord-python`
-  atualizado de 546/713 para **557/724**.
+- 12 testes P4 no `unittest discover`; baseline do workflow `coord-python`
+  atualizado de 546/713 para **558/725**.
 - P4.2 corrige A1 (transmit real), A2 (G6 estrito/BLOCKED), A3 (limpeza
   independente), A4 (sanitização), A5 (documentação) e A6 (escopo G9).
 - Nenhuma alteração em Android, transporte, LLM, credenciais reais ou no PR #82.

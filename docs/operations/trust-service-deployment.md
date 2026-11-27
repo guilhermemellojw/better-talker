@@ -226,6 +226,14 @@ Layout descartável: `state/` 0700 do serviço, `anchor/` 0700 **fora** do
 root, config/trust/registry/DBs 0600. O harness valida ancestrais, hardlinks,
 symlinks, sidecars SQLite, autenticação do servidor e limites.
 
+O checkout do runner pode ter ancestrais não atravessáveis pelo UID efêmero.
+Antes de G1, o harness copia um **runtime bundle mínimo** para
+`$WORK_ROOT/runtime` (fora do checkout/HOME/estado), com diretório 0555 root e
+arquivos 0444 root; `PYTHONPATH` e paths de serviço/cliente apontam somente para
+esse bundle. Manifesto SHA-256, importação real, scripts, ancestrais e negação
+de state/trust/âncora/chaves são verificados sob os UIDs 65533/65534. O
+checkout não é chmodado e nenhuma permissão de HOME/estado é ampliada.
+
 Cobertura obrigatória do job:
 
 1. **G1** — jornada cross-UID completa (`propose` → `authorize` → `reserve` →

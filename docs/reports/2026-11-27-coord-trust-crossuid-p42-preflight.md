@@ -1,6 +1,11 @@
 # COORD-TRUST-BOUNDARY/P4.2 — fechamento dos bloqueios de preflight
 
 **Estado:** Draft; correções A1–A6 aplicadas, **workflow não disparado**.
+
+> **P4.3:** o dispatch único falhou por acesso ao script sob UID efêmero. A
+> correção de runtime bundle/ancestrais está em
+> `docs/reports/2026-11-27-coord-trust-crossuid-p43-runner-fs.md`; as contagens
+> atuais são 12/558/725.
 Nenhum merge, deploy, piloto, usuário persistente, secret de produção,
 transporte real, POST, LLM ou Android foi executado.
 
@@ -43,10 +48,10 @@ execução é a limpeza independente e os guards de SHA/attempt/ambiente.
 | Suíte | Resultado |
 |---|---|
 | `test_coord_trust_service.py` (P3) | **40/40 OK** |
-| `test_coord_trust_crossuid.py` (P4.2) | **11/11 OK** |
-| `unittest discover` | **557/557 OK** |
+| `test_coord_trust_crossuid.py` (P4.2) | **12/12 OK** |
+| `unittest discover` | **558/558 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **724** |
+| Total | **725** |
 
 Também passaram `py_compile`, parser YAML do workflow consolidado e
 `git diff --check`. Os logs locais não são versionados; as contagens são

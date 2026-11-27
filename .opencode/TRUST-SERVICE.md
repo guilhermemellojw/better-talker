@@ -136,9 +136,9 @@ Evidência local (`unshare -rn`):
 | Suíte | Resultado |
 |---|---|
 | `test_coord_trust_service.py` | **40/40 OK** |
-| `unittest discover` (inclui 11 testes P4) | **557/557 OK** |
+| `unittest discover` (inclui 12 testes P4) | **558/558 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **724/724** |
+| Total | **725/725** |
 
 A certificação cross-UID real é um job **opt-in** no workflow
 `.github/workflows/coord-python.yml` (`workflow_dispatch`, inputs
@@ -148,7 +148,10 @@ HEAD iguais ao certificado, bloqueia `run_attempt != 1`, faz checkout exato
 sem credenciais persistidas e tem limpeza `always()` por manifest/`run_id`.
 A suíte ordinária é omitida quando `crossuid_full=true`. O harness
 `.opencode/scripts/coord_trust_crossuid_harness.py` cobre G1–G9 em runner
-descartável, com dois UIDs numéricos efêmeros, sem criar usuários. Ele **não foi
+descartável, com dois UIDs numéricos efêmeros, sem criar usuários. Antes de G1
+ele copia um runtime bundle mínimo (`0555`/`0444`) para fora do checkout e
+verifica, sob os UIDs efetivos, interpretador, scripts, imports, ancestrais e
+negação de state/trust/âncora/chaves. Ele **não foi
 disparado** nesta rodada e não substitui a autorização/janela do mantenedor.
 O teste local com dois UIDs reais continua **BLOCKED** neste host (sem
 privilégio para criar/menorizar UID; usuários reais não são criados).

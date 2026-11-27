@@ -43,6 +43,60 @@ SERVICE_CLI = os.path.join(SCRIPTS_DIR, "coord_trust_service_cli.py")
 SETPRIV = shutil.which("setpriv") or "/usr/bin/setpriv"
 UNSHARE = shutil.which("unshare") or "/usr/bin/unshare"
 
+# Fecho mínimo de importação do serviço/cliente. A cópia é feita para o
+# work_root 0711 do runner, fora dos ancestrais do checkout, com arquivos 0444
+# e diretório 0555. Nada de estado/chaves entra no bundle.
+RUNTIME_FILES = (
+    "coord_trust_service.py",
+    "coord_trust_service_cli.py",
+    "coord_trust_crossuid_client.py",
+    "coord_trust_crossuid_common.py",
+    "coord_trust_crossuid_crash_service.py",
+    "coord_authority.py",
+    "coord_authority_signed.py",
+    "coord_communication.py",
+    "coord_ledger.py",
+    "coord_ledger_authority.py",
+    "coord_p14b_authority.py",
+)
+
+ACCESS_PROBE = r'''
+import json
+import os
+import sys
+
+result = {
+    "uid": os.getuid(),
+    "gid": os.getgid(),
+    "imports": False,
+    "paths": {},
+    "ancestors": {},
+}
+try:
+    import coord_trust_service
+    import coord_trust_crossuid_client
+    import coord_trust_crossuid_common
+    import coord_trust_crossuid_crash_service
+    result["imports"] = True
+except Exception as exc:
+    result["import_error"] = type(exc).__name__ + ": " + str(exc)
+for spec in sys.argv[1:]:
+    kind, path = spec.split(":", 1)
+    try:
+        if kind == "file":
+            with open(path, "rb") as handle:
+                handle.read(1)
+            result["paths"][path] = "readable"
+        elif kind == "dir":
+            result["paths"][path] = bool(
+                os.access(path, os.R_OK | os.X_OK))
+        elif kind == "ancestor":
+            result["ancestors"][path] = bool(os.access(path, os.X_OK))
+    except OSError as exc:
+        result["paths"][path] = type(exc).__name__
+print(json.dumps(result, sort_keys=True))
+'''
+
 
 class HarnessError(RuntimeError):
     pass
@@ -121,6 +175,11 @@ class Harness:
         self.service_logs: dict[str, str] = {}
         self.signer_dir = tempfile.mkdtemp(
             prefix="keys-", dir=self.work_root)
+        self.runtime_dir = SCRIPTS_DIR
+        self.service_cli = SERVICE_CLI
+        self.crash_service = CRASH_SERVICE
+        self.client_script = CLIENT
+        self.runtime_manifest: dict[str, str] = {}
         self.paths: list[str] = [self.work_root, self.signer_dir, self.output]
         self.process_groups: set[int] = set()
         self.cleanup_manifest = os.path.join(self.output, "cleanup.json")
@@ -182,6 +241,240 @@ class Harness:
             },
             mode=0o644,
         )
+
+    def prepare_runtime_bundle(self, source_dir: Optional[str] = None) -> None:
+        """Copia o fecho mínimo para um caminho atravessável pelos UIDs.
+
+        O checkout do runner pode ter ancestrais 0700/inacessíveis ao UID
+        efêmero. A cópia fica sob o work_root 0711, com diretório 0555 e
+        arquivos 0444 (root), fora do checkout, HOME e estado protegido.
+        """
+        source = os.path.abspath(source_dir or SCRIPTS_DIR)
+        runtime = os.path.join(self.work_root, "runtime")
+        if os.path.lexists(runtime):
+            os.chmod(runtime, 0o700)
+            shutil.rmtree(runtime)
+        os.makedirs(runtime, mode=0o700)
+        manifest: dict[str, str] = {}
+        for name in RUNTIME_FILES:
+            source_path = os.path.join(source, name)
+            info = os.lstat(source_path)
+            if (stat.S_ISLNK(info.st_mode)
+                    or not stat.S_ISREG(info.st_mode)
+                    or info.st_nlink != 1):
+                raise HarnessError("script de runtime inválido: " + name)
+            with open(source_path, "rb") as handle:
+                payload = handle.read()
+            target = os.path.join(runtime, name)
+            with open(target, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(target, 0o444)
+            manifest[name] = hashlib.sha256(payload).hexdigest()
+        manifest_path = os.path.join(runtime, "runtime-manifest.json")
+        common.write_json(
+            manifest_path,
+            {
+                "schema": "BT-COORD-TRUST-CROSSUID-RUNTIME-V1",
+                "files": manifest,
+                "source_head": self._repo_head(),
+            },
+            mode=0o444,
+        )
+        os.chmod(manifest_path, 0o444)
+        os.chmod(runtime, 0o555)
+        if os.geteuid() == 0:
+            os.chown(runtime, 0, 0)
+            for name in RUNTIME_FILES + ("runtime-manifest.json",):
+                os.chown(os.path.join(runtime, name), 0, 0)
+        self.runtime_dir = runtime
+        self.service_cli = os.path.join(runtime, "coord_trust_service_cli.py")
+        self.crash_service = os.path.join(
+            runtime, "coord_trust_crossuid_crash_service.py")
+        self.client_script = os.path.join(
+            runtime, "coord_trust_crossuid_client.py")
+        self.runtime_manifest = manifest
+
+    def verify_runtime_bundle(self, source_dir: Optional[str] = None) -> bool:
+        source = os.path.abspath(source_dir or SCRIPTS_DIR)
+        runtime = self.runtime_dir
+        details: dict[str, Any] = {
+            "runtime_outside_source": False,
+            "directory_mode": None,
+            "files": {},
+        }
+        ok = True
+        try:
+            common_path = os.path.commonpath([runtime, source])
+            details["runtime_outside_source"] = common_path != source
+        except ValueError:
+            details["runtime_outside_source"] = True
+        if not details["runtime_outside_source"]:
+            ok = False
+        try:
+            info = os.lstat(runtime)
+            details["directory_mode"] = oct(info.st_mode & 0o777)
+            if (not stat.S_ISDIR(info.st_mode)
+                    or info.st_mode & 0o222
+                    or (info.st_mode & 0o777) != 0o555
+                    or (os.geteuid() == 0 and info.st_uid != 0)):
+                ok = False
+        except OSError:
+            details["directory_mode"] = "missing"
+            ok = False
+        for name, expected in self.runtime_manifest.items():
+            path = os.path.join(runtime, name)
+            try:
+                info = os.lstat(path)
+                with open(path, "rb") as handle:
+                    actual = hashlib.sha256(handle.read()).hexdigest()
+                file_ok = (
+                    stat.S_ISREG(info.st_mode)
+                    and info.st_nlink == 1
+                    and (info.st_mode & 0o777) == 0o444
+                    and (os.geteuid() != 0 or info.st_uid == 0)
+                    and actual == expected)
+            except OSError:
+                file_ok = False
+                actual = "missing"
+            details["files"][name] = {
+                "ok": file_ok, "sha256": actual}
+            ok = ok and file_ok
+        self.check("G0", "runtime bundle mínimo/read-only/fora do checkout",
+                   ok, details)
+        return ok
+
+    def _probe_env(self, plan: common.Plan, uid: int) -> dict[str, str]:
+        if uid == common.SERVICE_UID:
+            return self.service_env(plan)
+        return self.client_env(plan, uid)
+
+    def _identity_probe(self, plan: common.Plan, uid: int, gid: int,
+                        specs: list[str]) -> dict[str, Any]:
+        cmd = self._setpriv_prefix(uid, gid) + [
+            sys.executable, "-c", ACCESS_PROBE, *specs]
+        stdout, stderr, timed_out, rc, _elapsed = self._run_foreground(
+            cmd, self._probe_env(plan, uid), 20.0)
+        if timed_out:
+            return {"ok": False, "error": "probe-timeout"}
+        for line in reversed((stdout or "").splitlines()):
+            try:
+                value = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(value, dict):
+                value["ok"] = rc == 0
+                return value
+        return {"ok": False, "error": "probe-no-json",
+                "stderr": common.sanitize_text(
+                    stderr or "", tuple(self.paths + [self.repo]))[-1000:]}
+
+    def verify_runtime_access(self, layout: Layout) -> bool:
+        """Comprova filesystem sob os UIDs efetivos antes de iniciar o serviço."""
+        plan = layout.plan
+        script_specs = [
+            "file:" + os.path.join(self.runtime_dir, name)
+            for name in RUNTIME_FILES
+        ]
+        ancestor_specs = [
+            "ancestor:" + self.work_root,
+            "ancestor:" + self.runtime_dir,
+            "ancestor:/tmp",
+            "ancestor:/",
+        ]
+        base_specs = script_specs + ancestor_specs
+        service_specs = base_specs + [
+            "dir:" + plan.state_dir,
+            "file:" + plan.trust_store_path,
+            "file:" + plan.registry_path,
+            "dir:" + plan.anchor_dir,
+            "dir:" + self.signer_dir,
+        ]
+        consumer_specs = base_specs + [
+            "dir:" + plan.state_dir,
+            "file:" + plan.trust_store_path,
+            "file:" + plan.registry_path,
+            "file:" + os.path.join(plan.state_dir, "ledger.db"),
+            "dir:" + plan.anchor_dir,
+            "file:" + plan.anchor_path,
+            "dir:" + self.signer_dir,
+        ]
+        service = self._identity_probe(
+            plan, common.SERVICE_UID, common.SERVICE_GID, service_specs)
+        consumer = self._identity_probe(
+            plan, common.CONSUMER_UID, common.CONSUMER_GID, consumer_specs)
+
+        def scripts_ok(probe: Mapping[str, Any]) -> bool:
+            paths = probe.get("paths", {}) if isinstance(probe, Mapping) else {}
+            return (bool(probe.get("imports"))
+                    and all(paths.get(os.path.join(self.runtime_dir, name))
+                            == "readable" for name in RUNTIME_FILES))
+
+        def ancestors_ok(probe: Mapping[str, Any]) -> bool:
+            values = probe.get("ancestors", {}) if isinstance(probe, Mapping) else {}
+            return bool(values) and all(values.values())
+
+        def state_ok(probe: Mapping[str, Any]) -> bool:
+            paths = probe.get("paths", {}) if isinstance(probe, Mapping) else {}
+            return (paths.get(plan.state_dir) is True
+                    and paths.get(plan.trust_store_path) == "readable"
+                    and paths.get(plan.registry_path) == "readable"
+                    and paths.get(plan.anchor_dir) is True)
+
+        def denied(probe: Mapping[str, Any]) -> bool:
+            paths = probe.get("paths", {}) if isinstance(probe, Mapping) else {}
+            return (paths.get(plan.state_dir) is False
+                    and paths.get(plan.trust_store_path) != "readable"
+                    and paths.get(plan.registry_path) != "readable"
+                    and paths.get(plan.anchor_dir) is False
+                    and paths.get(plan.anchor_path) != "readable"
+                    and paths.get(os.path.join(
+                        plan.state_dir, "ledger.db")) != "readable"
+                    and paths.get(self.signer_dir) is False)
+
+        identity_ok = (
+            service.get("uid") == common.SERVICE_UID
+            and service.get("gid") == common.SERVICE_GID
+            and consumer.get("uid") == common.CONSUMER_UID
+            and consumer.get("gid") == common.CONSUMER_GID
+        )
+        self.check(
+            "G0", "runtime bundle lido/importado pelos UIDs efetivos",
+            identity_ok and scripts_ok(service) and scripts_ok(consumer),
+            {"service": {"uid": service.get("uid"), "gid": service.get("gid"),
+                         "imports": service.get("imports"),
+                         "import_error": service.get("import_error")},
+             "consumer": {"uid": consumer.get("uid"),
+                          "gid": consumer.get("gid"),
+                          "imports": consumer.get("imports"),
+                          "import_error": consumer.get("import_error")}},
+        )
+        self.check(
+            "G0", "ancestrais do bundle atravessáveis pelos UIDs",
+            ancestors_ok(service) and ancestors_ok(consumer),
+            {"service": service.get("ancestors"),
+             "consumer": consumer.get("ancestors")},
+        )
+        self.check(
+            "G0", "serviço lê state/trust/anchor; chaves negadas",
+            state_ok(service)
+            and service.get("paths", {}).get(self.signer_dir) is False,
+            {"uid": service.get("uid"), "paths": service.get("paths")},
+        )
+        self.check(
+            "G0", "consumidor não lê state/trust/anchor/chaves",
+            denied(consumer),
+            {"uid": consumer.get("uid"), "paths": consumer.get("paths")},
+        )
+        consumers = [
+            identity_ok, scripts_ok(service), scripts_ok(consumer),
+            ancestors_ok(service), ancestors_ok(consumer),
+            state_ok(service), denied(consumer),
+        ]
+        if not all(consumers):
+            return False
+        return True
 
     # ---------- layout / ownership ----------
 
@@ -272,7 +565,7 @@ class Harness:
             "TMPDIR": plan.service_tmp,
             "LANG": "C",
             "LC_ALL": "C",
-            "PYTHONPATH": SCRIPTS_DIR,
+            "PYTHONPATH": self.runtime_dir,
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
             "COORD_TRUST_RUN_ID": self.run_id,
@@ -291,7 +584,7 @@ class Harness:
             "TMPDIR": tmp,
             "LANG": "C",
             "LC_ALL": "C",
-            "PYTHONPATH": SCRIPTS_DIR,
+            "PYTHONPATH": self.runtime_dir,
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
             "COORD_TRUST_RUN_ID": self.run_id,
@@ -320,7 +613,8 @@ class Harness:
                         extra: tuple[str, ...], *,
                         ambient_setgid: bool = False) -> list[str]:
         return self._setpriv_prefix(uid, gid, ambient_setgid=ambient_setgid) + [
-            sys.executable, CLIENT, "--job", job, "--mode", mode, *extra]
+            sys.executable, self.client_script, "--job", job,
+            "--mode", mode, *extra]
 
     def start_process(self, cmd: list[str], env: Mapping[str, str],
                       label: str, plan: common.Plan) -> ServiceProcess:
@@ -373,7 +667,7 @@ class Harness:
                 os.unlink(plan.socket_path)
             except OSError:
                 pass
-        script = CRASH_SERVICE if crash_point else SERVICE_CLI
+        script = self.crash_service if crash_point else self.service_cli
         args = [sys.executable, script, "--config", plan.config_path]
         if crash_point:
             args.extend(["--crash-point", crash_point])
@@ -716,7 +1010,7 @@ class Harness:
         service_sources = {}
         for name, path in (
             ("coord_trust_service.py", svc.__file__),
-            ("coord_trust_crossuid_crash_service.py", CRASH_SERVICE),
+            ("coord_trust_crossuid_crash_service.py", self.crash_service),
         ):
             with open(path, encoding="utf-8") as handle:
                 service_sources[name] = handle.read()
@@ -728,7 +1022,7 @@ class Harness:
                 forbidden[name] = tokens
         self.check("G9", "serviço/crash service sem AF_INET/create_connection",
                    not forbidden, {"forbidden": forbidden})
-        with open(CLIENT, encoding="utf-8") as handle:
+        with open(self.client_script, encoding="utf-8") as handle:
             client_source = handle.read()
         client_network_tokens = [
             token for token in ("AF_INET", "create_connection")
@@ -825,6 +1119,8 @@ class Harness:
         self.stage("G1 — jornada cross-UID completa")
         layout = self.new_layout("main")
         self.prepare_trust(layout)
+        if not self.verify_runtime_access(layout):
+            raise HarnessError("preflight de filesystem falhou antes do serviço")
         assert self.signer is not None and self.allowlist is not None
         artifacts = common.build_artifacts(
             self.now, self.signer, self.allowlist, tag="main")
@@ -1491,6 +1787,9 @@ class Harness:
             return
         for layout in self.layouts:
             shutil.rmtree(layout.plan.root, ignore_errors=True)
+        runtime = os.path.join(self.work_root, "runtime")
+        if os.path.isdir(runtime):
+            os.chmod(runtime, 0o700)
         shutil.rmtree(self.work_root, ignore_errors=True)
         # Mantém self.cleanup_manifest no OUT até a etapa always() do workflow.
 
@@ -1509,6 +1808,9 @@ class Harness:
                 self.setpriv_has_no_new_privs,
                 {"no_new_privs": self.setpriv_has_no_new_privs,
                  "ambient_optional": self.setpriv_has_ambient})
+            self.prepare_runtime_bundle()
+            if not self.verify_runtime_bundle():
+                raise HarnessError("runtime bundle sem verificação de integridade")
             self.before_hashes = self._hash_files(
                 ("/etc/passwd", "/etc/group", "/etc/shadow"))
             def _uid_exists(uid: int) -> bool:
