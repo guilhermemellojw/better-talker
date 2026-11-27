@@ -63,8 +63,16 @@ jobs:
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
           sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
-            python3 -m unittest discover -s "$GITHUB_WORKSPACE/.opencode/scripts" -p 'test_*.py' -v \
-            2>&1 | tee "$COORD_LOGS/discover.log"
+            python3 - "$GITHUB_WORKSPACE/.opencode/scripts" <<'PY' 2>&1 | tee "$COORD_LOGS/discover.log"
+            import sys
+            import unittest
+            start = sys.argv[1]
+            sys.path.insert(0, start)
+            suite = unittest.TestLoader().discover(
+                start, pattern='test_*.py', top_level_dir=start)
+            result = unittest.TextTestRunner(verbosity=2).run(suite)
+            sys.exit(0 if result.wasSuccessful() else 1)
+            PY
           count=$(grep -Eo 'Ran [0-9]+ tests' "$COORD_LOGS/discover.log" | awk '{print $2}')
           echo "DISCOVER_TESTS=$count"
           [ "$count" = "368" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }

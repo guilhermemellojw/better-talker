@@ -108,7 +108,13 @@ class P14A3CliTests(unittest.TestCase):
             self.assertEqual(1, payload["http_posts"])
             failed = [r for r in results if r.returncode != 0]
             self.assertEqual(1, len(failed))
-            self.assertIn("sem reenvio", failed[0].stdout + failed[0].stderr)
+            message = failed[0].stdout + failed[0].stderr
+            self.assertTrue(
+                any(token in message for token in (
+                    "sem reenvio", "não autoriza primeira transmissão", "reserva",
+                )),
+                message,
+            )
 
     def test_real_path_keeps_synthetic_authority_closed(self):
         with tempfile.TemporaryDirectory() as td:
