@@ -11,8 +11,12 @@ import hashlib
 import io
 import json
 import os
+import socket
+import shutil
 import sqlite3
+import struct
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -42,7 +46,7 @@ MODEL = "opencode/hy4-flash-free"
 DIGESTS = {"coord_trust_service.py": "d" * 64, "coord_ledger.py": "e" * 64}
 ALL_ACTIONS = frozenset({
     "propose", "authorize", "reserve", "assert", "record_evidence",
-    "reconcile", "revoke", "interrupt", "status",
+    "reconcile", "revoke", "interrupt", "status", "recover",
 })
 
 
@@ -120,17 +124,15 @@ def make_envelope(mission: cc.MissionEnvelope, signer: p14b.SyntheticSigner,
 
 
 def current_peer() -> svc.PeerIdentity:
-    exe = os.readlink("/proc/self/exe")
     return svc.PeerIdentity(
-        pid=os.getpid(), uid=os.geteuid(), gid=os.getegid(),
-        start_time=svc._proc_start_time(os.getpid()), exe_path=exe,
-        exe_sha256=svc.executable_sha256(exe))
+        pid=os.getpid(), uid=os.geteuid(), gid=os.getegid())
 
 
 class Fixture:
     def __init__(self, root: str, *, observer: bool = False,
                  wrong_peer: bool = False, real_transport: bool = False,
-                 allow_same_uid: bool = True) -> None:
+                 allow_same_uid: bool = True,
+                 request_timeout_seconds: float = 15.0) -> None:
         self.root = root
         self.state = os.path.join(root, "state")
         os.makedirs(self.state, mode=0o700)
@@ -142,15 +144,15 @@ class Fixture:
         svc.write_trust_store(self.trust_path, self.allowlist)
         self.consumer_path = os.path.join(self.state, "consumers.json")
         peer = current_peer()
+        executor_uid = peer.uid + 1000 if wrong_peer else peer.uid
         executor = svc.ConsumerPolicy(
-            consumer_id="executor", uid=peer.uid,
-            exe_sha256=peer.exe_sha256 if not wrong_peer else "f" * 64,
+            consumer_id="executor", uid=executor_uid,
             allowed_actions=ALL_ACTIONS, agent_id="agent-a", role="executor")
         consumers = [executor]
         if observer:
             consumers.append(svc.ConsumerPolicy(
-                consumer_id="observer", uid=peer.uid,
-                exe_sha256="b" * 64, allowed_actions=frozenset({"status"}),
+                consumer_id="observer", uid=peer.uid + 1000,
+                allowed_actions=frozenset({"status"}),
                 agent_id=None, role="observer"))
         self.registry = svc.ConsumerRegistry(
             tuple(consumers), allow_same_uid=allow_same_uid)
@@ -161,13 +163,13 @@ class Fixture:
             service_gid=os.getegid(), trust_store_path=self.trust_path,
             consumer_registry_path=self.consumer_path,
             socket_path=os.path.join(self.state, "service.sock"),
-            allow_same_uid=allow_same_uid, real_transport=real_transport)
+            allow_same_uid=allow_same_uid, test_mode=allow_same_uid,
+            real_transport=real_transport,
+            request_timeout_seconds=request_timeout_seconds)
         self.service = svc.build_service(self.config, clock=lambda: NOW)
         self.peer = peer
         self.observer_peer = svc.PeerIdentity(
-            pid=peer.pid, uid=peer.uid, gid=peer.gid,
-            start_time=peer.start_time, exe_path="/tmp/observer",
-            exe_sha256="b" * 64)
+            pid=peer.pid, uid=peer.uid + 1000, gid=peer.gid)
         self.mission = make_mission()
         self.envelope = make_envelope(
             self.mission, self.signer, self.allowlist)
@@ -190,7 +192,8 @@ class Fixture:
             "free_only": True, "authorization_reference": APPROVAL,
         }, peer=peer)
 
-    def authorize(self, *, signature: bytes | None = None) -> dict:
+    def authorize(self, *, signature: bytes | None = None,
+                  request_id: str | None = None) -> dict:
         if signature is None:
             signature = self.signer.sign(
                 p14ba.canonical_authorization_bytes(self.envelope),
@@ -199,7 +202,7 @@ class Fixture:
             "mission_id": MISSION_ID,
             "envelope": self.envelope.to_mapping(),
             "signature": _b64(signature),
-        })
+        }, request_id=request_id)
 
     def reserve(self, *, request_id: str | None = None) -> dict:
         return self.request("reserve", {
@@ -208,12 +211,13 @@ class Fixture:
             "instance_id": "inst-1", "worktree": "/tmp/wt-trust",
         }, request_id=request_id)
 
-    def assert_dispatch(self, lease_id: str, *, digest: str | None = None) -> dict:
+    def assert_dispatch(self, lease_id: str, *, digest: str | None = None,
+                        request_id: str | None = None) -> dict:
         return self.request("assert", {
             "mission_id": MISSION_ID,
             "authorization_digest": digest or self.digest,
             "lease_id": lease_id,
-        })
+        }, request_id=request_id)
 
     def evidence(self) -> tuple[dict, dict]:
         receipt = {
@@ -296,13 +300,33 @@ class ServiceTest(unittest.TestCase):
         self.assertTrue(reserved["ok"], reserved)
         return fx, reserved["result"]["lease_id"]
 
+    def _revoke(self, fx: Fixture) -> dict:
+        statement = cas.SignedRevocation(
+            schema=cas.REVOCATION_SCHEMA_VERSION,
+            authorization_digest=fx.digest,
+            approver_id=fx.signer.approver_id,
+            approver_key_fingerprint=fx.signer.fingerprint,
+            trust_policy_sha256=fx.allowlist.digest(),
+            revoked_at=NOW - timedelta(seconds=1),
+            reason="contramandamento", nonce="nonce-revoke-trust-001")
+        signature = fx.signer.sign(
+            cas.canonical_revocation_bytes(statement),
+            namespace=cas.REVOCATION_NAMESPACE, directory=fx.keys)
+        response = fx.request("revoke", {
+            "statement": statement.canonical_material(),
+            "signature": _b64(signature)})
+        self.assertTrue(response["ok"], response)
+        return response
+
     def test_local_socket_authenticates_peer_and_serves_status(self):
         self.assertTrue(self.fx.propose()["ok"])
         server = svc.LocalService(self.fx.service)
         server.start()
         try:
             response = svc.ServiceClient(
-                self.fx.config.socket_path).request(
+                self.fx.config.socket_path,
+                service_uid=self.fx.config.service_uid,
+                service_gid=self.fx.config.service_gid).request(
                     "status", {"mission_id": MISSION_ID})
         finally:
             server.stop()
@@ -317,7 +341,10 @@ class ServiceTest(unittest.TestCase):
             server.start()
             try:
                 with self.assertRaises((ConnectionError, OSError)):
-                    svc.ServiceClient(bad.config.socket_path).request(
+                    svc.ServiceClient(
+                        bad.config.socket_path,
+                        service_uid=bad.config.service_uid,
+                        service_gid=bad.config.service_gid).request(
                         "status", {"mission_id": MISSION_ID})
             finally:
                 server.stop()
@@ -335,6 +362,96 @@ class ServiceTest(unittest.TestCase):
             "status", {"mission_id": "MISS-OTHER"}, request_id="req-repeat")
         self.assertFalse(divergent["ok"])
         self.assertEqual("REQUEST_REPLAY", divergent["error"]["code"])
+
+    def test_replay_assert_after_revocation_is_stale(self):
+        fx, lease = self._reserved()
+        first = fx.assert_dispatch(lease, request_id="req-assert-stale")
+        self.assertTrue(first["ok"], first)
+        self.assertTrue(first["authorization_current"])
+        self._revoke(fx)
+        replay = fx.assert_dispatch(lease, request_id="req-assert-stale")
+        self.assertFalse(replay["ok"], replay)
+        self.assertEqual("REPLAY_STALE", replay["error"]["code"])
+        self.assertNotIn("result", replay)
+        self.assertEqual("DISPATCHING", fx.request(
+            "status", {"mission_id": MISSION_ID})["result"]["state"])
+
+    def test_replay_reserve_after_revocation_is_stale(self):
+        fx = self._prepared()
+        first = fx.reserve(request_id="req-reserve-stale")
+        self.assertTrue(first["ok"], first)
+        self._revoke(fx)
+        replay = fx.reserve(request_id="req-reserve-stale")
+        self.assertFalse(replay["ok"], replay)
+        self.assertEqual("REPLAY_STALE", replay["error"]["code"])
+        self.assertNotIn("result", replay)
+
+    def test_replay_authorize_after_revocation_is_stale(self):
+        fx = self.fx
+        self.assertTrue(fx.propose()["ok"])
+        first = fx.authorize(request_id="req-authorize-stale")
+        self.assertTrue(first["ok"], first)
+        self._revoke(fx)
+        replay = fx.authorize(request_id="req-authorize-stale")
+        self.assertFalse(replay["ok"], replay)
+        self.assertEqual("REPLAY_STALE", replay["error"]["code"])
+        self.assertNotIn("result", replay)
+
+    def test_replay_assert_after_unknown_and_expiry_is_stale(self):
+        fx, lease = self._reserved()
+        self.assertTrue(fx.assert_dispatch(
+            lease, request_id="req-assert-unknown")["ok"])
+        interrupted = fx.request("interrupt", {
+            "mission_id": MISSION_ID, "cause": "process_loss"})
+        self.assertTrue(interrupted["ok"], interrupted)
+        replay = fx.assert_dispatch(lease, request_id="req-assert-unknown")
+        self.assertFalse(replay["ok"], replay)
+        self.assertEqual("REPLAY_STALE", replay["error"]["code"])
+
+        with tempfile.TemporaryDirectory() as other_root:
+            fx2 = Fixture(other_root)
+            self.assertTrue(fx2.propose()["ok"])
+            self.assertTrue(fx2.authorize()["ok"])
+            reserved2 = fx2.reserve()
+            self.assertTrue(reserved2["ok"], reserved2)
+            lease2 = reserved2["result"]["lease_id"]
+            self.assertTrue(fx2.assert_dispatch(
+                lease2, request_id="req-assert-expired")["ok"])
+            future = NOW + timedelta(minutes=30)
+            fx2.service.clock = lambda: future
+            fx2.service.ledger.clock = lambda: future
+            expired = fx2.assert_dispatch(
+                lease2, request_id="req-assert-expired")
+            self.assertFalse(expired["ok"], expired)
+            self.assertEqual("REPLAY_STALE", expired["error"]["code"])
+
+    def test_replay_assert_after_terminal_is_stale_and_status_is_historical(self):
+        fx, lease = self._reserved()
+        self.assertTrue(fx.assert_dispatch(
+            lease, request_id="req-assert-terminal")["ok"])
+        self.assertTrue(fx.record(lease)["ok"])
+        attestation, signature = fx.attestation()
+        completed = fx.request("reconcile", {
+            "mission_id": MISSION_ID, "authorization_digest": fx.digest,
+            "lease_id": lease, "target_state": "COMPLETED",
+            "attestation": attestation,
+            "attestation_signature": _b64(signature),
+            "report": fx.report(), "evidence": fx.evidence()[1],
+        }, request_id="req-reconcile-terminal")
+        self.assertTrue(completed["ok"], completed)
+        replay = fx.assert_dispatch(lease, request_id="req-assert-terminal")
+        self.assertFalse(replay["ok"], replay)
+        self.assertEqual("REPLAY_STALE", replay["error"]["code"])
+        historical = fx.request(
+            "status", {"mission_id": MISSION_ID},
+            request_id="req-status-historical")
+        self.assertTrue(historical["ok"], historical)
+        repeated = fx.request(
+            "status", {"mission_id": MISSION_ID},
+            request_id="req-status-historical")
+        self.assertTrue(repeated["ok"], repeated)
+        self.assertTrue(repeated["historical"])
+        self.assertFalse(repeated["authorization_current"])
 
     def test_self_grant_fields_are_rejected_and_unsigned_authorization_fails(self):
         self.assertTrue(self.fx.propose()["ok"])
@@ -379,7 +496,7 @@ class ServiceTest(unittest.TestCase):
             repository_id=REPO, service_uid=os.geteuid(),
             service_gid=os.getegid(), trust_store_path=link,
             consumer_registry_path=config.consumer_registry_path,
-            socket_path=config.socket_path, allow_same_uid=True)
+            socket_path=config.socket_path, allow_same_uid=True, test_mode=True)
         with self.assertRaises(svc.StorageSecurityError):
             linked.prepare()
 
@@ -390,7 +507,7 @@ class ServiceTest(unittest.TestCase):
             service_gid=os.getegid(), trust_store_path=self.fx.trust_path,
             consumer_registry_path=self.fx.consumer_path,
             socket_path=self.fx.config.socket_path, allow_same_uid=True,
-            real_transport=True)
+            test_mode=True, real_transport=True)
         with self.assertRaises(svc.TransportDisabled):
             config.prepare()
         response = self.fx.request("transmit", {})
@@ -407,8 +524,10 @@ class ServiceTest(unittest.TestCase):
             service_gid=os.getegid(), trust_store_path=self.fx.trust_path,
             consumer_registry_path=self.fx.consumer_path,
             socket_path=self.fx.config.socket_path, allow_same_uid=False)
+        registry = svc.ConsumerRegistry.from_mapping(
+            self.fx.registry.to_mapping(), allow_same_uid=False)
         with self.assertRaises(svc.StorageSecurityError):
-            config.validate_consumers(self.fx.registry)
+            config.validate_consumers(registry)
 
     def test_propose_authorize_reserve_assert_evidence_reconcile(self):
         fx = self._prepared()
@@ -570,6 +689,314 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual("BAD_REQUEST", denied["error"]["code"])
 
 
+    def test_kernel_credentials_reject_missing_divergent_and_truncated(self):
+        expected = svc.PeerIdentity(
+            pid=os.getpid(), uid=os.geteuid(), gid=os.getegid(),
+            source="SO_PEERCRED")
+        valid = (socket.SOL_SOCKET, socket.SCM_CREDENTIALS,
+                 struct.pack("3i", os.getpid(), os.geteuid(), os.getegid()))
+        peer = svc._credentials_from_ancillary([valid], 0, expected=expected)
+        self.assertEqual((peer.uid, peer.gid), (os.geteuid(), os.getegid()))
+        self.assertEqual("SCM_CREDENTIALS", peer.source)
+
+        divergent = (socket.SOL_SOCKET, socket.SCM_CREDENTIALS,
+                     struct.pack("3i", os.getpid(), os.geteuid() + 1,
+                                 os.getegid()))
+        cases = (
+            ([], 0),
+            ([valid, valid], 0),
+            ([(socket.SOL_SOCKET, socket.SCM_CREDENTIALS, b"\0" * 8)], 0),
+            ([(socket.SOL_SOCKET, socket.SCM_RIGHTS, b"\0\0\0\0")], 0),
+            ([valid], getattr(socket, "MSG_CTRUNC", 0)),
+            ([divergent], 0),
+        )
+        for ancdata, flags in cases:
+            with self.assertRaises(svc.AuthenticationError):
+                svc._credentials_from_ancillary(
+                    ancdata, flags, expected=expected)
+
+    def test_uid_registry_rejects_duplicate_and_unknown(self):
+        policy = svc.ConsumerPolicy(
+            consumer_id="a", uid=os.geteuid() + 10,
+            allowed_actions=frozenset({"status"}))
+        with self.assertRaises(svc.ServiceConfigurationError):
+            svc.ConsumerRegistry((policy, svc.ConsumerPolicy(
+                consumer_id="b", uid=policy.uid,
+                allowed_actions=frozenset({"status"}))), allow_same_uid=True)
+        registry = svc.ConsumerRegistry((policy,), allow_same_uid=False)
+        unknown = svc.PeerIdentity(
+            pid=os.getpid(), uid=policy.uid + 1, gid=os.getegid(),
+            source="SCM_CREDENTIALS")
+        with self.assertRaises(svc.AuthenticationError):
+            registry.resolve(unknown)
+
+    def test_same_uid_requires_explicit_test_mode(self):
+        config = svc.ServiceConfig(
+            state_dir=self.fx.state, project_id=PROJECT,
+            repository_id=REPO, service_uid=os.geteuid(),
+            service_gid=os.getegid(), trust_store_path=self.fx.trust_path,
+            consumer_registry_path=self.fx.consumer_path,
+            socket_path=self.fx.config.socket_path,
+            allow_same_uid=True, test_mode=False)
+        with self.assertRaises(svc.StorageSecurityError):
+            config.prepare()
+
+    def test_hardlink_trust_store_and_sqlite_are_rejected(self):
+        store_link = self.fx.trust_path + ".hardlink"
+        os.link(self.fx.trust_path, store_link)
+        with self.assertRaises(svc.StorageSecurityError):
+            svc.TrustStore.load(store_link)
+        self.assertTrue(self.fx.propose()["ok"])
+        ledger_link = self.fx.config.ledger_path + ".hardlink"
+        os.link(self.fx.config.ledger_path, ledger_link)
+        with self.assertRaises(svc.StorageSecurityError):
+            self.fx.config.prepare()
+
+    def test_socket_path_substitution_is_rejected(self):
+        os.makedirs(os.path.dirname(self.fx.config.socket_path), exist_ok=True)
+        with open(self.fx.config.socket_path, "w", encoding="utf-8") as handle:
+            handle.write("not-a-socket")
+        with self.assertRaises(svc.StorageSecurityError):
+            svc.LocalService(self.fx.service).start()
+        os.unlink(self.fx.config.socket_path)
+        os.symlink(self.fx.trust_path, self.fx.config.socket_path)
+        with self.assertRaises(svc.StorageSecurityError):
+            svc.LocalService(self.fx.service).start()
+
+    def test_client_authenticates_server_uid_gid_and_service_id(self):
+        server = svc.LocalService(self.fx.service)
+        server.start()
+        try:
+            with self.assertRaises(svc.AuthenticationError):
+                svc.ServiceClient(
+                    self.fx.config.socket_path,
+                    expected_service_uid=os.geteuid() + 1,
+                    expected_service_gid=os.getegid()).request(
+                        "status", {"mission_id": MISSION_ID})
+            with self.assertRaises(svc.AuthenticationError):
+                svc.ServiceClient(
+                    self.fx.config.socket_path,
+                    expected_service_uid=os.geteuid(),
+                    expected_service_gid=os.getegid(),
+                    expected_service_id="wrong-service-id").request(
+                        "status", {"mission_id": MISSION_ID})
+        finally:
+            server.stop()
+
+    def test_total_request_deadline_closes_slow_client(self):
+        with tempfile.TemporaryDirectory() as slow_root:
+            fx = Fixture(slow_root, request_timeout_seconds=0.2)
+            server = svc.LocalService(fx.service)
+            server.start()
+            try:
+                conn = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                conn.settimeout(2)
+                conn.connect(fx.config.socket_path)
+                svc._frame_recv_plain(conn, svc.MAX_FRAME_BYTES)
+                time.sleep(0.35)
+                with self.assertRaises((ConnectionError, OSError)):
+                    svc._frame_send(
+                        conn, {"type": "hello", "protocol": svc.PROTOCOL},
+                        svc.MAX_FRAME_BYTES)
+                    svc._frame_recv_plain(conn, svc.MAX_FRAME_BYTES)
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                server.stop()
+
+    def test_ledger_rollback_anchor_quarantines_old_restore(self):
+        self.assertTrue(self.fx.propose()["ok"])
+        self.assertTrue(self.fx.authorize()["ok"])
+        svc.build_service(self.fx.config, clock=lambda: NOW)
+        with sqlite3.connect(self.fx.config.ledger_path) as conn:
+            conn.execute(
+                "DELETE FROM authorizations WHERE mission_id=?",
+                (MISSION_ID,))
+        restored = svc.build_service(self.fx.config, clock=lambda: NOW)
+        self.assertTrue(restored.quarantined)
+        blocked = restored.handle(self.fx.peer, {
+            "request_id": "req-quarantine", "action": "reserve",
+            "payload": {}})
+        self.assertFalse(blocked["ok"])
+        self.assertEqual("REPLAY_STALE", blocked["error"]["code"])
+
+
+    @staticmethod
+    def _backup_db(source: str, target: str) -> None:
+        src = sqlite3.connect(source)
+        dst = sqlite3.connect(target)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+
+    @staticmethod
+    def _restore_db(source: str, target: str) -> None:
+        for suffix in ("-wal", "-shm", "-journal"):
+            try:
+                os.unlink(target + suffix)
+            except FileNotFoundError:
+                pass
+        src = sqlite3.connect(source)
+        dst = sqlite3.connect(target)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+        os.chmod(target, 0o600)
+
+    def test_full_rollback_quarantines_and_signed_recovery_invalidates_epoch(self):
+        fx = self._prepared()
+        ledger_backup = os.path.join(fx.root, "ledger-before.db")
+        service_backup = os.path.join(fx.root, "service-before.db")
+        self._backup_db(fx.config.ledger_path, ledger_backup)
+        self._backup_db(fx.config.service_db_path, service_backup)
+        self.assertTrue(fx.reserve()["ok"])
+        self._restore_db(ledger_backup, fx.config.ledger_path)
+        self._restore_db(service_backup, fx.config.service_db_path)
+        restarted = svc.build_service(fx.config, clock=lambda: NOW)
+        self.assertTrue(restarted.quarantined)
+        blocked = restarted.handle(fx.peer, {
+            "request_id": "req-quarantine-restore", "action": "reserve",
+            "payload": {
+                "mission_id": MISSION_ID, "authorization_digest": fx.digest,
+                "agent": "agent-a", "session_id": "ses-trust",
+                "instance_id": "inst-1", "worktree": "/tmp/wt-trust",
+            }})
+        self.assertFalse(blocked["ok"])
+        self.assertIn(blocked["error"]["code"], {"REPLAY_STALE"})
+
+        statement = svc.RecoveryStatement(
+            schema=svc.RECOVERY_SCHEMA,
+            approver_id=fx.signer.approver_id,
+            approver_key_fingerprint=fx.signer.fingerprint,
+            trust_policy_sha256=fx.allowlist.digest(),
+            new_epoch=restarted.epoch + 1,
+            reason="rollback restaurado; invalidar epoch anterior",
+            issued_at=NOW, expires_at=NOW + timedelta(minutes=10),
+            nonce="nonce-recovery-test-001")
+        signature = fx.signer.sign(
+            svc.canonical_recovery_bytes(statement),
+            namespace=svc.RECOVERY_NAMESPACE, directory=fx.keys)
+        recovered = restarted.handle(fx.peer, {
+            "request_id": "req-recovery-test", "action": "recover",
+            "payload": {
+                "statement": statement.to_mapping(),
+                "signature": _b64(signature),
+            }})
+        self.assertTrue(recovered["ok"], recovered)
+        self.assertFalse(restarted.quarantined)
+        self.assertEqual(statement.new_epoch, restarted.epoch)
+        old = restarted.handle(fx.peer, {
+            "request_id": "req-old-epoch", "action": "reserve",
+            "payload": {
+                "mission_id": MISSION_ID, "authorization_digest": fx.digest,
+                "agent": "agent-a", "session_id": "ses-trust",
+                "instance_id": "inst-1", "worktree": "/tmp/wt-trust",
+            }})
+        self.assertFalse(old["ok"])
+        self.assertEqual("REPLAY_STALE", old["error"]["code"])
+        status = restarted.handle(fx.peer, {
+            "request_id": "req-status-after-recovery", "action": "status",
+            "payload": {"mission_id": MISSION_ID}})
+        self.assertTrue(status["ok"], status)
+        self.assertFalse(status["result"]["quarantined"])
+        self.assertEqual(statement.new_epoch, status["result"]["epoch"])
+
+    def test_missing_external_anchor_with_state_quarantines(self):
+        self.assertTrue(self.fx.propose()["ok"])
+        os.unlink(self.fx.config.anchor_path)
+        restarted = svc.build_service(self.fx.config, clock=lambda: NOW)
+        self.assertTrue(restarted.quarantined)
+        status = restarted.handle(self.fx.peer, {
+            "request_id": "req-missing-anchor", "action": "status",
+            "payload": {"mission_id": MISSION_ID}})
+        self.assertTrue(status["ok"], status)
+        self.assertTrue(status["result"]["quarantined"])
+
+    def test_crash_before_ledger_is_outcome_unknown_after_restart(self):
+        fx = self._prepared()
+        payload = {"mission_id": MISSION_ID}
+        sha = svc.sha256_text(svc.canonical_json(
+            {"action": "status", "payload": payload}))
+        self.assertIsNone(fx.service.state.begin_request(
+            "req-crash-before-ledger", "executor", "status", sha, NOW))
+        restarted = svc.build_service(fx.config, clock=lambda: NOW)
+        response = restarted.handle(fx.peer, {
+            "request_id": "req-crash-before-ledger", "action": "status",
+            "payload": payload})
+        self.assertFalse(response["ok"])
+        self.assertEqual("OUTCOME_UNKNOWN", response["error"]["code"])
+
+    def test_crash_after_ledger_commit_quarantines_without_lease_recovery(self):
+        fx = self._prepared()
+        payload = {
+            "mission_id": MISSION_ID, "authorization_digest": fx.digest,
+            "agent": "agent-a", "session_id": "ses-trust",
+            "instance_id": "inst-1", "worktree": "/tmp/wt-trust",
+        }
+        sha = svc.sha256_text(svc.canonical_json(
+            {"action": "reserve", "payload": payload}))
+        self.assertIsNone(fx.service.state.begin_request(
+            "req-crash-after-ledger", "executor", "reserve", sha, NOW))
+        fx.service.ledger.reserve_dispatch_signed(
+            MISSION_ID, authorization_digest=fx.digest, agent="agent-a",
+            session_id="ses-trust", instance_id="inst-1",
+            worktree="/tmp/wt-trust", actor="executor")
+        restarted = svc.build_service(fx.config, clock=lambda: NOW)
+        self.assertTrue(restarted.quarantined)
+        status = restarted.handle(fx.peer, {
+            "request_id": "req-crash-status", "action": "status",
+            "payload": {"mission_id": MISSION_ID}})
+        self.assertTrue(status["ok"], status)
+        self.assertEqual("DISPATCHING", status["result"]["state"])
+        self.assertTrue(status["result"]["reserved"])
+        self.assertNotIn("lease_id", status["result"])
+
+    def test_propose_reconciles_service_mission_gap_by_full_material(self):
+        fx = self.fx
+        self.assertTrue(fx.propose()["ok"])
+        with sqlite3.connect(fx.config.service_db_path) as conn:
+            conn.execute(
+                "DELETE FROM service_missions WHERE mission_id=?",
+                (MISSION_ID,))
+        recovered = fx.propose()
+        self.assertTrue(recovered["ok"], recovered)
+        self.assertEqual("PROPOSED", recovered["result"]["state"])
+        self.assertEqual(
+            MISSION_ID, fx.service.state.get_mission(MISSION_ID).mission_id)
+
+    def test_ancestor_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            real = os.path.join(root, "real")
+            os.makedirs(real, mode=0o700)
+            link = os.path.join(root, "link")
+            os.symlink(real, link)
+            state = os.path.join(link, "state")
+            os.makedirs(state, mode=0o700)
+            trust = os.path.join(state, "trust.json")
+            consumers = os.path.join(state, "consumers.json")
+            svc.write_trust_store(trust, cas.ApproverAllowlist(
+                (p14b.SyntheticSigner(os.path.join(root, "keys")).approver_key(NOW),)))
+            svc.write_consumer_registry(consumers, svc.ConsumerRegistry(
+                (svc.ConsumerPolicy(
+                    consumer_id="executor", uid=os.geteuid(),
+                    allowed_actions=ALL_ACTIONS, agent_id="agent-a"),),
+                allow_same_uid=True))
+            config = svc.ServiceConfig(
+                state_dir=state, project_id=PROJECT, repository_id=REPO,
+                service_uid=os.geteuid(), service_gid=os.getegid(),
+                trust_store_path=trust, consumer_registry_path=consumers,
+                socket_path=os.path.join(state, "service.sock"),
+                allow_same_uid=True, test_mode=True)
+            with self.assertRaises(svc.StorageSecurityError):
+                config.prepare()
+
+
     def test_deployment_examples_and_cli_check(self):
         root = Path(__file__).resolve().parents[2]
         config_path = root / ".opencode/deploy/trust-service.example.json"
@@ -597,7 +1024,8 @@ class ServiceTest(unittest.TestCase):
             "trust_store_path": self.fx.trust_path,
             "consumer_registry_path": self.fx.consumer_path,
             "socket_path": self.fx.config.socket_path,
-            "allow_same_uid": True, "real_transport": False,
+            "anchor_path": os.path.join(self.fx.root, "anchor", "anchor.json"),
+            "allow_same_uid": True, "test_mode": True, "real_transport": False,
         })
         cfg_path = os.path.join(self.fx.state, "check-config.json")
         with open(cfg_path, "w", encoding="utf-8") as handle:
@@ -611,9 +1039,7 @@ class ServiceTest(unittest.TestCase):
 
     def test_wrong_consumer_peer_is_unauthenticated(self):
         unknown = svc.PeerIdentity(
-            pid=os.getpid(), uid=os.geteuid(), gid=os.getegid(),
-            start_time=self.fx.peer.start_time,
-            exe_path="/tmp/unknown", exe_sha256="c" * 64)
+            pid=os.getpid(), uid=os.geteuid() + 2000, gid=os.getegid())
         with self.assertRaises(svc.AuthenticationError):
             self.fx.service.handle(
                 unknown, {"request_id": "req-unauth", "action": "status",

@@ -16,6 +16,7 @@ import coord_trust_service as svc
 
 
 def _load_config(path: str) -> svc.ServiceConfig:
+    svc._require_config_file(path)
     try:
         with open(path, encoding="utf-8") as handle:
             value = json.load(handle)

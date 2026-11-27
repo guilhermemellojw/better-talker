@@ -8,7 +8,11 @@
   "trust_store_path": "/var/lib/better-talker-coord/trust-store.json",
   "consumer_registry_path": "/var/lib/better-talker-coord/consumers.json",
   "socket_path": "/run/better-talker-coord/service.sock",
+  "anchor_path": "/var/lib/better-talker-coord-anchor/anchor.json",
   "allow_same_uid": false,
+  "test_mode": false,
   "real_transport": false,
-  "max_frame_bytes": 1048576
+  "max_frame_bytes": 1048576,
+  "request_timeout_seconds": 15,
+  "max_workers": 4
 }

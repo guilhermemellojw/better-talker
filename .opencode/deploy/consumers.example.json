@@ -4,7 +4,6 @@
     {
       "consumer_id": "executor",
       "uid": 9002,
-      "exe_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "allowed_actions": [
         "reserve",
         "assert",
@@ -19,7 +18,6 @@
     {
       "consumer_id": "observer",
       "uid": 9003,
-      "exe_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
       "allowed_actions": [
         "status"
       ],
@@ -29,7 +27,6 @@
     {
       "consumer_id": "coordinator",
       "uid": 9004,
-      "exe_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
       "allowed_actions": [
         "propose",
         "authorize",
@@ -41,9 +38,9 @@
     {
       "consumer_id": "maintainer",
       "uid": 9005,
-      "exe_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
       "allowed_actions": [
         "revoke",
+        "recover",
         "status"
       ],
       "agent_id": null,
