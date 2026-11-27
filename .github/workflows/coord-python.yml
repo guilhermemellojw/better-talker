@@ -39,6 +39,11 @@ jobs:
           COORD_STATE="$RUNNER_TEMP/coord-state"
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
           mkdir -p "$COORD_HOME" "$COORD_TMP" "$COORD_STATE" "$COORD_LOGS"
+          # Os testes usam um diretório canônico fixo e um worktree sintético;
+          # no runner ambos apontam para o checkout efêmero, sem tocar no repo.
+          sudo -n mkdir -p /home/guilherme/Documentos /repo
+          sudo -n ln -sfn "$GITHUB_WORKSPACE" /home/guilherme/Documentos/better-talker
+          sudo -n ln -sfn "$GITHUB_WORKSPACE" /repo/wt
           echo "ISOLATION-READY"
 
       - name: Provar bloqueio de rede
@@ -69,7 +74,7 @@ jobs:
               raise SystemExit("FALHA: guarda de rede não bloqueou conexão")
           PY
 
-      - name: unittest discover (baseline 368)
+      - name: unittest discover (baseline 378)
         run: |
           set -euo pipefail
           COORD_HOME="$RUNNER_TEMP/coord-home"
