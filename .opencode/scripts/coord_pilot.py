@@ -1509,6 +1509,7 @@ class PilotOperationStore:
                 os.unlink(self.lock_path)
 
     def assert_transmittable(self) -> PilotOperationRecord:
+        """Elegibilidade anterior à reserva (AUTHORIZED, sem reserva)."""
         record = self.load()
         if record is None:
             raise cc.ContractError("registro ausente")
@@ -1516,6 +1517,22 @@ class PilotOperationStore:
             raise cc.AuthorizationError(f"reenvio bloqueado em {record.state}")
         if record.state != "AUTHORIZED":
             raise cc.ContractError("operação não autorizada")
+        return record
+
+    def assert_reserved(self) -> PilotOperationRecord:
+        """Reserva ativa imediatamente antes do despacho (lock + estado válido).
+
+        O estado pode ainda ser AUTHORIZED no store JSON: DISPATCHING é
+        persistido logo em seguida. O ledger, por sua vez, já registra
+        DISPATCHING na própria reserva atômica.
+        """
+        record = self.load()
+        if record is None:
+            raise cc.ContractError("registro ausente")
+        if record.state not in {"AUTHORIZED", "DISPATCHING"}:
+            raise cc.AuthorizationError("reserva de despacho não confirmada")
+        if self.read_reservation() is None:
+            raise cc.AuthorizationError("reserva de despacho ausente")
         return record
 
     def recover(self) -> PilotOperationRecord:
@@ -1734,7 +1751,9 @@ class PilotExecutor:
                 raise cc.ContractError("registro persistente divergente")
         self.store.assert_transmittable()
         with self.store.reserve() as reservation:
-            self.store.assert_transmittable()
+            # P14A.2: aqui a reserva JÁ foi feita. Validar a reserva ativa,
+            # não a elegibilidade anterior (que exigiria AUTHORIZED).
+            self.store.assert_reserved()
             # Cinco guardas da fundação; "schema" é excetuado porque o contrato
             # BT-COORD-REPORT:v1 exige a chave schema_version no relatório.
             policy = cc.ProjectPolicy(mission.project_id, mission.repository_id,

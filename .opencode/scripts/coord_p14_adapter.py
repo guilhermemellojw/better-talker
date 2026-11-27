@@ -46,6 +46,8 @@ class LedgerOperationStore:
         target: cc.TargetIdentity,
         actor: str = "p14a",
         clock: Optional[Any] = None,
+        authorization_canonical: Optional[str] = None,
+        mission_snapshot: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self.db = db
         self.mission_id = mission_id
@@ -56,6 +58,8 @@ class LedgerOperationStore:
         self.target = target
         self.actor = actor
         self.clock = clock or cc.utc_now
+        self.authorization_canonical = authorization_canonical or authorization_reference
+        self.mission_snapshot = dict(mission_snapshot or {})
         self._evidence: dict[str, Any] = {}
 
     def _target_fields(self) -> dict[str, str]:
@@ -85,7 +89,7 @@ class LedgerOperationStore:
             mission_id=row.mission_id,
             operation_id=row.operation_id,
             authorization_id=self.authorization_reference,
-            authorization_canonical=row.authorization_reference,
+            authorization_canonical=self.authorization_canonical,
             target_key=self.target.key(),
             prompt_sha256=self.payload_hash,
             state=row.state,
@@ -93,10 +97,14 @@ class LedgerOperationStore:
             updated_at=row.updated_at,
             evidence=dict(self._evidence),
             history=history,
-            mission_snapshot=dict(self._evidence.get("mission_snapshot", {})),
+            mission_snapshot=dict(self.mission_snapshot or self._evidence.get("mission_snapshot", {})),
         )
 
     def create(self, record: pilot.PilotOperationRecord) -> pilot.PilotOperationRecord:
+        # O ledger persistiu o material operacional; estes campos descritivos
+        # acompanham a operação e permitem revalidação idempotente do executor.
+        self._evidence["authorization_canonical"] = record.authorization_canonical
+        self._evidence["mission_snapshot"] = dict(record.mission_snapshot)
         fields = self._target_fields()
         self.db.register_proposed(
             mission_id=self.mission_id,
@@ -145,26 +153,46 @@ class LedgerOperationStore:
         handler(self.mission_id, evidence=text, actor=self.actor)
         return self.load()
 
-    @contextmanager
-    def reserve(self) -> Iterator[dict[str, Any]]:
+    def _reservation_view(self) -> dict[str, Any]:
         fields = self._target_fields()
-        self.db.reserve_dispatch(self.mission_id, actor=self.actor, **fields)
-        yield {
+        return {
             "mission_id": self.mission_id,
             "agent": fields["agent"],
             "session_id": fields["session_id"],
             "source": "ledger-atomic-reservation",
         }
 
+    @contextmanager
+    def reserve(self) -> Iterator[dict[str, Any]]:
+        fields = self._target_fields()
+        self.db.reserve_dispatch(self.mission_id, actor=self.actor, **fields)
+        # A mesma visão é devolvida por read_reservation(): o transporte
+        # compara as duas imediatamente antes do POST.
+        yield self._reservation_view()
+
     def assert_transmittable(self) -> pilot.PilotOperationRecord:
+        """Elegibilidade ANTERIOR à reserva: AUTHORIZED e sem reserva ativa."""
         if not self.db.can_dispatch(self.mission_id):
             raise cc.AuthorizationError("ledger não autoriza primeira transmissão")
+        return self.load()
+
+    def assert_reserved(self) -> pilot.PilotOperationRecord:
+        """Validação da reserva imediatamente antes do despacho.
+
+        DISPATCHING é esperado AQUI; aceitar o estado globalmente seria burlar
+        o controle de reserva. Exige também a reserva persistida no ledger.
+        """
+        row = self.db.get(self.mission_id)
+        if row is None or row.state not in {ledger.AUTHORIZED, ledger.DISPATCHING}:
+            raise cc.AuthorizationError("reserva de despacho não confirmada pelo ledger")
+        if not self.db.is_reserved(self.mission_id):
+            raise cc.AuthorizationError("reserva de despacho ausente no ledger")
         return self.load()
 
     def read_reservation(self) -> Optional[dict[str, Any]]:
         if not self.db.is_reserved(self.mission_id):
             return None
-        return {"mission_id": self.mission_id, "source": "ledger"}
+        return self._reservation_view()
 
     def recover(self) -> pilot.PilotOperationRecord:
         record = self.load()
