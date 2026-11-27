@@ -1,8 +1,9 @@
 # Better Talker — Missões ativas (ACTIVE_TASKS)
 
 **Ciclo:** SPRINT-BETA-01  
-**Revisão:** 2026-11-24 / R06 — integração #47 e encerramento da preparação física  
-**Baseline observado da main:** `cba5526bf8df4312fdad333189c47f31ac847b41`  
+**Revisão:** 2026-11-25 / R07 — reconciliação operacional pós-#60 e ownership restrita do ViewModel  
+**Baseline observado da main:** `4ae783759086353d55edcf31b587d51a491b0ebd`  
+**Histórico:** R06 em `70cd7513`; decisões e restrições anteriores permanecem no Git e nas seções abaixo, salvo onde R07 as substitui explicitamente.  
 **Responsável pela coordenação:** coordenação técnica; decisões reservadas ao mantenedor.
 
 > Registro operacional de atribuições, não relatório automático de progresso, não autorização de merge, release, alteração de dados ou uso de dispositivo. Enquanto esta revisão estiver em PR, é uma proposta; sua publicação não substitui a missão mais recente expressamente enviada pela coordenação. Os estados e HEADs abaixo são um snapshot, não uma leitura em tempo real.
@@ -25,11 +26,21 @@ As atribuições representam o último direcionamento conhecido; execução efet
 
 | Agente | Missão primária | Estado observado | Dependências / próxima ação |
 | --- | --- | --- | --- |
-| A | MENTOR-CONTINUITY / integração | APROVADA PARA MERGE (#51) | QA/CI #51 verdes; aguardar autorização e integração das dependências; sem BUILD produtivo |
-| B | BUG-REF-D1 / P6 | BLOQUEADA (#44) | Corrigir truncamento reader e fallback TextNotFound; UX-SIMPLE-P1 adiada |
-| C | TRUST-P0A-FIX / #48 | PRONTO PARA QA | Delta a2eb8d69 publicado; CI/recertificação E pendentes |
-| D | QA-OPS / prontidão física | CONCLUÍDA (P6) | Plano e parecer R05 publicados; preservar #39; aguardar QA e autorização específica #45/dispositivo |
-| E | QA-VERTICAL-P3 | ATRIBUÍDA | Recertificar #48; #44 quando delta disponível; QA #39 se livre; critérios físicos entregues |
+| A | PEDAGOGY-1-MIN / P6 (#62) | EM EXECUÇÃO | Integração produtiva restrita ao ViewModel; fronteiras TRUST certificadas intocáveis; HEAD `7476cf79` aberto, CI não observado |
+| B | BETA-A11Y-MIN / P1 | ATRIBUÍDA | Acessibilidade mínima do beta; não duplicar QA de E nem homologação de D |
+| C | RECONCILIAÇÃO OPERACIONAL / P2 | CONCLUÍDA | R07 publicada no PR #65, em revisão final; disponível para QA independente das entregas de B |
+| D | HOMOLOGAÇÃO FÍSICA | AGUARDANDO AUTORIZAÇÃO | Checkpoints NÃO EXECUTADOS; exige autorização específica, preflight aprovado e plano de recuperação |
+| E | TRUST-1A / #11 + QA do delta produtivo #62 | EM EXECUÇÃO | #11 aberto (`d917df70`); prioridade de QA em #62; não repetir #48/#52/#60 certificados |
+| S | COORD-04 / #64 | EM EXECUÇÃO | Fundação de comunicação sintética; fronteira exclusivamente sintética, sem dados reais |
+
+**R07 — como ler:** as seções detalhadas por agente abaixo são o histórico R06, preservado para decisões e restrições; em conflito de estado com o quadro acima, prevalece o quadro R07. Nenhuma política de entrega, prioridade do mantenedor ou restrição foi alterada.
+
+**R07 — classificação da informação:**
+- **Evidência confirmada** (GitHub/CI/QA): integrações #39, #42–#45, #47–#53, #56–#61 e #63; #60 em `252bba6c` com CI pós-merge `45664202428` SUCCESS e parecer P5 FINAL aprovado; #43 com instrumentação A34 reutilizada; #48/#52/#60 com pareceres independentes.
+- **Relato de agente** (sem verificação independente nova): plano físico de D e matriz de E — preparação documental entregue, **execução NÃO realizada**; detalhes de snapshots locais não conferidos pela coordenação.
+- **Estado desconhecido / não observado**: CI e QA dos HEADs abertos #11 (`d917df70`), #54 (`428f9f37`), #62 (`7476cf79`) e #64 (`e8b02798`) — nenhum run de CI associado observado nesta revisão; disponibilidade de branch/HEAD do agente deve ser confirmada no preflight.
+
+**R07 — referências operacionais corrigidas:** #44 não está mais bloqueado (integrado em `301f4470`); #39/#45/#48/#49/#50/#51/#52/#60 deixaram de estar em Draft/pendentes; #47 não tem CI pós-merge em execução; #54/#62/#64 passam a constar como abertos. Nenhuma dessas correções altera autorizações passadas nem cria novas.
 
 ### A — Mentor e continuidade conversacional (P1)
 
@@ -75,6 +86,8 @@ As atribuições representam o último direcionamento conhecido; execução efet
 
 ## 3. Fila de integração e ownership
 
+> **R07 — histórico R06:** a tabela de integração e as notas por PR abaixo pertencem ao snapshot R06 e **não têm valor de atribuição vigente**. Estados vigentes e ownership atualizada estão no quadro da seção 2 e na nota sobre `CopilotViewModel.kt` ao final desta seção. As entradas são preservadas apenas como histórico de decisões e integrações já realizadas.
+
 | PR | HEAD observado | Estado de coordenação (snapshot) | Ação |
 | --- | --- | --- | --- |
 | [#42](https://github.com/guilhermemellojw/better-talker/pull/42) | `e3389251` | Integrado em `1e1b7a9f`; CI pós-merge SUCCESS | [Evidência](https://github.com/guilhermemellojw/better-talker/actions/runs/45395381894) |
@@ -88,7 +101,7 @@ As atribuições representam o último direcionamento conhecido; execução efet
 | [#51](https://github.com/guilhermemellojw/better-talker/pull/51) | `72fd2286` | Draft; CI 2/2 verde, QA E aprovado | Autorização do mantenedor |
 | [#50](https://github.com/guilhermemellojw/better-talker/pull/50) | Revisão R06 deste documento | Draft documental; R05 aprovado, R06 reconciliação factual | Conferência focal e autorização do mantenedor |
 
-**CopilotViewModel.kt:** #42 já integrado e #48 altera o mesmo arquivo. C deve reconferir compatibilidade com main; correção preferencial no helper/testes. Se necessário editar ViewModel, C tem exclusividade nesta correção após preflight; A não inicia integração produtiva até #48 resolvido. A será dono da futura integração do resolvedor quando liberada. Ownership dos arquivos compartilhados deve ser confirmado antes de cada edição, não inferido a partir deste snapshot.
+**CopilotViewModel.kt (R07):** ownership transferida a **A**, restrita à integração PEDAGOGY-1-MIN / P6 (#62), após a liberação formal registrada no P8 e no PR #62. Fronteiras TRUST certificadas — call sites de `verifyChatText()`, deduplicação tipada, `retrievedExcerpt()` em `answerAsk()`, seam de continuidade #52, consentimento/autoria/ciclo do turno e não promoção factual — permanecem intocáveis; qualquer alteração adicional exige autorização e recertificação. C concluiu TRUST-P0A-2 em #60 (integrado) e não detém mais ownership do ViewModel. A nota R06 acima ("C tem exclusividade na correção #48") é histórica e foi superada por esta. Ownership de arquivos compartilhados deve ser confirmada no preflight antes de cada edição.
 
 **Gate de dispositivo:** nenhuma reserva/execução física nova autorizada neste registro. A execução única de #43 foi concluída; reutilizar evidências.
 
@@ -124,3 +137,12 @@ Autorização necessária:
 ```
 
 Atualizar este registro somente em mudança material de tarefa, dependência, ownership ou decisão de integração; não gerar commits a cada polling de CI. Relatórios extensos ficam nos PRs/relatórios técnicos. Não publicar dados privados, segredos, snapshots de banco ou identificadores de dispositivo.
+
+## 6. R07 — registro da revisão (proposta documental)
+
+- Origem: relatório P1 `docs/reports/2026-11-25-coord-reconciliation-p1.md` (reutilizado, sem repetir discovery). Aprovação da coordenação para publicar esta revisão.
+- Estado dos checkpoints físicos permanece **NÃO EXECUTADO / AGUARDANDO AUTORIZAÇÃO** — plano (D) e critérios (E) são relatos de preparação, não evidência de execução. Nenhum ADB, dispositivo ou LLM pago nesta revisão.
+- Mudanças aplicadas: cabeçalho/baseline R07; quadro de missões com as atribuições vigentes (A/B/C/D/E/S); classificação evidência × relato × desconhecido; referências operacionais corrigidas; ownership restrita do `CopilotViewModel.kt` para A.
+- Ajustes P3: seção 3 marcada explicitamente como histórico R06, sem valor de atribuição vigente; missão de C registrada como **CONCLUÍDA**, disponível para QA independente das entregas de B; HEAD de #54 atualizado para `428f9f37` (únicos estados observados que mudaram desde o relatório P1).
+- Histórico preservado: R06 (`70cd7513`) e decisões anteriores continuam no Git; seções detalhadas abaixo do quadro são o registro R06 e só prevalecem onde R07 não as substituiu.
+- Fora de escopo: `ROADMAP_STATUS.md` (automação), roadmap estratégico, supervisor, código Android/schema e qualquer nova autorização de merge/dispositivo. R07 é proposta em PR Draft, sujeita à revisão independente; não autoriza merge, release, bump nem uso de dispositivo.

@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Row
@@ -166,6 +167,18 @@ class DownloadCtl internal constructor(
     }
 }
 
+/** Rótulo acessível da ação de geração (nunca reduzir a "…"). */
+internal fun generateActionLabel(busy: Boolean): String =
+    if (busy) "Gerando…" else "Gerar"
+
+/** Rótulo acessível da geração por seção no checklist do Mentor. */
+internal fun generateIdeasActionLabel(busy: Boolean): String =
+    if (busy) "Gerando ideias…" else "Gerar ideias"
+
+/** Rótula o destino sem depender de emoji (TalkBack/locale estável). */
+internal fun destinationActionLabel(label: String): String =
+    "Destino: " + label.take(28)
+
 @Composable
 fun rememberDownloadCtl(vm: CopilotViewModel, snack: SnackbarHostState): DownloadCtl {
     return remember(vm, snack) { DownloadCtl(vm, snack) }
@@ -215,7 +228,11 @@ fun SectionRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text("${index + 1}. ${section.title}", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "${index + 1}. ${section.title}",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.semantics { heading() },
+                )
                 if (section.minutes != null) {
                     Text(
                         "${section.minutes} min",
@@ -225,7 +242,7 @@ fun SectionRow(
                 }
             }
             Button(onClick = onGenerate, enabled = !busy) {
-                Text(if (busy) "…" else "Gerar")
+                Text(generateActionLabel(busy))
             }
         }
     }
@@ -299,7 +316,7 @@ fun IdeaCardRow(
                 Spacer(Modifier.weight(1f))
                 if (card.insertable) {
                     TextButton(onClick = { showDest = true }) {
-                        Text("📍 " + destLabel.take(28), style = MaterialTheme.typography.labelSmall)
+                        Text(destinationActionLabel(destLabel), style = MaterialTheme.typography.labelSmall)
                     }
                     DropdownMenu(expanded = showDest, onDismissRequest = { showDest = false }) {
                         DropdownMenuItem(
