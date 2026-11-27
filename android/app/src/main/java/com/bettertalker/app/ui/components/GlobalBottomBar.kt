@@ -1,21 +1,34 @@
 package com.bettertalker.app.ui.components
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.navigation.BottomTab
@@ -29,22 +42,34 @@ internal val bottomBarFullLabels = listOf(
     "Palco",
 )
 
-internal data class BottomBarLayout(
-    val labels: List<String>,
-    val showLabels: Boolean,
+internal val bottomBarDestinationIds = listOf(
+    "assistant",
+    "library",
+    "prepare",
+    "train",
+    "present",
 )
 
-/** Política pura de rótulos: nunca reduz fonte artificialmente. */
-internal fun bottomBarLayout(widthDp: Int, fontScale: Float): BottomBarLayout {
-    val compact = widthDp <= 360 || fontScale >= 1.3f
-    val iconOnly = widthDp <= 360 && fontScale >= 1.5f
-    val labels = if (compact) {
-        listOf("IA", "Bib.", "Prep.", "Treino", "Palco")
+internal enum class BottomBarMode { CONVENTIONAL, ADAPTIVE }
+
+/**
+ * Rótulos completos só são usados na barra convencional quando há espaço.
+ * Em larguras/fontes menores, o seletor adaptativo mantém os nomes completos.
+ * Nunca reduz fontScale nem remove a identificação visual.
+ */
+internal fun bottomBarMode(widthDp: Int, fontScale: Float): BottomBarMode =
+    if (widthDp >= 360 && fontScale <= 1.3f) {
+        BottomBarMode.CONVENTIONAL
     } else {
-        bottomBarFullLabels
+        BottomBarMode.ADAPTIVE
     }
-    return BottomBarLayout(labels = labels, showLabels = !iconOnly)
-}
+
+private data class AdaptiveDestination(
+    val tab: BottomTab,
+    val label: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit,
+)
 
 /**
  * 5.5 — navegação global em 5 abas: Assistente · Biblioteca · Preparo ·
@@ -63,82 +88,123 @@ fun GlobalBottomBar(
     val tab = activeTab(currentRoute)
     val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints {
-        val layout = bottomBarLayout(maxWidth.value.toInt(), fontScale)
-        val iconDescription: @Composable (String) -> String? = { label ->
-            if (layout.showLabels) null else label
-        }
-        NavigationBar(
-            modifier = Modifier
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .heightIn(min = 72.dp),
-            windowInsets = WindowInsets(0),
-        ) {
-            NavigationBarItem(
-                selected = tab == BottomTab.ASSISTANT,
-                onClick = onAssistant,
-                icon = {
-                    Icon(
-                        Icons.Default.AutoAwesome,
-                        iconDescription(bottomBarFullLabels[0]),
-                    )
-                },
-                label = if (layout.showLabels) {
-                    { Text(layout.labels[0], maxLines = 1) }
-                } else null,
+        when (bottomBarMode(maxWidth.value.toInt(), fontScale)) {
+            BottomBarMode.CONVENTIONAL -> ConventionalBottomBar(
+                tab = tab,
+                onAssistant = onAssistant,
+                onLibrary = onLibrary,
+                onPrepare = onPrepare,
+                onTrain = onTrain,
+                onPresent = onPresent,
             )
-            NavigationBarItem(
-                selected = tab == BottomTab.LIBRARY,
-                onClick = onLibrary,
-                icon = {
-                    Icon(
-                        Icons.Default.Book,
-                        iconDescription(bottomBarFullLabels[1]),
-                    )
-                },
-                label = if (layout.showLabels) {
-                    { Text(layout.labels[1], maxLines = 1) }
-                } else null,
-            )
-            NavigationBarItem(
-                selected = tab == BottomTab.PREPARE,
-                onClick = onPrepare,
-                icon = {
-                    Icon(
-                        Icons.Default.EditNote,
-                        iconDescription(bottomBarFullLabels[2]),
-                    )
-                },
-                label = if (layout.showLabels) {
-                    { Text(layout.labels[2], maxLines = 1) }
-                } else null,
-            )
-            NavigationBarItem(
-                selected = tab == BottomTab.TRAIN,
-                onClick = onTrain,
-                icon = {
-                    Icon(
-                        Icons.Default.RecordVoiceOver,
-                        iconDescription(bottomBarFullLabels[3]),
-                    )
-                },
-                label = if (layout.showLabels) {
-                    { Text(layout.labels[3], maxLines = 1) }
-                } else null,
-            )
-            NavigationBarItem(
-                selected = tab == BottomTab.PRESENT,
-                onClick = onPresent,
-                icon = {
-                    Icon(
-                        InterpreterMode,
-                        iconDescription(bottomBarFullLabels[4]),
-                    )
-                },
-                label = if (layout.showLabels) {
-                    { Text(layout.labels[4], maxLines = 1) }
-                } else null,
+
+            BottomBarMode.ADAPTIVE -> AdaptiveBottomBar(
+                tab = tab,
+                onAssistant = onAssistant,
+                onLibrary = onLibrary,
+                onPrepare = onPrepare,
+                onTrain = onTrain,
+                onPresent = onPresent,
             )
         }
     }
+}
 
+@Composable
+private fun ConventionalBottomBar(
+    tab: BottomTab?,
+    onAssistant: () -> Unit,
+    onLibrary: () -> Unit,
+    onPrepare: () -> Unit,
+    onTrain: () -> Unit,
+    onPresent: () -> Unit,
+) {
+    NavigationBar(
+        modifier = Modifier
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .heightIn(min = 72.dp),
+        windowInsets = WindowInsets(0),
+    ) {
+        NavigationBarItem(
+            selected = tab == BottomTab.ASSISTANT,
+            onClick = onAssistant,
+            icon = { Icon(Icons.Default.AutoAwesome, null) },
+            label = { Text(bottomBarFullLabels[0]) },
+        )
+        NavigationBarItem(
+            selected = tab == BottomTab.LIBRARY,
+            onClick = onLibrary,
+            icon = { Icon(Icons.Default.Book, null) },
+            label = { Text(bottomBarFullLabels[1]) },
+        )
+        NavigationBarItem(
+            selected = tab == BottomTab.PREPARE,
+            onClick = onPrepare,
+            icon = { Icon(Icons.Default.EditNote, null) },
+            label = { Text(bottomBarFullLabels[2]) },
+        )
+        NavigationBarItem(
+            selected = tab == BottomTab.TRAIN,
+            onClick = onTrain,
+            icon = { Icon(Icons.Default.RecordVoiceOver, null) },
+            label = { Text(bottomBarFullLabels[3]) },
+        )
+        NavigationBarItem(
+            selected = tab == BottomTab.PRESENT,
+            onClick = onPresent,
+            icon = { Icon(InterpreterMode, null) },
+            label = { Text(bottomBarFullLabels[4]) },
+        )
+    }
+}
+
+@Composable
+private fun AdaptiveBottomBar(
+    tab: BottomTab?,
+    onAssistant: () -> Unit,
+    onLibrary: () -> Unit,
+    onPrepare: () -> Unit,
+    onTrain: () -> Unit,
+    onPresent: () -> Unit,
+) {
+    val destinations = listOf(
+        AdaptiveDestination(BottomTab.ASSISTANT, bottomBarFullLabels[0], Icons.Default.AutoAwesome, onAssistant),
+        AdaptiveDestination(BottomTab.LIBRARY, bottomBarFullLabels[1], Icons.Default.Book, onLibrary),
+        AdaptiveDestination(BottomTab.PREPARE, bottomBarFullLabels[2], Icons.Default.EditNote, onPrepare),
+        AdaptiveDestination(BottomTab.TRAIN, bottomBarFullLabels[3], Icons.Default.RecordVoiceOver, onTrain),
+        AdaptiveDestination(BottomTab.PRESENT, bottomBarFullLabels[4], InterpreterMode, onPresent),
+    )
+    val current = destinations.firstOrNull { it.tab == tab } ?: destinations[0]
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars)) {
+        Button(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) {
+            Icon(current.icon, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(current.label, maxLines = 2)
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            destinations.forEach { destination ->
+                DropdownMenuItem(
+                    text = { Text(destination.label) },
+                    leadingIcon = {
+                        if (destination.tab == current.tab) {
+                            Icon(Icons.Default.Check, contentDescription = null)
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        destination.onClick()
+                    },
+                )
+            }
+        }
+    }
 }
