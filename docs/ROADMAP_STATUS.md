@@ -25,8 +25,8 @@
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
 | [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | `fe0ca1b37089` | Verde |
-| [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `2b476eeb7967` | Verde |
-| [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | `fa89ebb23cf1` | Pendente |
+| [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `2b476eeb7967` | Pendente |
+| [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | `fa89ebb23cf1` | Verde |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
@@ -73,7 +73,7 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-27 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **8**; desses, Drafts: **8**.
+- PRs abertos: **8**; desses, Drafts: **7**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=74.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.3 dias (referência fixa: 2026-11-27).
