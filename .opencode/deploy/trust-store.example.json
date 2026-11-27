@@ -1,0 +1,13 @@
+{
+  "schema": "BT-COORD-TRUST-STORE-V1",
+  "entries": [
+    {
+      "approver_id": "maintainer",
+      "fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAISyntheticExamplePublicKeyPlaceholder000000",
+      "valid_from": "2026-11-27T00:00:00Z",
+      "valid_until": "2027-11-27T00:00:00Z",
+      "revoked_at": null
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "BT-COORD-TRUST-SERVICE-CONFIG-V1",
+  "state_dir": "/var/lib/better-talker-coord",
+  "project_id": "better-talker",
+  "repository_id": "guilhermemellojw/better-talker",
+  "service_uid": 9001,
+  "service_gid": 9001,
+  "trust_store_path": "/var/lib/better-talker-coord/trust-store.json",
+  "consumer_registry_path": "/var/lib/better-talker-coord/consumers.json",
+  "socket_path": "/run/better-talker-coord/service.sock",
+  "anchor_path": "/var/lib/better-talker-coord-anchor/anchor.json",
+  "allow_same_uid": false,
+  "test_mode": false,
+  "real_transport": false,
+  "max_frame_bytes": 1048576,
+  "request_timeout_seconds": 15,
+  "max_workers": 4
+}
