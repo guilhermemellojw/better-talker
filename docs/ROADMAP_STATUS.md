@@ -4,7 +4,7 @@
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `05176ada16bce1e6bd162e494e290b0bd02b0bb4`
-- Checks da `main` consultada: **Pendente**
+- Checks da `main` consultada: **Verde**
 - PRs encontrados na janela de consulta: **79** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-27.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#82 — COORD-04/P14B — integração definitiva sintética (Draft)](https://github.com/guilhermemellojw/better-talker/pull/82) | Outros | `90cc4b83bb3f` | Pendente |
+| [#82 — COORD-04/P14B — integração definitiva sintética (Draft)](https://github.com/guilhermemellojw/better-talker/pull/82) | Outros | `7c1c4b1a147d` | Pendente |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#80 — COORD-05A-EXT: ledger 1.1 com autorizacao assinada e reconciliacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/80) | Outros | `27506ea379fb` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
