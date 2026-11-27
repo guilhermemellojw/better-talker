@@ -89,7 +89,7 @@ Caches compartilhados (`.git`, Gradle, npm, modelos) **não** são automaticamen
 
 ## 7. Inventário real (somente leitura)
 
-Snapshot: **2026-11-26T14:17Z** · fonte primária `git worktree list --porcelain` · `du -sb --exclude=.git` · PRs via `gh pr list --state all` · processos via `/proc` do mesmo UID · PR #68 explicitamente protegido (`--protect-pr 68`).
+Snapshot: **2026-11-26T14:17Z** · fonte primária `git worktree list --porcelain` · `du -sb --exclude=.git` · PRs via `gh pr list --state all` · processos via `/proc` do mesmo UID · proteção explícita padrão da jornada beta: **PRs #68, #75 e #76** (`DEFAULT_PROTECTED_PR_NUMBERS`); `--protect-pr` apenas ADICIONA ao conjunto.
 
 | Métrica | Valor |
 |---|---|
@@ -127,7 +127,7 @@ CLI:
 
 ```bash
 python3 .opencode/scripts/coord_worktrees.py \
-  --repo <worktree> --fetch-prs --protect-pr 68 --sizes \
+  --repo <worktree> --fetch-prs --protect-pr 999 --sizes \
   --json-out inventory.json --report-out REPORT.md
 ```
 
@@ -148,7 +148,7 @@ Mudança material entre proposta e execução invalida a autorização. **Nunca*
 
 ## 10. Testes e limites
 
-`python3 .opencode/scripts/test_coord_worktrees.py` — **34 testes host-only PASS**:
+`python3 .opencode/scripts/test_coord_worktrees.py` — **39 testes host-only PASS** (34 anteriores preservados + 5 regressões P2):
 
 - worktree ativa, PR integrado, PR aberto, PR Draft, PR fechado sem integração;
 - alterações locais, commits exclusivamente locais, detached HEAD;
@@ -157,7 +157,9 @@ Mudança material entre proposta e execução invalida a autorização. **Nunca*
 - evidência de sessão/QA/processo insuficiente;
 - retenção 48 h/24 h/7 d e limites de armazenamento;
 - estimativa de tamanho e deduplicação de paths aninhados;
-- PR #68 explicitamente protegido;
+- PRs #68/#75/#76 protegidos por padrão e proteção existente preservada ao acrescentar `--protect-pr`;
+- conjunto protegido sem evidência confiável (`protected_set_evidence_known=false`) bloqueia elegibilidade;
+- conflito de certificação (`certifications` × `PRInfo.certified`) e conflito de owner (`audit_closed` + `abandoned`) produzem `UNKNOWN` e invalidam proposta;
 - `validate_proposal()` e guarda contra comandos destrutivos;
 - scanner real em repositório Git temporário, sem efeitos destrutivos.
 

@@ -466,6 +466,68 @@ class WorktreePolicyTests(unittest.TestCase):
         self.assertTrue(parsed[1]["prunable"])
 
 
+    # ---- P1 do parecer 7216595800 -----------------------------------------
+
+    def test_p1_worktrees_beta_protegidas_por_padrao(self):
+        for number in (68, 75, 76):
+            with self.subTest(pr=number):
+                beta = pr(number, state="MERGED", merged_hours_ago=49, certified=True)
+                record = classify(prs=[beta], certifications={number: True})
+                self.assertEqual(WorktreeState.RETAINED, record.state)
+                self.assertEqual(CleanupClass.C_PROTECTED, record.cleanup_class)
+                self.assertIn("protected_pr", record.protection_reasons)
+                self.assertFalse(record.eligible)
+
+    def test_p1_protecao_existente_nao_e_removida_por_argumento(self):
+        policy = Policy.from_mapping({"protected_pr_numbers": [999]})
+        self.assertTrue({68, 75, 76, 999}.issubset(set(policy.protected_pr_numbers)))
+        beta = pr(76, state="MERGED", merged_hours_ago=49, certified=True)
+        record = classify(policy=policy, prs=[beta], certifications={76: True})
+        self.assertFalse(record.eligible)
+
+    def test_p1_conjunto_protetido_sem_evidencia_bloqueia(self):
+        policy = Policy.from_mapping({"protected_set_evidence_known": False})
+        record = classify(policy=policy)
+        self.assertEqual(WorktreeState.UNKNOWN, record.state)
+        self.assertIn("protected_set_unknown", record.protection_reasons)
+        self.assertFalse(record.eligible)
+
+    def test_p1_certificacao_conflitante_e_unknown_e_proposta_invalida(self):
+        conflicting = pr(1, state="MERGED", merged_hours_ago=49, certified=False)
+        record = classify(prs=[conflicting], certifications={1: True})
+        self.assertEqual(WorktreeState.UNKNOWN, record.state)
+        self.assertEqual(CleanupClass.D_UNKNOWN, record.cleanup_class)
+        self.assertIn("certification_conflict", record.protection_reasons)
+        self.assertFalse(record.eligible)
+        proposal = CleanupProposal(
+            path=record.path,
+            expected_head=record.snapshot.head,
+            expected_owner=record.owner or "D",
+            expected_state=WorktreeState.CLEANUP_ELIGIBLE,
+            authorization_ref="AUTH-TEST",
+            created_at=NOW,
+        )
+        ok, reasons = validate_proposal(
+            proposal, record, current_process_count=0, current_session_count=0,
+            current_staged=0, current_unstaged=0, current_untracked=0,
+        )
+        self.assertFalse(ok)
+        self.assertIn("evidence_conflict_unresolved", reasons)
+
+    def test_p1_owner_audit_closed_e_abandoned_conflita(self):
+        conflict_owner = {
+            PATH: OwnerInfo(
+                owner="D", mission="test", audit_closed=True,
+                audit_closed_at=NOW - timedelta(hours=25),
+                abandoned=True, abandoned_at=NOW - timedelta(days=8),
+            ),
+        }
+        record = classify(prs=[], certifications={}, owners=conflict_owner)
+        self.assertEqual(WorktreeState.UNKNOWN, record.state)
+        self.assertIn("owner_evidence_conflict", record.protection_reasons)
+        self.assertFalse(record.eligible)
+
+
 class GitScannerTests(unittest.TestCase):
     def _git(self, cwd: str, *args: str) -> None:
         subprocess.run(

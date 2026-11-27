@@ -224,6 +224,11 @@ class StorageThresholds:
         )
 
 
+# Proteções explícitas da jornada beta: nunca dependem de argumento de CLI.
+# #68 (hotfix Android), #75 (J05 leitura bíblica) e #76 (A15 beta).
+DEFAULT_PROTECTED_PR_NUMBERS: tuple[int, ...] = (68, 75, 76)
+
+
 @dataclass(frozen=True)
 class Policy:
     merged_retention_hours: int = 48
@@ -237,7 +242,8 @@ class Policy:
     require_session_evidence: bool = True
     require_qa_evidence: bool = True
     require_certification: bool = True
-    protected_pr_numbers: tuple[int, ...] = ()
+    protected_pr_numbers: tuple[int, ...] = DEFAULT_PROTECTED_PR_NUMBERS
+    protected_set_evidence_known: bool = True
     coordination_mode: CoordinationMode = CoordinationMode.SHADOW
 
     def __post_init__(self) -> None:
@@ -248,6 +254,13 @@ class Policy:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"policy.{field_name}: non-negative integer required")
+        if not isinstance(self.protected_set_evidence_known, bool):
+            raise ValueError("policy.protected_set_evidence_known: boolean required")
+        object.__setattr__(
+            self,
+            "protected_pr_numbers",
+            tuple(sorted(set(DEFAULT_PROTECTED_PR_NUMBERS) | set(self.protected_pr_numbers))),
+        )
         if self.coordination_mode is not CoordinationMode.SHADOW:
             raise ValueError("policy.coordination_mode: ASSISTED/DELEGATED disabled; SHADOW only")
 
@@ -282,7 +295,10 @@ class Policy:
             project_roots=tuple(_text(root, "policy.project_roots[]") for root in roots),
             protected_pr_numbers=tuple(
                 _int(number, "policy.protected_pr_numbers[]", minimum=1)
-                for number in value.get("protected_pr_numbers", ())
+                for number in value.get("protected_pr_numbers", DEFAULT_PROTECTED_PR_NUMBERS)
+            ),
+            protected_set_evidence_known=bool(
+                value.get("protected_set_evidence_known", True)
             ),
             coordination_mode=mode,
         )
@@ -578,6 +594,9 @@ UNKNOWN_REASONS = {
     "symlink_path",
     "missing_path",
     "prunable_worktree",
+    "protected_set_unknown",
+    "certification_conflict",
+    "owner_evidence_conflict",
 }
 HARD_REVIEW_BLOCKERS = {
     "process_in_use",
@@ -599,6 +618,9 @@ HARD_REVIEW_BLOCKERS = {
     "pr_closed_unmerged",
     "qa_not_certified",
     "protected_pr",
+    "protected_set_unknown",
+    "certification_conflict",
+    "owner_evidence_conflict",
 }
 REVIEW_BLOCKERS = {
     "ownership_unknown",
@@ -658,6 +680,9 @@ def classify_worktree(
     cleanup_class = CleanupClass.D_UNKNOWN
 
     # Absolute protections, in deterministic order.
+    if not policy.protected_set_evidence_known:
+        _add(reasons, "protected_set_unknown")
+        state, cleanup_class = WorktreeState.UNKNOWN, CleanupClass.D_UNKNOWN
     if snapshot.main:
         _add(reasons, "main_repository")
         state, cleanup_class = WorktreeState.RETAINED, CleanupClass.C_PROTECTED
@@ -747,7 +772,11 @@ def classify_worktree(
         else:
             integration = IntegrationState.MERGED_PR
             certified = certifications.get(pr.number)
-            if certified is None:
+            if (certified is not None and pr.certified is not None
+                    and certified != pr.certified):
+                _add(reasons, "certification_conflict")
+                state, cleanup_class = WorktreeState.UNKNOWN, CleanupClass.D_UNKNOWN
+            elif certified is None:
                 certified = pr.certified
             if certified is None:
                 _add(reasons, "certification_unknown")
@@ -770,7 +799,11 @@ def classify_worktree(
         else:
             integration = IntegrationState.NOT_INTEGRATED
         mission = mission  # explicit owner metadata only
-        if owner_info and owner_info.audit_closed is True:
+        if (owner_info and owner_info.audit_closed is True
+                and owner_info.abandoned is True):
+            _add(reasons, "owner_evidence_conflict")
+            state, cleanup_class = WorktreeState.UNKNOWN, CleanupClass.D_UNKNOWN
+        elif owner_info and owner_info.audit_closed is True:
             base = owner_info.audit_closed_at or snapshot.last_commit_at
             retention_due = (
                 base + timedelta(hours=policy.audit_retention_hours) if base else None
@@ -924,6 +957,12 @@ def validate_proposal(
         reasons.append("working_tree_changed")
     if current.snapshot.locked:
         reasons.append("locked_worktree")
+    unresolved = {
+        "protected_set_unknown", "certification_conflict", "owner_evidence_conflict",
+        "protected_pr", "qa_not_certified", "head_changed", "insufficient_evidence",
+    } & set(current.protection_reasons)
+    if unresolved:
+        reasons.append("evidence_conflict_unresolved")
     return not reasons, tuple(sorted(set(reasons)))
 
 
@@ -1576,7 +1615,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         qa, certifications, qa_coverage = _load_qa(args.qa)
         report, _ = build_inventory(
             args.repo,
-            Policy(protected_pr_numbers=tuple(args.protect_pr)),
+            Policy(
+                protected_pr_numbers=tuple(
+                    sorted(set(DEFAULT_PROTECTED_PR_NUMBERS) | set(args.protect_pr))
+                ),
+            ),
             prs=prs,
             owners=owners,
             sessions=sessions,
