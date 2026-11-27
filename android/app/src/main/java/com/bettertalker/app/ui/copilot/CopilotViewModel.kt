@@ -72,6 +72,7 @@ import com.bettertalker.app.data.copilot.TurnUiState
 import com.bettertalker.app.data.copilot.SourceFidelityGate
 import com.bettertalker.app.data.copilot.ContentEligibilityGate
 import com.bettertalker.app.data.copilot.DeliveryProvenance
+import com.bettertalker.app.data.copilot.RewriteHandoff
 import com.bettertalker.app.data.copilot.provenanceForMessage
 import com.bettertalker.app.data.copilot.cancelledPayload
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
@@ -4828,39 +4829,43 @@ class CopilotViewModel(
         val now = System.currentTimeMillis()
         val targetKey = activeCardTarget?.let { "${it.kind.name}:${it.id}" }
         val generated = !fromMe && (durationMs != null || cardText != null)
-        val storedProvenance = when {
-            fromMe -> null
-            provenanceSource != null && provenanceSourceText != null ->
-                DeliveryProvenance.rewriteFrom(
-                    source = provenanceSource,
-                    sourceText = provenanceSourceText,
-                    revisedText = cardText ?: withOrigin["text"].orEmpty(),
-                    messageId = messageId,
-                    turnId = effectiveTurnId,
-                    noteId = nid,
-                    scopeId = targetScope,
-                    targetKey = targetKey,
-                    boundAt = now,
-                )
-            generated -> DeliveryProvenance.newForMessage(
+        // BETA-PEDAGOGY/P4.1 — a decisão de handoff é extraída para o contrato
+        // puro `RewriteHandoff` e exercitada nas jornadas AI-09. A geração
+        // comum continua usando o fluxo normal; revisão declarada sem vínculo
+        // íntegro falha fechado (sem gravar e sem corpus do turno corrente).
+        val handoff = RewriteHandoff.decide(
+            RewriteHandoff.Input(
+                fromMe = fromMe,
+                source = provenanceSource,
+                sourceText = provenanceSourceText,
+                revisedText = cardText ?: withOrigin["text"].orEmpty(),
                 messageId = messageId,
                 turnId = effectiveTurnId,
                 noteId = nid,
                 scopeId = targetScope,
                 targetKey = targetKey,
-                corpus = activeDeliveryCorpus,
-                questionRefs = activeQuestionRefs,
-                content = cardText ?: withOrigin["text"].orEmpty(),
                 boundAt = now,
+                currentTurnCorpus = activeDeliveryCorpus,
             )
-            else -> null
-        }
-        // BETA-PEDAGOGY/P4: quando a chamada declara uma fonte de revisão,
-        // ela é obrigatória; nunca persistimos mensagem/card sem vínculo.
-        if (!fromMe && (provenanceSource != null || provenanceSourceText != null) &&
-            storedProvenance == null
-        ) {
-            return null
+        )
+        if (handoff is RewriteHandoff.Outcome.Rejected) return null
+        val storedProvenance = when (handoff) {
+            is RewriteHandoff.Outcome.Accepted -> handoff.provenance
+            RewriteHandoff.Outcome.NotApplicable -> if (!fromMe && generated) {
+                DeliveryProvenance.newForMessage(
+                    messageId = messageId,
+                    turnId = effectiveTurnId,
+                    noteId = nid,
+                    scopeId = targetScope,
+                    targetKey = targetKey,
+                    corpus = activeDeliveryCorpus,
+                    questionRefs = activeQuestionRefs,
+                    content = cardText ?: withOrigin["text"].orEmpty(),
+                    boundAt = now,
+                )
+            } else {
+                null
+            }
         }
         // BETA-TRUST/P2: a proveniência é persistida no payload; o mapa é só
         // cache hidratado do banco (copiar/inserir usa o payload após restart).
