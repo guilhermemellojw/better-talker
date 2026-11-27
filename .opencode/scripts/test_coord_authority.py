@@ -30,7 +30,9 @@ def trust(mode=ca.Mode.ASSISTED, *, heads=(HEAD,), models=("opencode/hy4-flash-f
         allowed_scopes=frozenset(scopes),
         allowed_agents=frozenset(agents),
         max_transmissions=limit,
-        authority_pins=pins if pins is not None else {APPROVAL: PIN_DIGEST},
+        authority_pins=pins if pins is not None else {},
+        allowed_approvers=frozenset({"MAINTAINER"}),
+        max_evidence_age_seconds=86_400,
     )
 
 
@@ -79,10 +81,11 @@ def authorization(**overrides):
 def evidence(**overrides):
     base = ca.ExternalAuthorityEvidence(
         reference=APPROVAL,
-        digest_sha256=PIN_DIGEST,
+        digest_sha256=None,
         source=ca.AuthoritySource.EXTERNAL_ARTIFACT,
         approver_id="MAINTAINER",
         observed_at=NOW - timedelta(minutes=2),
+        authorization_digest=None,
     )
     return replace(base, **overrides)
 
@@ -97,7 +100,21 @@ def evaluation(**overrides):
         evaluated_at=NOW,
         operation_state=ca.OperationState.NOT_DISPATCHED,
     )
-    return replace(base, **overrides)
+    result = replace(base, **overrides)
+    # P2: por padrão, pin e evidência cobrem o material canônico da autorização.
+    pin = (ca.canonical_authorization_digest(result.authorization)
+           if result.authorization is not None else PIN_DIGEST)
+    if not result.trust.authority_pins:
+        result = replace(result, trust=replace(result.trust, authority_pins={APPROVAL: pin}))
+    if result.evidence is not None:
+        patches = {}
+        if result.evidence.authorization_digest is None:
+            patches["authorization_digest"] = pin
+        if result.evidence.digest_sha256 is None:
+            patches["digest_sha256"] = pin
+        if patches:
+            result = replace(result, evidence=replace(result.evidence, **patches))
+    return result
 
 
 def codes(decision):
@@ -126,7 +143,9 @@ class CoordinationAuthorityTest(unittest.TestCase):
         self.assertIn("AUTHORIZATION_NOT_YET_VALID", codes(d))
 
     def test_revogada_e_evidencia_de_revogacao_insuficiente(self):
-        rev = ca.Revocation("AUTH-COORD06-001", APPROVAL, PIN_DIGEST,
+        auth = authorization()
+        pin = ca.canonical_authorization_digest(auth)
+        rev = ca.Revocation(pin, APPROVAL, pin,
                             NOW - timedelta(minutes=1), "contramandamento")
         d = ca.evaluate(evaluation(revocations=(rev,)))
         self.assertIn("AUTHORIZATION_REVOKED", codes(d))
@@ -204,7 +223,10 @@ class CoordinationAuthorityTest(unittest.TestCase):
         for case in cases:
             with self.subTest(case=case):
                 result = codes(ca.evaluate(case))
-                self.assertTrue(result & {"AUTHORITY_UNPROVEN", "AUTHORITY_DIVERGENT"})
+                self.assertTrue(result & {
+                    "AUTHORITY_UNPROVEN", "AUTHORITY_DIVERGENT",
+                    "AUTHORITY_REFERENCE_DIVERGENT", "AUTHORITY_MATERIAL_DIVERGENT",
+                })
 
     def test_bool_autodeclarado_nunca_prova_aprovacao(self):
         d = ca.evaluate(evaluation(authorization=authorization(self_declared_approved=True),
@@ -267,6 +289,65 @@ class CoordinationAuthorityTest(unittest.TestCase):
         self.assertFalse(imported & banned_modules, imported)
         self.assertFalse(calls & {"eval", "exec", "open", "input", "system",
                                   "Popen", "urlopen", "request"}, calls)
+
+
+    # ---- P2: achados do parecer QA-COORD-72 (7193826549) -------------------
+
+    def test_p2_evidencia_inalterada_com_material_alterado(self):
+        original = authorization()
+        pin = ca.canonical_authorization_digest(original)
+        ev = evidence(authorization_digest=pin, digest_sha256=pin)
+        tr = trust(pins={APPROVAL: pin})
+        cases = (
+            authorization(max_transmissions=5),
+            authorization(recipient=ca.Recipient(
+                "A", "ses-other", "/home/guilherme/bt-other", "inst-1")),
+            authorization(scope="COORD-06A-OTHER"),
+            authorization(model="opencode/premium"),
+        )
+        for tampered in cases:
+            with self.subTest(tampered=tampered):
+                d = ca.evaluate(evaluation(
+                    authorization=tampered, evidence=ev, trust=tr,
+                ))
+                self.assertIn("AUTHORITY_MATERIAL_DIVERGENT", codes(d))
+
+    def test_p2_revogacao_indexada_por_digest_imutavel(self):
+        auth = authorization(reference="AUTH-TROCADA")
+        pin = ca.canonical_authorization_digest(auth)
+        rev = ca.Revocation(pin, APPROVAL, pin, NOW - timedelta(minutes=1), "contramandamento")
+        d = ca.evaluate(evaluation(authorization=auth, revocations=(rev,)))
+        self.assertIn("AUTHORIZATION_REVOKED", codes(d))
+
+    def test_p2_aprovador_e_frescor(self):
+        d = ca.evaluate(evaluation(evidence=evidence(approver_id="OUTRO")))
+        self.assertIn("APPROVER_NOT_ALLOWED", codes(d))
+        d = ca.evaluate(evaluation(evidence=evidence(observed_at=NOW - timedelta(days=2))))
+        self.assertIn("AUTHORITY_STALE", codes(d))
+
+    def test_p2_consumo_estado_e_transmissoes_sao_consultivos(self):
+        d = ca.evaluate(evaluation(authorization=authorization(consumed=True)))
+        for note in ("CONSUMPTION_ADVISORY", "STATE_ADVISORY", "TRANSMISSION_ADVISORY"):
+            self.assertIn(note, d.notes)
+        d = ca.evaluate(evaluation(mission=mission(transmissions=1)))
+        self.assertIn("TRANSMISSION_STATE_INCONSISTENT", codes(d))
+
+    def test_p2_variante_de_modelo_compativel_com_71(self):
+        variant = "opencode/hy4-flash-free#ranking"
+        d = ca.evaluate(evaluation(
+            mission=mission(model=variant),
+            authorization=authorization(model=variant),
+            trust=trust(models=(variant,)),
+        ))
+        self.assertEqual({"MODE_DISABLED"}, codes(d))
+
+    def test_p2_sessao_e_worktree_validados(self):
+        bad_session = ca.Recipient("A", "sessao-livre", "/home/guilherme/bt", "inst-1")
+        bad_worktree = ca.Recipient("A", "ses-ok", "relativo/bt", "inst-1")
+        for recipient_value in (bad_session, bad_worktree):
+            with self.subTest(recipient=recipient_value):
+                d = ca.evaluate(evaluation(mission=mission(recipient=recipient_value)))
+                self.assertIn("INVALID_INPUT", codes(d))
 
 
 if __name__ == "__main__":

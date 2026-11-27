@@ -14,8 +14,8 @@ operação externa. Produz apenas uma decisão determinística.
 | Missão/operação | `Mission` (IDs, projeto, repositório, identidade canônica, payload, destinatário, HEAD, escopo, modelo, nº de transmissões) |
 | Autorização | `Authorization` (vinculação integral + janela UTC + consumo + referência de aprovação externa) |
 | Evidência externa | `ExternalAuthorityEvidence` (referência, digest, origem, aprovador, observação) |
-| Revogação | `Revocation` (autorização atingida, autoridade, digest, instante, motivo) |
-| Confiança | `TrustContract` injetado: projeto, repositório, modo, HEADs, modelos, escopos, agentes, limite de transmissões e `authority_pins` |
+| Revogação | `Revocation` indexada ao **digest canônico imutável** da autorização (não ao `reference` mutável), com autoridade, digest, instante e motivo |
+| Confiança | `TrustContract` injetado: projeto, repositório, modo, HEADs, modelos (com `#variant`), escopos, agentes, limite de transmissões, `authority_pins`, `allowed_approvers` e `max_evidence_age_seconds` |
 | Estado operacional | `OperationState`: `NOT_DISPATCHED`, `TRANSMITTED`, `RUNNING`, `UNKNOWN`, `TERMINAL` |
 | Resultado | `Decision` com `eligible`, `blockers` ordenados, `required_evidence`, estado, referência e notas |
 
@@ -72,7 +72,7 @@ sessão e a revogação distribuída permanecem fora deste componente.
 
 - Não há enforcement operacional: nada aqui altera permissões, sessões,
   configuração do OpenCode ou roteamento de mensagens.
-- Não há ledger: `consumed` e `revocations` são dados fornecidos pelo chamador.
+- Não há ledger: `consumed`, `transmissions` e `operation_state` são **consultivos** (`CONSUMPTION_ADVISORY`, `TRANSMISSION_ADVISORY`, `STATE_ADVISORY`); `NOT_DISPATCHED` com transmissões > 0 é bloqueado por `TRANSMISSION_STATE_INCONSISTENT`. `revocations` também são fornecidas pelo chamador.
 - Não há autoridade criptográfica: digests pinned são âncora explícita, não
   assinatura verificada.
 - Não há garantia `exactly-once`; IDs apenas correlacionam.
@@ -81,9 +81,17 @@ sessão e a revogação distribuída permanecem fora deste componente.
 
 ## 7. Testes
 
-`python3 -m unittest -v .opencode/scripts/test_coord_authority.py` — 16 testes
-host-only, sem Gradle, ADB, LLM, credenciais ou I/O de rede. Os testes cobrem
-ausência, validade temporal, revogação (inclusive evidência insuficiente),
-adulteração, consumo, HEAD/destinatário/payload divergentes, `UNKNOWN`, SHADOW,
-ASSISTED/DELEGATED, autoridade não comprovada, limites, determinismo, ausência
-de callable no resultado e ausência de imports de rede/processo no módulo.
+`cd .opencode/scripts && python3 -m unittest -v test_coord_authority` — **22 testes**
+host-only, sem Gradle, ADB, LLM, credenciais ou I/O de rede (redes bloqueadas com
+`unshare -rn` na execução de QA). Cobertura: os 16 testes P1 preservados e seis
+regressões P2 — evidência inalterada com material alterado, revogação imutável por
+digest, aprovador fora da allowlist, evidência obsoleta, consumo/estado/transmissões
+consultivos, `#variant` de modelo compatível com #71 e validação de sessão/worktree.
+
+## 8. COORD-06A/P2 — compatibilidade com #70/#71 e pendências
+
+- `#70` (ledger, integrado na main): estados canônicos `PROPOSED → AUTHORIZED → DISPATCHING → DELIVERED → RUNNING → COMPLETED/FAILED/UNKNOWN` são mapeados por `OperationState`; **`UNKNOWN` bloqueia reenvio** e operações já transmitidas não são tratadas como retroativamente canceladas. O ledger não persiste consumo/limite — este componente trata esses campos como consultivos e não duplica ledger.
+- `#71` (política de modelos, integrada na main): `allowed_models` aceita variante explícita (`provider/model#variant`) como identidade distinta, alinhada a `canonical_model_ref`; nenhum registro de custo é reimplementado aqui.
+- `#64` (comunicação, ainda Draft): apenas leitura. `MissionEnvelope`, `canonical_mission_identity` e `PilotApproval` permanecem fora deste módulo; a integração futura deve mapear `mission_identity` e `approval_reference` sem duplicar `PilotApproval` nem ativar transporte real.
+
+**Limites remanescentes:** SHADOW é o único modo admitido (`eligible=True` é inalcançável por desenho); nenhuma autoridade externa é contatada ou autenticada criptograficamente; pins/evidência/aprovador são injetados e a âncora externa permanece responsabilidade da coordenação; nenhum enforcement operacional, sessão, POST, LLM, Android ou permissão real foi alterado.

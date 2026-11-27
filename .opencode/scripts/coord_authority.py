@@ -12,6 +12,8 @@ revogação distribuída. Ver `.opencode/AUTHORITY.md`.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,11 +23,21 @@ from typing import Iterable, Mapping, Optional
 __all__ = [
     "Mode", "OperationState", "AuthoritySource", "Recipient", "TrustContract",
     "Mission", "ExternalAuthorityEvidence", "Authorization", "Revocation",
-    "Evaluation", "Blocker", "Decision", "evaluate",
+    "Evaluation", "Blocker", "Decision", "canonical_authorization_digest", "evaluate",
 ]
 
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
+_MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*(?:#[A-Za-z0-9._-]+)?$")
+_SESSION_ID = re.compile(r"^ses[-_][A-Za-z0-9._:-]+$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _model(value: object, label: str) -> str:
+    """Identidade canônica de modelo, alinhada a `ModelRef`/#71 (inclui #variant)."""
+    text = _text(value, label)
+    if not _MODEL_ID.fullmatch(text):
+        raise ValueError(f"{label} inválido")
+    return text
 
 
 class Mode(str, Enum):
@@ -102,8 +114,11 @@ class Recipient:
 
     def validate(self) -> None:
         _ident(self.agent_id, "agent_id")
-        _ident(self.session_id, "session_id")
-        _text(self.worktree, "worktree")
+        if not _SESSION_ID.fullmatch(self.session_id):
+            raise ValueError("session_id: formato ses-* exigido")
+        worktree = _text(self.worktree, "worktree")
+        if not worktree.startswith("/"):
+            raise ValueError("worktree: caminho absoluto exigido")
         _ident(self.instance_id, "instance_id")
 
     def key(self) -> tuple[str, str, str, str]:
@@ -128,6 +143,8 @@ class TrustContract:
     allowed_agents: frozenset[str]
     max_transmissions: int
     authority_pins: Mapping[str, str]
+    allowed_approvers: frozenset[str]
+    max_evidence_age_seconds: int
 
     def validate(self) -> None:
         _ident(self.project_id, "project_id")
@@ -135,9 +152,16 @@ class TrustContract:
         if not isinstance(self.mode, Mode):
             raise ValueError("mode inválido")
         _heads(self.authorized_heads)
-        _frozen(self.allowed_models, "allowed_models")
+        # #71: modelos com variante explícita são identidades distintas.
+        frozenset(_model(value, "allowed_models") for value in self.allowed_models)
         _frozen(self.allowed_scopes, "allowed_scopes")
         _frozen(self.allowed_agents, "allowed_agents")
+        if not self.allowed_approvers:
+            raise ValueError("allowed_approvers ausentes")
+        _frozen(self.allowed_approvers, "allowed_approvers")
+        if (not isinstance(self.max_evidence_age_seconds, int)
+                or self.max_evidence_age_seconds < 1):
+            raise ValueError("max_evidence_age_seconds inválido")
         if not isinstance(self.max_transmissions, int) or self.max_transmissions < 1:
             raise ValueError("max_transmissions inválido")
         if not isinstance(self.authority_pins, Mapping) or not self.authority_pins:
@@ -166,9 +190,9 @@ class Mission:
             (self.mission_id, "mission_id"), (self.operation_id, "operation_id"),
             (self.project_id, "project_id"), (self.repository_id, "repository_id"),
             (self.mission_identity, "mission_identity"), (self.scope, "scope"),
-            (self.model, "model"),
         ):
             _ident(value, label)
+        _model(self.model, "model")
         _digest(self.payload_sha256, "payload_sha256")
         _heads([self.head_sha])
         self.recipient.validate()
@@ -185,10 +209,12 @@ class ExternalAuthorityEvidence:
     source: AuthoritySource
     approver_id: str
     observed_at: datetime
+    authorization_digest: str
 
     def validate(self) -> None:
         _ident(self.reference, "evidence_reference")
         _digest(self.digest_sha256, "evidence_digest")
+        _digest(self.authorization_digest, "authorization_digest")
         _ident(self.approver_id, "approver_id")
         if not isinstance(self.source, AuthoritySource):
             raise ValueError("source inválido")
@@ -222,9 +248,10 @@ class Authorization:
             (self.mission_id, "mission_id"), (self.operation_id, "operation_id"),
             (self.project_id, "project_id"), (self.repository_id, "repository_id"),
             (self.mission_identity, "mission_identity"), (self.scope, "scope"),
-            (self.model, "model"), (self.approval_reference, "approval_reference"),
+            (self.approval_reference, "approval_reference"),
         ):
             _ident(value, label)
+        _model(self.model, "model")
         _digest(self.payload_sha256, "payload_sha256")
         _heads([self.head_sha])
         self.recipient.validate()
@@ -238,16 +265,40 @@ class Authorization:
             raise ValueError("flags booleanas inválidas")
 
 
+def canonical_authorization_digest(auth: "Authorization") -> str:
+    """Digest canônico do material imutável da autorização (não é assinatura)."""
+    material = {
+        "project_id": auth.project_id,
+        "repository_id": auth.repository_id,
+        "mission_id": auth.mission_id,
+        "operation_id": auth.operation_id,
+        "mission_identity": auth.mission_identity,
+        "payload_sha256": auth.payload_sha256,
+        "recipient": list(auth.recipient.key()),
+        "head_sha": auth.head_sha,
+        "scope": auth.scope,
+        "model": _model(auth.model, "model"),
+        "max_transmissions": auth.max_transmissions,
+        "issued_at": _utc(auth.issued_at, "issued_at").isoformat(),
+        "expires_at": _utc(auth.expires_at, "expires_at").isoformat(),
+        "approval_reference": auth.approval_reference,
+    }
+    canonical = json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True)
 class Revocation:
-    authorization_reference: str
+    """Revogação indexada ao digest imutável — não ao `reference` mutável."""
+
+    authorization_digest: str
     authority_reference: str
     digest_sha256: str
     revoked_at: datetime
     reason: str
 
     def validate(self) -> None:
-        _ident(self.authorization_reference, "authorization_reference")
+        _digest(self.authorization_digest, "authorization_digest")
         _ident(self.authority_reference, "authority_reference")
         _digest(self.digest_sha256, "revocation_digest")
         _utc(self.revoked_at, "revoked_at")
@@ -289,7 +340,12 @@ def evaluate(analysis: Evaluation) -> Decision:
     """Avalia elegibilidade sem efeito externo. Determinístico e total."""
     blockers: list[Blocker] = []
     required: set[str] = set()
-    notes: set[str] = {"NO_EXTERNAL_EXECUTION"}
+    notes: set[str] = {
+        "NO_EXTERNAL_EXECUTION",
+        "CONSUMPTION_ADVISORY",
+        "STATE_ADVISORY",
+        "TRANSMISSION_ADVISORY",
+    }
 
     try:
         analysis.mission.validate()
@@ -346,18 +402,30 @@ def evaluate(analysis: Evaluation) -> Decision:
         blockers.append(_block("AUTHORITY_UNPROVEN", "evidência externa de autoridade ausente"))
         required.add(auth.approval_reference)
     else:
+        material_digest = canonical_authorization_digest(auth)
         pin = trust.authority_pins.get(auth.approval_reference)
         if pin is None:
             blockers.append(_block("AUTHORITY_UNPROVEN", "referência não fixada no contrato de confiança"))
             required.add(auth.approval_reference)
-        elif evidence.reference != auth.approval_reference or evidence.digest_sha256 != pin:
+        elif evidence.reference != auth.approval_reference:
+            blockers.append(_block("AUTHORITY_REFERENCE_DIVERGENT", "referência da evidência divergente"))
+        elif evidence.authorization_digest != pin or pin != material_digest:
+            blockers.append(_block("AUTHORITY_MATERIAL_DIVERGENT", "evidência não cobre o material integral"))
+        elif evidence.digest_sha256 != pin:
             blockers.append(_block("AUTHORITY_DIVERGENT", "evidência externa diverge do pin"))
-        if _utc(evidence.observed_at, "observed_at") > now:
+        if evidence.approver_id not in trust.allowed_approvers:
+            blockers.append(_block("APPROVER_NOT_ALLOWED", "aprovador fora da allowlist"))
+            required.add("ALLOWED_APPROVER")
+        observed = _utc(evidence.observed_at, "observed_at")
+        if observed > now:
             blockers.append(_block("AUTHORITY_NOT_YET_OBSERVED", "evidência observada no futuro"))
+        elif (now - observed).total_seconds() > trust.max_evidence_age_seconds:
+            blockers.append(_block("AUTHORITY_STALE", "evidência externa fora do frescor"))
 
     # 2) Revogação: bloqueia novas operações, sem efeito retroativo presumido.
+    material_digest = canonical_authorization_digest(auth)
     for revocation in analysis.revocations:
-        if revocation.authorization_reference != auth.reference:
+        if revocation.authorization_digest != material_digest:
             continue
         if _utc(revocation.revoked_at, "revoked_at") > now:
             continue
@@ -404,12 +472,18 @@ def evaluate(analysis: Evaluation) -> Decision:
         blockers.append(_block("HEAD_NOT_AUTHORIZED", "HEAD não autorizado no contrato"))
     if mission.scope not in trust.allowed_scopes:
         blockers.append(_block("SCOPE_NOT_AUTHORIZED", "escopo não autorizado no contrato"))
-    if mission.model not in trust.allowed_models:
+    allowed_models = {_model(value, "allowed_models") for value in trust.allowed_models}
+    if _model(mission.model, "model") not in allowed_models:
         blockers.append(_block("MODEL_NOT_AUTHORIZED", "modelo não autorizado no contrato"))
     if mission.recipient.agent_id not in trust.allowed_agents:
         blockers.append(_block("RECIPIENT_NOT_ALLOWED", "agente não elegível no contrato"))
     if mission.transmissions >= min(auth.max_transmissions, trust.max_transmissions):
         blockers.append(_block("TRANSMISSION_LIMIT_EXCEEDED", "limite de transmissões atingido"))
+    if state is OperationState.NOT_DISPATCHED and mission.transmissions > 0:
+        blockers.append(_block(
+            "TRANSMISSION_STATE_INCONSISTENT",
+            "NOT_DISPATCHED com transmissões registradas exige reconciliação",
+        ))
 
     # 5) Modo e estado operacional.
     if trust.mode is Mode.SHADOW:
