@@ -344,7 +344,12 @@ class LedgerOperationStore:
     @contextmanager
     def reserve(self) -> Iterator[dict[str, Any]]:
         fields = self._target_fields()
-        self.db.reserve_dispatch(self.mission_id, actor=self.actor, **fields)
+        try:
+            self.db.reserve_dispatch(self.mission_id, actor=self.actor, **fields)
+        except (ledger.DuplicateReservation, ledger.InvalidTransition) as exc:
+            # Processo perdedor: erro controlado, nenhuma gravação adicional
+            # e nenhuma alteração da reserva do vencedor.
+            raise cc.AuthorizationError("reserva já ativa; sem reenvio") from exc
         self._evidence["reservation"] = self._reservation_view()
         self._write_cache()
         # A mesma visão é devolvida por read_reservation(): o transporte

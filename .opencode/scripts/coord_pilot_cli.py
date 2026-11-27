@@ -1403,7 +1403,8 @@ def run(argv: list[str]) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     try:
         result = run(list(sys.argv[1:] if argv is None else argv))
-    except ValueError as e:
+    except (ValueError, ledger.LedgerError) as e:
+        # Nenhum traceback para falha de reserva/concorrência: erro controlado.
         print(f"erro: {e}", file=sys.stderr)
         return 2
     print(json.dumps(result, sort_keys=True, ensure_ascii=False, default=str))
