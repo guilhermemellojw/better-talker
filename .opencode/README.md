@@ -11,6 +11,15 @@ Escopo: supervisão técnica operacional em modo **SHADOW** por interface determ
 | `agents/supervisor.md` | Agente `supervisor` (primary), sem modelo fixado. Nega leitura/glob/grep nativos e shell genérico; permite apenas comandos exatos do checkpoint. |
 | `scripts/coord_checkpoint.py` | Checkpoint somente leitura, contexto de governança fixado ao SHA da main e modo fixture sem chamadas externas. |
 | `scripts/test_supervisor.py` | Testes de configuração, matcher, fixtures, API e ausência de chamadas no fixture. |
+| `scripts/coord_communication.py` | Motor genérico de comunicação COORD-04/P1; somente transporte simulado. |
+| `scripts/test_communication.py` | Testes offline de contratos, autorização, estados, relatórios e isolamento. |
+| `scripts/demo_communication.py` | Demonstração sintética de sucesso, timeout/UNKNOWN e próxima proposta. |
+| `COMMUNICATION.md` | Contratos da API, arquitetura, estados, garantias e limitações da P1. |
+| `scripts/coord_pilot.py` | Adaptador OpenCode inativo, autorização/aprovação experimental, persistência, reserva local e executor integrado para P3A/P3A.1. |
+| `scripts/test_pilot_adapter.py` | Testes offline do adaptador, persistência, UNKNOWN e ausência de chamadas reais. |
+| `scripts/test_pilot_executor.py` | Regressões fail-first e integradas F1–F6 do caminho protegido. |
+| `scripts/coord_pilot_cli.py` | CLI mínima: preflight, dry-run, prepare, execute (bloqueado), reconcile e closeout. |
+| `PILOT.md` | Proposta de missão/autorização P3B e runbook de execução controlada. |
 
 ## Utilização
 
@@ -21,6 +30,13 @@ Escopo: supervisão técnica operacional em modo **SHADOW** por interface determ
 5. Relatórios: `python3 .opencode/scripts/coord_checkpoint.py --reports`.
 6. Teste sintético: `python3 .opencode/scripts/coord_checkpoint.py --fixture`.
    `--json` pode ser combinado. Nenhuma proposta é enviada automaticamente.
+
+## Comunicação coordenada (COORD-04/P1)
+
+O núcleo de comunicação existe apenas para validação sintética. O transporte real está
+desativado e nenhuma permissão do supervisor foi ampliada. A P1 não envia mensagens, não cria
+sessões e não promove SHADOW. Contratos, API focal, estados, correções F1–F5 e demonstração
+estão em [`COMMUNICATION.md`](COMMUNICATION.md).
 
 ## Fronteira de leitura
 
