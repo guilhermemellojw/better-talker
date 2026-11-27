@@ -3,8 +3,8 @@
 **Relatório gerado automaticamente com dados verificáveis da API do GitHub.** As alterações são propostas por PR; o planejamento estratégico não é modificado automaticamente.
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
-- `main` consultada: `05176ada16bce1e6bd162e494e290b0bd02b0bb4`
-- Checks da `main` consultada: **Verde**
+- `main` consultada: `26c82f5cd6b5412cdce2dde68068a9a2f5e12fd8`
+- Checks da `main` consultada: **Não verificado**
 - PRs encontrados na janela de consulta: **79** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-27.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -18,13 +18,12 @@
 | TRUST | 0 | 11 | 0 |
 | Beta e infraestrutura | 1 | 9 | 0 |
 | Documentação | 1 | 9 | 0 |
-| Outros | 7 | 7 | 0 |
+| Outros | 6 | 8 | 0 |
 
 ## PRs abertos
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#82 — COORD-04/P14B — integração definitiva sintética (Draft)](https://github.com/guilhermemellojw/better-talker/pull/82) | Outros | `7c1c4b1a147d` | Pendente |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#80 — COORD-05A-EXT: ledger 1.1 com autorizacao assinada e reconciliacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/80) | Outros | `27506ea379fb` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
@@ -38,6 +37,7 @@
 
 | PR | Frente inferida | Data UTC |
 | --- | --- | --- |
+| [#82 — COORD-04/P14B — integração definitiva sintética](https://github.com/guilhermemellojw/better-talker/pull/82) | Outros | 2026-11-27 18:30 |
 | [#78 — chore(release): beta 6.1.1-beta.1 (82)](https://github.com/guilhermemellojw/better-talker/pull/78) | Beta e infraestrutura | 2026-11-27 13:34 |
 | [#75 — BETA-HOTFIX-J05: leitura biblia explicita sem materia tematica](https://github.com/guilhermemellojw/better-talker/pull/75) | Beta e infraestrutura | 2026-11-27 12:22 |
 | [#76 — fix(beta-a15): barra inferior adaptativa a largura e fonte](https://github.com/guilhermemellojw/better-talker/pull/76) | Beta e infraestrutura | 2026-11-27 11:55 |
@@ -62,7 +62,6 @@
 | [#55 — docs(governance): carta do coordenador e registro de decisões (COORD-02)](https://github.com/guilhermemellojw/better-talker/pull/55) | Documentação | 2026-11-24 23:28 |
 | [#53 — feat(ux-simple-p1): simplificar consulta documental no leitor](https://github.com/guilhermemellojw/better-talker/pull/53) | Referências e UX | 2026-11-24 23:08 |
 | [#45 — qa(ops): executor seguro para testes instrumentados sem uninstall](https://github.com/guilhermemellojw/better-talker/pull/45) | Outros | 2026-11-24 17:25 |
-| [#44 — fix(bug-ref-d1): recuperação estrutural de unidades e truncamento confiável](https://github.com/guilhermemellojw/better-talker/pull/44) | Outros | 2026-11-24 16:30 |
 
 ## Interpretação e próximos gates
 
@@ -74,11 +73,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-27 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **9**; desses, Drafts: **9**.
-- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=70.
+- PRs abertos: **8**; desses, Drafts: **8**.
+- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=71.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-27).
-- Estados de check dos PRs abertos: Pendente=1, Verde=8.
+- Mediana de idade dos PRs abertos: 0.7 dias (referência fixa: 2026-11-27).
+- Estados de check dos PRs abertos: Verde=8.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
