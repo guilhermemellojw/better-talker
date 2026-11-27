@@ -4,7 +4,7 @@
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `26c82f5cd6b5412cdce2dde68068a9a2f5e12fd8`
-- Checks da `main` consultada: **Pendente**
+- Checks da `main` consultada: **Verde**
 - PRs encontrados na janela de consulta: **82** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-27.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | `fe0ca1b37089` | Verde |
+| [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | `fe0ca1b37089` | Pendente |
 | [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `2b476eeb7967` | Pendente |
 | [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | `fa89ebb23cf1` | Verde |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
@@ -77,7 +77,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=74.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.3 dias (referência fixa: 2026-11-27).
-- Estados de check dos PRs abertos: Pendente=1, Verde=7.
+- Estados de check dos PRs abertos: Pendente=2, Verde=6.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
