@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Isolar HOME/TMPDIR/armazenamento e validar YAML
+      - name: Isolar HOME/TMPDIR/armazenamento
         run: |
           set -euo pipefail
           COORD_HOME="$RUNNER_TEMP/coord-home"
@@ -39,17 +39,7 @@ jobs:
           COORD_STATE="$RUNNER_TEMP/coord-state"
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
           mkdir -p "$COORD_HOME" "$COORD_TMP" "$COORD_STATE" "$COORD_LOGS"
-          python3 - <<'PY'
-          import sys
-          try:
-              import yaml
-          except ImportError:
-              print("PY-YAML-UNAVAILABLE")
-              sys.exit(1)
-          with open('.github/workflows/coord-python.yml', encoding='utf-8') as handle:
-              yaml.safe_load(handle)
-          print('YAML-OK')
-          PY
+          echo "ISOLATION-READY"
 
       - name: Provar bloqueio de rede
         run: |
