@@ -19,7 +19,7 @@ cabeça P3 certificada por B: `fa89ebb23cf13cca86d6c475d2771e7891cd4844`.
 | `.opencode/scripts/coord_trust_crossuid_client.py` | cliente executado como consumidor; jornada, SCM_RIGHTS, GID, saturação, frames, sandbox e recuperação |
 | `.opencode/scripts/coord_trust_crossuid_common.py` | fixtures sintéticas, job do cliente sem material privado, layout/config, assinatura dinâmica da atestação |
 | `.opencode/scripts/coord_trust_crossuid_crash_service.py` | crash real CI-only após COMMIT/limite, preservando WAL para replay |
-| `.opencode/scripts/test_coord_trust_crossuid.py` | 7 testes host-only do workflow, layout, job, sanitizador, limites e nonce |
+| `.opencode/scripts/test_coord_trust_crossuid.py` | 8 testes host-only do workflow, layout, job, sanitizador, limites, GID e nonce |
 | `docs/operations/trust-service-deployment.md §7` | procedimento P4, UIDs, isolamento, comando previsto e critérios de interrupção |
 | `.opencode/TRUST-SERVICE.md` | contrato atualizado com nonce persistido e certificação opt-in |
 
@@ -84,11 +84,11 @@ em quarentena indevidamente. A suíte P3 continua 40/40.
 
 | Suíte | Resultado | SHA-256 do log |
 |---|---|---|
-| `test_coord_trust_service.py` (P3) | **40/40 OK** | `1b50fa6f94cec4779c229bf9b87e531bc07493d5d01570f90e5e2d08448d6a73` |
-| `test_coord_trust_crossuid.py` (P4) | **7/7 OK** | `96cb8613562c88dfc40e95528ab8b2435c46d81b8e9f695e2dc2fba9b51e3a84` |
-| `unittest discover` | **553/553 OK** | `4914d0433485530b7bd5a842d717c3e7b124c3428df29eeb8835f09a8493d34e` |
+| `test_coord_trust_service.py` (P3) | **40/40 OK** | `2b8463281ada984534e8f0e9b4e24930d313214caa518bc9ff118c2b793fb3f1` |
+| `test_coord_trust_crossuid.py` (P4) | **8/8 OK** | `f48501204d46f1daed5ab7532fbe1f04654762d6869890577a28d550d35b1d90` |
+| `unittest discover` | **554/554 OK** | `87ccf93aaa1f5a17a4128cfb1ce0c8978cf88542df64a274e6f117694c17a052` |
 | `test_supervisor.py` | **167/167 passed** | `92f3f934f682b8c48a854d41c2f6fd30b5173d7a7ff70987edeed1b18e8e79c4` |
-| Total | **720** | — |
+| Total | **721** | — |
 
 Também passaram: `py_compile` dos scripts novos/alterados, parser YAML dos dois
 workflows, `git diff --check`, jornada local same-UID com socket real, crash
@@ -104,8 +104,8 @@ UID); o harness não foi executado como root e o workflow não foi disparado.
   restart imediatamente após recuperação.
 - Crash wrapper CI-only com `os._exit(137)` após COMMIT, preservando WAL para
   replay real; não há hook de crash no serviço normal.
-- 7 testes P4 no `unittest discover`; baseline do workflow `coord-python`
-  atualizado de 546/713 para **553/720**.
+- 8 testes P4 no `unittest discover`; baseline do workflow `coord-python`
+  atualizado de 546/713 para **554/721**.
 - Nenhuma alteração em Android, transporte, LLM, credenciais reais ou no PR #82.
 
 ## 7. Riscos residuais / BLOCKED

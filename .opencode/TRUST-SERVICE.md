@@ -136,9 +136,9 @@ Evidência local (`unshare -rn`):
 | Suíte | Resultado |
 |---|---|
 | `test_coord_trust_service.py` | **40/40 OK** |
-| `unittest discover` (inclui 7 testes P4) | **553/553 OK** |
+| `unittest discover` (inclui 8 testes P4) | **554/554 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **720/720** |
+| Total | **721/721** |
 
 A certificação cross-UID real é um job **opt-in** em
 `.github/workflows/coord-trust-crossuid.yml` (`workflow_dispatch`, input

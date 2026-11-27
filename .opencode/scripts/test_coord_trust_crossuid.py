@@ -10,7 +10,9 @@ from __future__ import annotations
 import base64
 import json
 import os
+import socket
 import sqlite3
+import struct
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -220,6 +222,20 @@ class CrossUidHarnessTest(unittest.TestCase):
             self.assertFalse(replay["ok"], replay)
             self.assertEqual("CONFLICT", replay["error"]["code"])
             self.assertEqual(2, restarted_again.epoch)
+
+    def test_credentials_reject_gid_only_divergence(self):
+        expected = svc.PeerIdentity(
+            pid=os.getpid(), uid=os.geteuid(), gid=os.getegid(),
+            source="SO_PEERCRED")
+        valid = (socket.SOL_SOCKET, socket.SCM_CREDENTIALS,
+                 struct.pack("3i", os.getpid(), os.geteuid(), os.getegid()))
+        peer = svc._credentials_from_ancillary([valid], 0, expected=expected)
+        self.assertEqual((peer.uid, peer.gid), (os.geteuid(), os.getegid()))
+        wrong_gid = (socket.SOL_SOCKET, socket.SCM_CREDENTIALS,
+                     struct.pack("3i", os.getpid(), os.geteuid(),
+                                 os.getegid() + 1))
+        with self.assertRaises(svc.AuthenticationError):
+            svc._credentials_from_ancillary([wrong_gid], 0, expected=expected)
 
     def test_service_state_nonce_survives_restart(self):
         with tempfile.TemporaryDirectory() as root:
