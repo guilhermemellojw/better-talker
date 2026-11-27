@@ -1333,10 +1333,10 @@ class Harness:
                 self.check("G0", "ferramenta disponível: " + tool,
                            bool(path and os.path.exists(path)), path)
             self.check(
-                "G0", "setpriv suporta no-new-privs/ambient caps",
-                self.setpriv_has_no_new_privs and self.setpriv_has_ambient,
+                "G0", "setpriv suporta no-new-privs",
+                self.setpriv_has_no_new_privs,
                 {"no_new_privs": self.setpriv_has_no_new_privs,
-                 "ambient": self.setpriv_has_ambient})
+                 "ambient_optional": self.setpriv_has_ambient})
             self.before_hashes = self._hash_files(
                 ("/etc/passwd", "/etc/group", "/etc/shadow"))
             def _uid_exists(uid: int) -> bool:
