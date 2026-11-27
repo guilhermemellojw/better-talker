@@ -96,6 +96,86 @@ fun refersToPreviousDraft(text: String): Boolean {
     return PREVIOUS_DRAFT_REF.containsMatchIn(t)
 }
 
+/** Escopo seguro de uma reescrita AI-09. */
+enum class PointRewriteTargetScope { BODY, SUBPOINT, AMBIGUOUS }
+
+/**
+ * Decisão de alvo/aplicação da reescrita.
+ *
+ * `autoApply=false` significa que o texto revisado pode ser oferecido na
+ * conversa, mas NUNCA como card REPLACE de seção: subponto não é alvo de
+ * card neste contrato e alvo ambíguo não pode sobrescrever o corpo.
+ */
+data class PointRewriteTargetDecision(
+    val scope: PointRewriteTargetScope,
+    val autoApply: Boolean,
+    val notice: String,
+)
+
+private val SUBPOINT_TERM = Regex("\\bsub\\s*ponto(?:s)?\\b")
+private val REVISION_VERB = Regex("\\brevis\\w*\\b")
+
+/** O texto cita subponto? Puro/testável. */
+fun requestsSubPointRewrite(text: String): Boolean =
+    SUBPOINT_TERM.containsMatchIn(" ${normalizeText(text)} ")
+
+/** Pedido de revisão dirigido a subponto (explícito ou por verbo de revisão). */
+fun isSubPointRewriteRequest(text: String): Boolean {
+    val t = " ${normalizeText(text)} "
+    return SUBPOINT_TERM.containsMatchIn(t) &&
+        (isPointRewriteRequest(text) || REVISION_VERB.containsMatchIn(t))
+}
+
+/**
+ * Guarda de roteamento: um pedido de subponto não pode cair no rewrite do
+ * corpo. Com foco em subponto, só um ponto explicitamente nomeado libera o
+ * fluxo normal de revisão do ponto.
+ */
+fun shouldClarifySubPointRewrite(
+    text: String,
+    hasSubPointFocus: Boolean,
+    explicitPoint: Boolean,
+): Boolean = isSubPointRewriteRequest(text) ||
+    (hasSubPointFocus && isPointRewriteRequest(text) && !explicitPoint)
+
+/**
+ * Resolve o alvo de uma reescrita sem transformar subponto em corpo.
+ *
+ * - subponto explícito, foco em subponto ou card anterior com foco em
+ *   subponto => SUBPOINT, sem aplicação automática;
+ * - seção comprovada => BODY, card REPLACE permitido (hash gate existente);
+ * - sem seção => AMBIGUOUS, sem aplicação automática.
+ */
+fun decidePointRewriteTarget(
+    hasSectionContext: Boolean,
+    hasSubPointContext: Boolean,
+    request: String,
+    previousTargetLabel: String? = null,
+): PointRewriteTargetDecision {
+    val previousHadSubPointFocus =
+        previousTargetLabel?.contains("· Para:", ignoreCase = false) == true
+    return when {
+        hasSubPointContext || requestsSubPointRewrite(request) || previousHadSubPointFocus ->
+            PointRewriteTargetDecision(
+                scope = PointRewriteTargetScope.SUBPOINT,
+                autoApply = false,
+                notice = "Versão revisada do subponto (não aplicada automaticamente; " +
+                    "subpontos têm registro próprio).",
+            )
+        hasSectionContext -> PointRewriteTargetDecision(
+            scope = PointRewriteTargetScope.BODY,
+            autoApply = true,
+            notice = "",
+        )
+        else -> PointRewriteTargetDecision(
+            scope = PointRewriteTargetScope.AMBIGUOUS,
+            autoApply = false,
+            notice = "Versão revisada (não aplicada automaticamente; " +
+                "não identifiquei o alvo com segurança).",
+        )
+    }
+}
+
 // A recuperação do card anterior NÃO é feita aqui: o chamador usa o
 // contrato central ConversationalReferentRecovery (identidade, escopo,
 // supersessão e alvo comprovado). Este arquivo só decide a intenção de

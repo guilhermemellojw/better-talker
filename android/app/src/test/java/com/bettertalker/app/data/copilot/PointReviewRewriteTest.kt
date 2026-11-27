@@ -196,6 +196,96 @@ class PointReviewRewriteTest {
     }
 
     @Test
+    fun ai09_pedidoExplicitoDeSubpontoNaoAplicaNoCorpo() {
+        assertTrue(requestsSubPointRewrite("Revise o subponto 2"))
+        assertTrue(requestsSubPointRewrite("Revise o sub-ponto 2"))
+        assertTrue(isSubPointRewriteRequest("Revise o subponto 2"))
+        assertFalse(isSubPointRewriteRequest("O que é um subponto?"))
+
+        val decisao = decidePointRewriteTarget(
+            hasSectionContext = true,
+            hasSubPointContext = false,
+            request = "Revise o subponto 2 e reduza 20%",
+        )
+        assertEquals(PointRewriteTargetScope.SUBPOINT, decisao.scope)
+        assertFalse(decisao.autoApply)
+    }
+
+    @Test
+    fun ai09_guardaDeSubpontoNaoDeixaCairNoCorpo() {
+        assertTrue(shouldClarifySubPointRewrite("Revise o subponto 2", false, false))
+        assertTrue(shouldClarifySubPointRewrite("Reduza 20%", true, false))
+        assertFalse(shouldClarifySubPointRewrite("Revise o ponto 2", true, true))
+        assertFalse(shouldClarifySubPointRewrite("O que é um subponto?", true, false))
+    }
+
+    @Test
+    fun ai09_focoOuCardAnteriorDeSubpontoNaoAplicaNoCorpo() {
+        val porFoco = decidePointRewriteTarget(
+            hasSectionContext = true,
+            hasSubPointContext = true,
+            request = "Revise o rascunho acima",
+        )
+        assertEquals(PointRewriteTargetScope.SUBPOINT, porFoco.scope)
+        assertFalse(porFoco.autoApply)
+
+        val label = cardTargetForSection(
+            sectionId = "section-2",
+            label = "Ponto 2",
+            contentHtml = "<p>corpo</p>",
+            capturedFrom = CardCapturedFrom.ACTIVE_BLOCK,
+            capturedAt = 1L,
+            focusLabel = "Ponto 1",
+        ).displayLabel
+        val porCard = decidePointRewriteTarget(
+            hasSectionContext = true,
+            hasSubPointContext = false,
+            request = "Revise o rascunho acima",
+            previousTargetLabel = label,
+        )
+        assertEquals(PointRewriteTargetScope.SUBPOINT, porCard.scope)
+        assertFalse(porCard.autoApply)
+    }
+
+    @Test
+    fun ai09_alvoAmbiguoNaoAplicaNoCorpo() {
+        val decisao = decidePointRewriteTarget(
+            hasSectionContext = false,
+            hasSubPointContext = false,
+            request = "Revise o rascunho acima",
+        )
+        assertEquals(PointRewriteTargetScope.AMBIGUOUS, decisao.scope)
+        assertFalse(decisao.autoApply)
+    }
+
+    @Test
+    fun ai09_corpoComprovadoAplicaSomenteNoCorpo() {
+        val decisao = decidePointRewriteTarget(
+            hasSectionContext = true,
+            hasSubPointContext = false,
+            request = "Revise o texto do ponto 2",
+        )
+        assertEquals(PointRewriteTargetScope.BODY, decisao.scope)
+        assertTrue(decisao.autoApply)
+    }
+
+    @Test
+    fun ai09_replaceDoCorpoPreservaSubpontosENaoDuplica() {
+        val original = section(
+            bodyText = "Corpo original do ponto.",
+            subs = listOf("Primeiro subponto" to "Prosa desenvolvida do subponto."),
+        )
+        val revisedBody = "Corpo revisado do ponto."
+        val after = original.copy(bodyText = revisedBody)
+        assertEquals(revisedBody, pointReviewDraftText(after))
+        assertEquals(
+            original.subPoints.map { it.developedText },
+            after.subPoints.map { it.developedText },
+        )
+        assertFalse(pointReviewDraftText(after).contains("Prosa desenvolvida"))
+    }
+
+    @Test
     fun ai09_analiseNaoViraTextoRevisado() {
         assertNull(
             extractPointRewriteText(

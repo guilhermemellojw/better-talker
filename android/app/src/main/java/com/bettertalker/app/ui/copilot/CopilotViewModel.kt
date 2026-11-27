@@ -107,11 +107,14 @@ import com.bettertalker.app.data.copilot.PointReviewNextStep
 import com.bettertalker.app.data.copilot.PointReviewReport
 import com.bettertalker.app.data.copilot.PointReviewQualityContext
 import com.bettertalker.app.data.copilot.PointReviewQualityParser
+import com.bettertalker.app.data.copilot.PointRewriteTargetDecision
+import com.bettertalker.app.data.copilot.PointRewriteTargetScope
 import com.bettertalker.app.data.copilot.NoteSectionSnapshot
 import com.bettertalker.app.data.copilot.PointQualityStatus
 import com.bettertalker.app.data.copilot.POINT_REVIEW_QUALITY_SCHEMA
 import com.bettertalker.app.data.copilot.buildPointReviewQualityPrompts
 import com.bettertalker.app.data.copilot.buildPointReviewRewritePrompts
+import com.bettertalker.app.data.copilot.decidePointRewriteTarget
 import com.bettertalker.app.data.copilot.extractPointRewriteText
 import com.bettertalker.app.data.copilot.isPointRewriteRequest
 import com.bettertalker.app.data.copilot.matchS34SectionForPoint
@@ -122,6 +125,7 @@ import com.bettertalker.app.data.copilot.pointReviewTextHash
 import com.bettertalker.app.data.copilot.pointReviewWordCount
 import com.bettertalker.app.data.copilot.refersToPreviousDraft
 import com.bettertalker.app.data.copilot.requestedReductionPercent
+import com.bettertalker.app.data.copilot.shouldClarifySubPointRewrite
 import com.bettertalker.app.data.copilot.validatePointRewrite
 import com.bettertalker.app.data.copilot.shouldApplyPointQuality
 import com.bettertalker.app.data.copilot.shouldRequestPointQuality
@@ -3043,13 +3047,22 @@ class CopilotViewModel(
         reviewPoint(nid, target, body, null)
     }
 
+    private data class RecoveredPointDraft(
+        val text: String,
+        /** Rótulo do alvo do card anterior; "· Para:" indica foco em subponto. */
+        val targetLabel: String?,
+    )
+
     /**
-     * Recupera o texto do card anterior pelo contrato central de referência
-     * (`ConversationalReferentRecovery`): identidade, escopo, supersessão e
-     * alvo comprovado. Sem candidato elegível, devolve null (fail-closed);
-     * nunca cai em card antigo por omissão.
+     * Recupera o texto e o rótulo do alvo do card anterior pelo contrato
+     * central de referência (`ConversationalReferentRecovery`): identidade,
+     * escopo, supersessão e alvo comprovado. Sem candidato elegível, devolve
+     * null (fail-closed); nunca cai em card antigo por omissão.
      */
-    private suspend fun recoverPreviousCardText(nid: String, sectionId: String?): String? {
+    private suspend fun recoverPreviousPointDraft(
+        nid: String,
+        sectionId: String?,
+    ): RecoveredPointDraft? {
         val messages = db.chatDao().all(nid).map { e ->
             ConversationalReferentRecovery.Message(
                 id = e.id,
@@ -3088,17 +3101,23 @@ class CopilotViewModel(
                 targets = targets,
             ),
         )
-        return (outcome as? ConversationalReferentRecovery.Outcome.Found)
-            ?.text
-            ?.takeIf { it.isNotBlank() }
+        val found = outcome as? ConversationalReferentRecovery.Outcome.Found
+            ?: return null
+        val text = found.text?.takeIf { it.isNotBlank() } ?: return null
+        return RecoveredPointDraft(text = text, targetLabel = found.card.targetLabel)
     }
 
     /**
      * AI-09 (pedido real "Revise o rascunho acima"): usa o card/rascunho
      * anterior do histórico como texto-fonte. O destino é o ponto em foco,
-     * quando existe; sem foco, o card nasce NO_TARGET para o usuário escolher.
+     * quando existe; sem foco, o texto é oferecido sem aplicação automática.
      */
-    private suspend fun runDraftRewrite(draft: String, request: String) {
+    private suspend fun runDraftRewrite(
+        draft: String,
+        request: String,
+        hasSubPointContext: Boolean,
+        previousTargetLabel: String?,
+    ) {
         val nid = noteId ?: run {
             postText("Abra uma nota para receber o texto revisado.")
             return
@@ -3133,6 +3152,12 @@ class CopilotViewModel(
             objective = target?.objective,
         )
         val words = pointReviewDraftWordCount(snapshot)
+        val targetDecision = decidePointRewriteTarget(
+            hasSectionContext = target != null,
+            hasSubPointContext = hasSubPointContext,
+            request = request,
+            previousTargetLabel = previousTargetLabel,
+        )
         val report = PointReviewReport(
             sectionId = snapshot.id,
             pointNumber = pointNumber,
@@ -3159,6 +3184,7 @@ class CopilotViewModel(
             remote = remote,
             reductionPercent = requestedReductionPercent(request),
             nextPointTitle = target?.let { body.getOrNull(pointNumber)?.title },
+            targetDecision = targetDecision,
         )
     }
 
@@ -3167,7 +3193,8 @@ class CopilotViewModel(
      *
      * A validação (redução pedida + referências preservadas) é
      * determinística e acontece ANTES de oferecer o card; texto que não
-     * cumpre o pedido não vira proposta aplicável.
+     * cumpre o pedido não vira proposta aplicável. Quando o alvo é subponto
+     * ou ambíguo, o texto é oferecido sem aplicação automática.
      */
     private suspend fun launchPointRewrite(
         target: SpeechSection?,
@@ -3179,6 +3206,11 @@ class CopilotViewModel(
         remote: ProviderFactory.RemoteConfig,
         reductionPercent: Int?,
         nextPointTitle: String?,
+        targetDecision: PointRewriteTargetDecision = PointRewriteTargetDecision(
+            scope = PointRewriteTargetScope.BODY,
+            autoApply = true,
+            notice = "",
+        ),
     ) {
         // Mantém o card no MESMO turno do pedido (e cancela junto com ele):
         // um card que chega depois do turno encerrado perderia o vínculo de
@@ -3265,7 +3297,32 @@ class CopilotViewModel(
                     )
                     return@coroutineScope
                 }
-                val hasDevelopedSubpoints = section.subPoints.any { it.hasDevelopment }
+                val hasDevelopedSubpoints = target?.let { t ->
+                    db.subPointDao().forSection(t.id).any { it.developedHtml.isNotBlank() }
+                } ?: section.subPoints.any { it.hasDevelopment }
+                if (!targetDecision.autoApply) {
+                    val prefix = targetDecision.notice.ifBlank {
+                        "Versão revisada (não aplicada automaticamente):"
+                    }
+                    post(
+                        fromMe = false,
+                        kind = "text",
+                        payload = ChatCodec.escMap(
+                            mapOf("text" to "$prefix\n$revised"),
+                        ),
+                        allowCard = false,
+                    )
+                    android.util.Log.i(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=COMPLETED_TEXT_ONLY|scope=${targetDecision.scope}|" +
+                            "reduction=${reductionPercent ?: "—"}|" +
+                            "words=${validation.wordCount}|target=${prompts.targetWords}|" +
+                            "model=${res.meta.model}|ms=${res.meta.durationMs}|" +
+                            "totalMs=${System.currentTimeMillis() - started}",
+                    )
+                    return@coroutineScope
+                }
                 val label = buildString {
                     append("Versão revisada")
                     if (reductionPercent != null) append(" (−$reductionPercent%)")
@@ -3274,6 +3331,10 @@ class CopilotViewModel(
                     }
                     append(":")
                 }
+                // BETA-PEDAGOGY/P3 (B): a proveniência original do card
+                // (corpus/refs/gateMessageId) ainda depende do contrato de A.
+                // Até lá, o card revisado não liga o gate central e o texto
+                // revisado NÃO é usado como fonte documental.
                 val previous = activeCardTarget
                 activeCardTarget = cardTarget
                 try {
@@ -4848,15 +4909,33 @@ class CopilotViewModel(
                 val focusWhole = _focusMode.value == FocusMode.WHOLE
                 val recoveryScope = if (focusWhole) null
                 else (_chatScope.value ?: _pushedContext?.sectionId)
-                val draft = recoverPreviousCardText(nid, recoveryScope)
+                val draft = recoverPreviousPointDraft(nid, recoveryScope)
                 if (draft == null) {
                     postText(
                         "Não recuperei com segurança o rascunho anterior. " +
                             "Gere o rascunho e peça a revisão em seguida, ou abra o ponto."
                     )
                 } else {
-                    runDraftRewrite(draft, text)
+                    runDraftRewrite(
+                        draft = draft.text,
+                        request = text,
+                        hasSubPointContext = _pushedContext?.subPointId != null,
+                        previousTargetLabel = draft.targetLabel,
+                    )
                 }
+                return@launch
+            }
+            // Subponto não é alvo de card neste contrato. Um pedido explícito
+            // de revisão de subponto (ou foco ativo nele) não pode reescrever
+            // o corpo do ponto; pede esclarecimento antes de qualquer card.
+            val subPointFocus = _pushedContext?.subPointId != null
+            val explicitPoint =
+                com.bettertalker.app.data.copilot.OratorySession.requestedPoint(text) != null
+            if (shouldClarifySubPointRewrite(text, subPointFocus, explicitPoint)) {
+                postText(
+                    "A revisão automática de subponto ainda não substitui o corpo do ponto. " +
+                        "Abra o corpo do ponto ou peça a revisão do ponto inteiro."
+                )
                 return@launch
             }
             if (com.bettertalker.app.data.copilot.ChatRouter.isPointReviewCommand(text)) {
