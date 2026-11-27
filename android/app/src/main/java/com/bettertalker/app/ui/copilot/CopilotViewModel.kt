@@ -1565,17 +1565,13 @@ class CopilotViewModel(
      * só são preservados quando já possuem verificação local sem pendências;
      * nunca por status AVAILABLE ou aviso visual.
      */
-    fun cardEligible(messageId: String): Boolean {
-        val nid = noteId ?: return false
-        val map = db.chatDao().all(nid).firstOrNull { it.id == messageId }
-            ?.let { ChatCodec.unescMap(it.payload) } ?: return false
-        val text = extractCardText(map["text"].orEmpty()) ?: return false
+    fun cardEligible(text: String, messageId: String? = null): Boolean {
         val decision = ContentEligibilityGate.forCardInsert(
             text, activeDeliveryCorpus, activeQuestionRefs,
         )
         if (decision.allowed) return true
         if (activeDeliveryCorpus.isNotEmpty()) return false
-        val legacy = _cardVerifications.value[messageId] ?: return false
+        val legacy = messageId?.let { _cardVerifications.value[it] } ?: return false
         return legacy.summary.insufficient == 0 && legacy.summary.partial == 0
     }
 
