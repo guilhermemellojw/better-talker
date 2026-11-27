@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#80 — COORD-05A-EXT: ledger 1.1 com autorizacao assinada e reconciliacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/80) | Outros | `09e1471d0b05` | Pendente |
+| [#80 — COORD-05A-EXT: ledger 1.1 com autorizacao assinada e reconciliacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/80) | Outros | `27506ea379fb` | Pendente |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `f57468d637a3` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
 | [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `f6205e02fc55` | Verde |
