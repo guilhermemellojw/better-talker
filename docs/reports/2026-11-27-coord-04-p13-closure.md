@@ -125,7 +125,7 @@ O PR #64 ainda usa `PilotOperationStore` JSON local, porque o branch nasceu em `
 - `UNKNOWN`, `DELIVERED`, `RUNNING`, `COMPLETED`, `FAILED` e reconciliação devem usar as transições do ledger;
 - `PilotOperationStore` pode permanecer como cache de evidências, nunca como autoridade paralela.
 
-O merge-tree `main cc90091a × HEAD` é limpo (`539e6be950c3493227a6f6c689ac721f3ddf26de`); a integração real exige trazer a main e remover a duplicação local, o que não foi feito nesta rodada.
+O merge-tree `main cc90091a × HEAD final` é limpo (`350ebacc5d90b13508f7f3786d028f9d431fa3bc`, verificado no commit `49c9f109`); a integração real exige trazer a main e remover a duplicação local, o que não foi feito nesta rodada.
 
 ### 4.2 #71 — seleção determinística de modelos
 
