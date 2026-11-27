@@ -141,7 +141,8 @@ class DeliveryProvenanceTest {
     @Test
     fun pickDeAlvoPreservaCorpusEConteudoMasRebind() {
         val source = source()
-        val rebound = source.withTargetKey("SECTION:sec-2")
+        val rebound = source.withTargetKey("SECTION:sec-2", authorized = true)!!
+        assertNull(source.withTargetKey("SECTION:sec-2", authorized = false))
         assertTrue(rebound.binds(sourceText))
         assertEquals(source.corpus, rebound.corpus)
         assertTrue(rebound.matches("note-1", "SECTION:sec-2"))

@@ -28,12 +28,19 @@ object ContentEligibilityGate {
         questionRefs: List<String> = emptyList(),
     ): ContentEligibility {
         val fidelity = SourceFidelityGate.enforce(text, corpus, questionRefs)
+        // PROBE_OPEN: aspas abertas/referência truncada também são bloqueadas
+        // no resultado final, histórico e cards — não só no parcial.
+        val safe = SourceFidelityGate.redactUnfinished(fidelity.text)
         return ContentEligibility(
-            allowed = !fidelity.blocked && fidelity.text.isNotBlank(),
-            text = fidelity.text,
+            allowed = !fidelity.blocked && safe.isNotBlank(),
+            text = safe,
             notice = fidelity.notice,
             findings = fidelity.findings,
-            removed = fidelity.removed,
+            removed = fidelity.removed + if (safe != fidelity.text) {
+                listOf("trecho incompleto removido")
+            } else {
+                emptyList()
+            },
         )
     }
 

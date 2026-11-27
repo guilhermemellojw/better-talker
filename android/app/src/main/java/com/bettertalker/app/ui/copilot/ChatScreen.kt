@@ -1904,7 +1904,7 @@ private fun MessageBubble(
                         // quando não há payload de card; as ações novas ficam
                         // logo abaixo do bloco do card, antes da conversa.
                         onUseInCard = if (card == null) {
-                            { text -> vm.insertTextIntoScope(text) }
+                            { text -> vm.insertEligibleTextIntoScope(item.id, text) }
                         } else {
                             null
                         },
@@ -2779,7 +2779,7 @@ private fun MessageActions(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                             menuOpen = false
-                            vm.insertTextIntoScope(item.text)
+                            vm.insertEligibleTextIntoScope(item.id, item.text)
                         }
                     )
                 }

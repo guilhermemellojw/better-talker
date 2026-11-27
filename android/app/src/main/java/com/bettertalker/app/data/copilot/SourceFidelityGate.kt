@@ -258,7 +258,7 @@ object SourceFidelityGate {
     )
 
     /** Aspas abertas e referência truncada não são texto copiável/persistível. */
-    private fun redactUnfinished(text: String): String {
+    fun redactUnfinished(text: String): String {
         var out = text
         val openQuote = out.count { it == '"' } % 2 == 1 ||
             out.count { it == '“' } != out.count { it == '”' }

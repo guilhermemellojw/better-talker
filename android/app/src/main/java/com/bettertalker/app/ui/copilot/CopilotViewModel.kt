@@ -1589,10 +1589,23 @@ class CopilotViewModel(
         if (fromMe) return text
         val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
             ?: return ""
-        if (!bound.authorizesMessage(noteId, text)) return ""
+        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return ""
         return ContentEligibilityGate.forHistory(
             text, bound.corpus, bound.questionRefs,
         ).text
+    }
+
+    /** P3 — rota real de inserção: o destino recebe o texto JÁ verificado. */
+    fun insertEligibleTextIntoScope(messageId: String, text: String) {
+        val safe = eligibleTextForUse(messageId, text)
+        if (safe.isNotBlank()) insertTextIntoScope(safe)
+    }
+
+    /** P3 — registro antigo permanece no banco; a exibição é marcada. */
+    fun historyTextFor(messageId: String, raw: String, fromMe: Boolean): String {
+        if (fromMe) return raw
+        val safe = eligibleTextForUse(messageId, raw)
+        return safe.ifBlank { "[conteúdo histórico sem fonte verificável]" }
     }
 
     /** BETA-TRUST/P2 — cópia usa o vínculo persistido, não o turno vivo. */
@@ -1604,7 +1617,7 @@ class CopilotViewModel(
         if (fromMe) return text
         val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
             ?: return ""
-        if (!bound.authorizesMessage(noteId, text)) return ""
+        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return ""
         return ContentEligibilityGate.forResponseCopy(
             text, bound.corpus, bound.questionRefs,
         ).text
@@ -1614,7 +1627,7 @@ class CopilotViewModel(
     fun eligibleCardCopyText(messageId: String, text: String): String {
         val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
             ?: return ""
-        if (!bound.authorizesMessage(noteId, text)) return ""
+        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return ""
         return ContentEligibilityGate.forCardCopy(text, bound.corpus, bound.questionRefs).text
     }
 
@@ -1622,7 +1635,7 @@ class CopilotViewModel(
     fun cardEligible(messageId: String, text: String): Boolean {
         val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
             ?: return false
-        if (!bound.authorizesMessage(noteId, text)) return false
+        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return false
         return ContentEligibilityGate.forTopicInsert(
             text, bound.corpus, bound.questionRefs,
         ).allowed
@@ -1672,7 +1685,9 @@ class CopilotViewModel(
     /** NO_TARGET: escolhe a seção e captura o hash NAQUELE momento. */
     fun pickCardTarget(messageId: String, sectionId: String) = viewModelScope.launch {
         val nid = noteId ?: return@launch
-        val section = db.speechSectionDao().get(sectionId) ?: return@launch
+        val section = db.speechSectionDao().get(sectionId)
+            ?.takeIf { it.noteId == nid }
+            ?: return@launch // alvo de outra nota nunca é aceito
         val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return@launch
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return@launch
@@ -1687,7 +1702,8 @@ class CopilotViewModel(
         DeliveryProvenance.fromPayload(map)
             ?.takeIf { it.messageId == messageId }
             ?.let { bound ->
-                val updated = bound.withTargetKey(cardTargetKey(picked))
+                val updated = bound.withTargetKey(cardTargetKey(picked), authorized = true)
+                    ?: return@let
                 rebased.putAll(updated.toPayload())
                 deliveryProvenance[messageId] = updated
             }
@@ -1789,7 +1805,7 @@ class CopilotViewModel(
         val rawText = extractCardText(map["text"].orEmpty()) ?: return
         val bound = DeliveryProvenance.fromPayload(map)
         if (bound == null || bound.messageId != messageId ||
-            !bound.authorizesCard(entity.noteId, cardTargetKey(card), rawText)
+            !bound.authorizesCard(entity.noteId, cardTargetKey(card), rawText, entity.sectionId)
         ) {
             _cardEvents.tryEmit(
                 CardUiEvent("Card sem proveniência verificável; não foi inserido."),
@@ -2095,10 +2111,10 @@ class CopilotViewModel(
     /** Fonte de verdade é o payload; o mapa só evita I/O nos call sites de UI. */
     private fun hydrateDeliveryProvenance(entities: List<com.bettertalker.app.data.db.ChatEntity>) {
         val ids = entities.map { it.id }.toSet()
-        deliveryProvenance.keys.retainAll(ids)
+        deliveryProvenance.clear()
         entities.forEach { entity ->
             DeliveryProvenance.fromPayload(ChatCodec.unescMap(entity.payload))
-                ?.takeIf { it.messageId == entity.id }
+                ?.takeIf { it.messageId == entity.id && it.noteId == noteId }
                 ?.let { deliveryProvenance[entity.id] = it }
         }
     }
@@ -3692,6 +3708,9 @@ class CopilotViewModel(
                 } else {
                     null
                 }
+                // Texto-only não cria card: `targetKey = null` não é troca de
+                // alvo. Só o card com REPLACE mantém o alvo da fonte.
+                val explicitTargetChange = !targetDecision.autoApply
                 val preflight = DeliveryProvenance.rewriteFrom(
                     source = trustedSource,
                     sourceText = sourceBody,
@@ -3702,6 +3721,7 @@ class CopilotViewModel(
                     scopeId = scopeForPost,
                     targetKey = targetKeyForProvenance,
                     boundAt = System.currentTimeMillis(),
+                    explicitTargetChange = explicitTargetChange,
                 )
                 if (preflight == null) {
                     postText(
@@ -3728,6 +3748,8 @@ class CopilotViewModel(
                             allowCard = false,
                             provenanceSource = trustedSource,
                             provenanceSourceText = sourceBody,
+                            revision = true,
+                            explicitTargetChange = explicitTargetChange,
                         )
                         if (newMessageId == null ||
                             !rewriteProvenanceStored(
@@ -3788,6 +3810,8 @@ class CopilotViewModel(
                         cardSuggestedAction = CardSuggestedAction.REPLACE,
                         provenanceSource = trustedSource,
                         provenanceSourceText = sourceBody,
+                        revision = true,
+                        explicitTargetChange = explicitTargetChange,
                     )
                     if (newMessageId == null ||
                         !rewriteProvenanceStored(
@@ -4790,8 +4814,19 @@ class CopilotViewModel(
          */
         provenanceSource: DeliveryProvenance? = null,
         provenanceSourceText: String? = null,
+        /** P3 — distingue revisão derivada de geração nova. */
+        revision: Boolean = false,
+        /** P3 — troca de alvo em revisão exige autorização explícita. */
+        explicitTargetChange: Boolean = false,
     ): String? {
         val nid = noteId ?: return null
+        // P3 — revisão sem fonte persistida falha fechado: nenhuma mensagem
+        // é gravada e nenhum fallback para o corpus vivo do turno.
+        if (revision && (fromMe || provenanceSource == null ||
+            provenanceSourceText == null || provenanceSourceText.isBlank())
+        ) {
+            return null
+        }
         // Origem embutida no JSON do payload (sem migration; histórico
         // antigo sem a chave decodifica como COPILOT).
         val withOrigin = ChatCodec.unescMap(payload)
@@ -4829,13 +4864,14 @@ class CopilotViewModel(
         val now = System.currentTimeMillis()
         val targetKey = activeCardTarget?.let { "${it.kind.name}:${it.id}" }
         val generated = !fromMe && (durationMs != null || cardText != null)
-        // BETA-PEDAGOGY/P4.1 — a decisão de handoff é extraída para o contrato
-        // puro `RewriteHandoff` e exercitada nas jornadas AI-09. A geração
-        // comum continua usando o fluxo normal; revisão declarada sem vínculo
-        // íntegro falha fechado (sem gravar e sem corpus do turno corrente).
+        // BETA-PEDAGOGY/P4.1 + BETA-TRUST/P3 — a decisão de handoff é extraída
+        // para o contrato puro `RewriteHandoff` e exercitada nas jornadas
+        // AI-09. Geração comum segue o fluxo normal; revisão declarada sem
+        // vínculo íntegro falha fechado (sem gravar e sem fallback de corpus).
         val handoff = RewriteHandoff.decide(
             RewriteHandoff.Input(
                 fromMe = fromMe,
+                revision = revision,
                 source = provenanceSource,
                 sourceText = provenanceSourceText,
                 revisedText = cardText ?: withOrigin["text"].orEmpty(),
@@ -4845,6 +4881,7 @@ class CopilotViewModel(
                 scopeId = targetScope,
                 targetKey = targetKey,
                 boundAt = now,
+                explicitTargetChange = explicitTargetChange,
                 currentTurnCorpus = activeDeliveryCorpus,
             )
         )
@@ -7258,14 +7295,20 @@ class CopilotViewModel(
         // turno leva o rótulo do foco em que foi produzido.
         val titles = db.speechSectionDao().forNote(nid).associate { it.id to it.title }
         return db.chatDao().all(nid).mapNotNull { e ->
-            // Payload legível, nunca o nome do kind.
+            // Payload legível, nunca o nome do kind. P3: histórico ativo só
+            // reutiliza texto proveniente do contrato central.
             val raw = com.bettertalker.app.data.copilot.readableChatTurn(e.kind, e.payload)
+            val eligible = if (!e.fromMe && e.kind == "text") {
+                historyTextFor(e.id, raw, e.fromMe)
+            } else {
+                raw
+            }
             // 1C.1: listas longas do Copilot (ex.: ideias no caminho remoto)
             // preservam os itens numerados; o truncamento cego perderia o 2º.
             val t = if (!e.fromMe && e.kind == "text") {
-                com.bettertalker.app.data.copilot.compactAssistantListForHistory(raw)
+                com.bettertalker.app.data.copilot.compactAssistantListForHistory(eligible)
             } else {
-                raw
+                eligible
             }
             if (t.isBlank()) null else ChatTurn(
                 e.fromMe,
@@ -8842,7 +8885,11 @@ class CopilotViewModel(
         return db.chatDao().all(nid)
             .asReversed()
             .firstOrNull { !it.fromMe && it.kind == "text" }
-            ?.let { ChatCodec.unescMap(it.payload)["text"].orEmpty() }
+            ?.let { entity ->
+                eligibleTextForUse(
+                    entity.id, ChatCodec.unescMap(entity.payload)["text"].orEmpty(),
+                )
+            }
             ?.trim()
             .orEmpty()
     }

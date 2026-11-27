@@ -1,7 +1,11 @@
 package com.bettertalker.app.ui.copilot
 
 import com.bettertalker.app.data.copilot.ChatTurnContext
+import com.bettertalker.app.data.copilot.ContentEligibilityGate
+import com.bettertalker.app.data.copilot.FidelityFinding
 import com.bettertalker.app.data.llm.GroundednessVerifier
+import com.bettertalker.app.data.llm.VerificationCategory
+import com.bettertalker.app.data.llm.VerificationMetrics
 import com.bettertalker.app.data.llm.VerificationResult
 import com.bettertalker.app.data.s34.S34Document
 
@@ -63,11 +67,13 @@ internal fun verifyGeneratedText(
     text: String,
     turnContext: ChatTurnContext? = null,
     extraSources: List<String> = emptyList(),
+    questionRefs: List<String> = emptyList(),
 ): VerificationResult = verifyGeneratedText(
     text = text,
     turnContext = turnContext,
     documentarySources = emptyList(),
     structuralExtras = extraSources,
+    questionRefs = questionRefs,
 )
 
 internal fun verifyGeneratedText(
@@ -75,6 +81,7 @@ internal fun verifyGeneratedText(
     turnContext: ChatTurnContext? = null,
     documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
     structuralExtras: List<String> = emptyList(),
+    questionRefs: List<String> = emptyList(),
 ): VerificationResult {
     val corpus = buildList {
         turnContext?.let { addAll(verificationCorpus(it)) }
@@ -87,7 +94,28 @@ internal fun verifyGeneratedText(
                 .map { it.text }
         )
     }.filter { it.isNotBlank() }
+    // P3/PROBE_EMPTY — o verificador legado devolvia o texto intacto quando
+    // o corpus estava vazio ("sem verificação" ≠ "fato confirmado"). Nesse
+    // caso específico o contrato central remove citação literal não provada;
+    // explicações e paráfrases sem aspas/referência continuam utilizáveis.
+    if (corpus.isEmpty()) {
+        val decision = ContentEligibilityGate.forFinalAnswer(text, emptyList(), questionRefs)
+        val categories = mapOf(
+            VerificationCategory.QUOTE to decision.findings.count {
+                it == FidelityFinding.LITERAL_UNSUPPORTED
+            },
+        ).filterValues { it > 0 }
+        return VerificationResult(
+            text = decision.text,
+            removed = decision.removed,
+            metrics = VerificationMetrics(
+                flaggedChars = decision.removed.sumOf { it.length },
+                flaggedByCategory = categories,
+            ),
+        )
+    }
     return GroundednessVerifier.verify(text, corpus)
+
 }
 
 /**

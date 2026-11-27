@@ -65,7 +65,7 @@ class Ai09JourneyIntegrationTest {
     fun ai09_provenanceSourceAusenteEhRejeitadaSemFallback() {
         val out = handoff(source = null, sourceTextValue = sourceText)
         assertTrue(out is RewriteHandoff.Outcome.Rejected)
-        assertEquals("SOURCE_MISSING", (out as RewriteHandoff.Outcome.Rejected).reason)
+        assertEquals("REVISION_WITHOUT_SOURCE", (out as RewriteHandoff.Outcome.Rejected).reason)
         // O corpus do turno corrente não cria proveniência para a revisão.
         assertTrue(handoff(
             source = null,
@@ -78,7 +78,7 @@ class Ai09JourneyIntegrationTest {
     fun ai09_provenanceSourceTextAusenteEhRejeitada() {
         val out = handoff(source = source(), sourceTextValue = null)
         assertTrue(out is RewriteHandoff.Outcome.Rejected)
-        assertEquals("SOURCE_TEXT_MISSING", (out as RewriteHandoff.Outcome.Rejected).reason)
+        assertEquals("REVISION_WITHOUT_SOURCE", (out as RewriteHandoff.Outcome.Rejected).reason)
         val blank = handoff(source = source(), sourceTextValue = "   ")
         assertTrue(blank is RewriteHandoff.Outcome.Rejected)
     }

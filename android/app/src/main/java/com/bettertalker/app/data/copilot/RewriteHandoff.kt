@@ -16,6 +16,8 @@ object RewriteHandoff {
 
     data class Input(
         val fromMe: Boolean,
+        /** Revisão AI-09: exige fonte íntegra, nunca corpus do turno corrente. */
+        val revision: Boolean = true,
         val source: DeliveryProvenance?,
         val sourceText: String?,
         val revisedText: String,
@@ -25,6 +27,8 @@ object RewriteHandoff {
         val scopeId: String?,
         val targetKey: String?,
         val boundAt: Long,
+        /** Troca de alvo explicitamente autorizada no pedido de revisão. */
+        val explicitTargetChange: Boolean = false,
         /** Corpus do turno corrente — registrado apenas para auditoria. */
         val currentTurnCorpus: List<String> = emptyList(),
     )
@@ -38,6 +42,9 @@ object RewriteHandoff {
 
     fun decide(input: Input): Outcome {
         if (input.fromMe) return Outcome.NotApplicable
+        if (input.revision && (input.source == null || input.sourceText.isNullOrBlank())) {
+            return Outcome.Rejected("REVISION_WITHOUT_SOURCE")
+        }
         if (input.source == null && input.sourceText == null) return Outcome.NotApplicable
         if (input.source == null) return Outcome.Rejected("SOURCE_MISSING")
         if (input.sourceText.isNullOrBlank()) return Outcome.Rejected("SOURCE_TEXT_MISSING")
@@ -52,6 +59,7 @@ object RewriteHandoff {
             scopeId = input.scopeId,
             targetKey = input.targetKey,
             boundAt = input.boundAt,
+            explicitTargetChange = input.explicitTargetChange,
         ) ?: return Outcome.Rejected("REWRITE_INVALID")
         return Outcome.Accepted(provenance)
     }

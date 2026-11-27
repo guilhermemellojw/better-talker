@@ -131,11 +131,14 @@ class GenerationVerificationTest {
     }
 
     @Test
-    fun corpusVazio_naoBloqueia() {
+    fun corpusVazio_bloqueiaCitacaoMasNaoExplicacao() {
+        // BETA-TRUST/P3/PROBE_EMPTY: ausência de corpus não autoriza citação.
         val generated = "Ele disse: \"uma frase inventada qualquer sem apoio nenhum\"."
         val r = verifyGeneratedText(generated, extraSources = emptyList())
-        assertFalse(r.hasRemovals)
-        assertEquals(generated, r.text)
+        assertTrue(r.hasRemovals)
+        assertFalse(r.text.contains("frase inventada"))
+        val explanation = "Ele explicou a ideia com calma e sem atribuir texto à fonte."
+        assertEquals(explanation, verifyGeneratedText(explanation, extraSources = emptyList()).text)
     }
 
     private fun document(
