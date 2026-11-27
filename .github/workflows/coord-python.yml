@@ -44,7 +44,7 @@ jobs:
       - name: Provar bloqueio de rede
         run: |
           set -euo pipefail
-          sudo -n unshare -rn env -i PATH=/usr/bin:/bin LANG=C LC_ALL=C python3 - <<'PY'
+          sudo -n unshare -rn env -i PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C python3 - <<'PY'
           import socket
           try:
               socket.create_connection(("1.1.1.1", 443), timeout=3)
@@ -62,7 +62,7 @@ jobs:
           COORD_STATE="$RUNNER_TEMP/coord-state"
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
           sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
-            XDG_STATE_HOME="$COORD_STATE" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
+            XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
             python3 -m unittest discover -s .opencode/scripts -p 'test_*.py' -v \
             2>&1 | tee "$COORD_LOGS/discover.log"
           count=$(grep -Eo 'Ran [0-9]+ tests' "$COORD_LOGS/discover.log" | awk '{print $2}')
@@ -78,7 +78,7 @@ jobs:
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
           cd .opencode/scripts
           sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
-            XDG_STATE_HOME="$COORD_STATE" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
+            XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
             python3 test_supervisor.py 2>&1 | tee "$COORD_LOGS/supervisor.log"
           count=$(grep -Eo '[0-9]+ passed, 0 failed' "$COORD_LOGS/supervisor.log" | awk '{print $1}')
           echo "SUPERVISOR_TESTS=$count"
