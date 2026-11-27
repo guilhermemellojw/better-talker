@@ -22,11 +22,6 @@ jobs:
   coord-python:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      COORD_HOME: ${{ runner.temp }}/coord-home
-      COORD_TMP: ${{ runner.temp }}/coord-tmp
-      COORD_STATE: ${{ runner.temp }}/coord-state
-      COORD_LOGS: ${{ runner.temp }}/coord-logs
     steps:
       - name: Checkout (somente leitura)
         uses: actions/checkout@v4
@@ -39,6 +34,10 @@ jobs:
       - name: Isolar HOME/TMPDIR/armazenamento e validar YAML
         run: |
           set -euo pipefail
+          COORD_HOME="$RUNNER_TEMP/coord-home"
+          COORD_TMP="$RUNNER_TEMP/coord-tmp"
+          COORD_STATE="$RUNNER_TEMP/coord-state"
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
           mkdir -p "$COORD_HOME" "$COORD_TMP" "$COORD_STATE" "$COORD_LOGS"
           python3 - <<'PY'
           import sys
@@ -68,6 +67,10 @@ jobs:
       - name: unittest discover (baseline 368)
         run: |
           set -euo pipefail
+          COORD_HOME="$RUNNER_TEMP/coord-home"
+          COORD_TMP="$RUNNER_TEMP/coord-tmp"
+          COORD_STATE="$RUNNER_TEMP/coord-state"
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
           unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
             python3 -m unittest discover -s .opencode/scripts -p 'test_*.py' -v \
@@ -79,6 +82,10 @@ jobs:
       - name: Suíte do supervisor (baseline 167)
         run: |
           set -euo pipefail
+          COORD_HOME="$RUNNER_TEMP/coord-home"
+          COORD_TMP="$RUNNER_TEMP/coord-tmp"
+          COORD_STATE="$RUNNER_TEMP/coord-state"
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
           cd .opencode/scripts
           unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
@@ -94,6 +101,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
           python3 - "$RUNNER_TEMP" "$GITHUB_WORKSPACE" "$COORD_LOGS" <<'PY'
           import os
           import sys
@@ -118,5 +126,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coord-python-logs
-          path: ${{ env.COORD_LOGS }}/*.sanitized
+          path: ${{ runner.temp }}/coord-logs/*.sanitized
           if-no-files-found: ignore
