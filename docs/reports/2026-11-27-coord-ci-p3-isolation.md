@@ -18,7 +18,7 @@ Fechar as ressalvas P1/P2 do parecer `7221084828`:
 - separar preparação online da execução offline;
 - minimizar privilégios e documentar sudo;
 - preservar o probe de regressão e a propagação de falhas;
-- reproduzir 545 testes.
+- reproduzir 548 testes.
 
 ## 2. Mudanças
 
@@ -70,19 +70,19 @@ Executado antes do push, no worktree da branch:
 ```text
 ci_network_probe.py --mode os     -> NETWORK-OS-BLOCKED (rc=0)
 ci_network_probe.py --mode guard  -> NETWORK-GUARD-BLOCKED (rc=0)
-ci_discover.py                    -> Ran 378 tests ... OK
+ci_discover.py                    -> Ran 381 tests ... OK
 test_supervisor.py                -> 167 passed, 0 failed
 regression probe                  -> rc=1 e REGRESSAO-INTENCIONAL-DETECTADA
 pip download --require-hashes      -> sucesso com hash
 ```
 
-Total local: **378 + 167 = 545/545**, rede bloqueada por namespace e guard.
+Total local: **381 + 167 = 548/548**, rede bloqueada por namespace e guard.
 
 ## 7. Evidência CI
 
 - `6eed1562` / run `46020039896`: falhou porque `unshare -rn` (user namespace) impedia o root mapeado de abrir o workspace do runner; corrigido com `unshare -n` + `setpriv` para o usuário runner.
 - `0390cfd3` / push `46020329072`: **success**; PR `46020336890`: **success no rerun**.
-- Logs: `NETWORK-OS-BLOCKED`, `NETWORK-GUARD-BLOCKED`, `Ran 378 tests ... OK`, `DISCOVER_TESTS=378`, `SUPERVISOR_TESTS=167`, `TOTAL_TESTS=545`, `REGRESSION-DETECTION-OK rc=1`.
+- Logs: `NETWORK-OS-BLOCKED`, `NETWORK-GUARD-BLOCKED`, `Ran 381 tests ... OK`, `DISCOVER_TESTS=381`, `SUPERVISOR_TESTS=167`, `TOTAL_TESTS=548`, `REGRESSION-DETECTION-OK rc=1`.
 - O primeiro run do `0390cfd3` (PR) falhou apenas no teste concorrente P14A3 `test_two_processes_do_not_dispatch_same_mission`: o perdedor às vezes chega a `reserve_dispatch` e imprime traceback de `DuplicateReservation`, enquanto o teste exige `erro:`. O rerun passou e o run de push passou; o workflow **não** tem retry automático. Flake residual do teste, não do namespace.
 - `propose` SUCCESS não é CI Python.
 
