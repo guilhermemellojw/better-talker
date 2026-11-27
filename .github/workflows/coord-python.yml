@@ -50,7 +50,8 @@ jobs:
 
       - name: Preparar caminhos experimentais esperados
         # O runner é efêmero e passwordless sudo é usado apenas para criar
-        # symlinks em caminhos canônicos fixos e entrar no network namespace.
+        # symlinks canônicos e abrir o network namespace; os testes rodam como
+        # o usuário runner via setpriv, sem root.
         run: |
           set -euo pipefail
           sudo -n mkdir -p /home/guilherme/Documentos
@@ -74,8 +75,8 @@ jobs:
       - name: Provar TCP/UDP/DNS/subprocesso no namespace sem rede
         run: |
           set -euo pipefail
-          sudo -n unshare -rn env -i \
-            PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
+          sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+            /usr/bin/env -i PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_network_probe.py" --mode os
 
       - name: Provar guarda Python como defesa adicional
@@ -92,7 +93,8 @@ jobs:
           COORD_TMP="$RUNNER_TEMP/coord-tmp"
           COORD_STATE="$RUNNER_TEMP/coord-state"
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
-          sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+          sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+            /usr/bin/env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_discover.py" \
@@ -117,7 +119,8 @@ jobs:
             '        self.assertTrue(False, "REGRESSAO-INTENCIONAL-DETECTADA")' \
             > "$PROBE/test_intencional.py"
           set +e
-          sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+          sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+            /usr/bin/env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_discover.py" "$PROBE" \
@@ -136,7 +139,8 @@ jobs:
           COORD_TMP="$RUNNER_TEMP/coord-tmp"
           COORD_STATE="$RUNNER_TEMP/coord-state"
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
-          sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+          sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+            /usr/bin/env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard:$GITHUB_WORKSPACE/.opencode/scripts" \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/test_supervisor.py" 2>&1 | tee "$COORD_LOGS/supervisor.log"

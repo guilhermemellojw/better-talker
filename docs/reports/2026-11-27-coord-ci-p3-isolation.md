@@ -34,7 +34,8 @@ Fechar as ressalvas P1/P2 do parecer `7221084828`:
 As duas suítes rodam com:
 
 ```text
-sudo -n unshare -rn env -i HOME=... TMPDIR=... XDG_STATE_HOME=... \
+sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+  /usr/bin/env -i HOME=... TMPDIR=... XDG_STATE_HOME=... \
   PATH=... LANG=C LC_ALL=C PYTHONPATH=.../ci_netguard python3 ...
 ```
 
@@ -52,12 +53,12 @@ O guard Python roda separadamente fora do namespace (`--mode guard`) e cobre os 
 
 - A única preparação online é `pip install --require-hashes --only-binary=:all: -r .github/requirements-ci.txt`.
 - O wheel PyYAML 6.0.2 CPython 3.12 manylinux x86_64 tem hash verificado; o lock contém também o hash musllinux.
-- Depois da instalação, todas as suítes e probes rodam com `env -i` dentro de `unshare -rn`, sem `pip`, sem DNS e sem `PYTHONPATH` de dependências.
+- Depois da instalação, todas as suítes e probes rodam como o usuário runner, via `setpriv`, dentro de `unshare -n`, com `env -i`; sem `pip`, sem DNS e sem `PYTHONPATH` de dependências.
 - Nenhum segredo/token é usado; `permissions: contents: read`.
 
 ## 5. Privilégios e paths
 
-- `sudo -n` é usado somente para symlinks canônicos efêmeros e para entrar no network namespace; o runner é efêmero e não há persistência.
+- `sudo -n` é usado somente para symlinks canônicos efêmeros e para criar o network namespace; os testes rodam como o usuário runner via `setpriv`, sem root, e o runner é efêmero.
 - Path filters agora incluem `.opencode/scripts/**`, `.opencode/agents/**`, `.opencode/*.md`, `docs/**`, o workflow e o lock.
 - O runner continua sem credenciais, LLM, Android/Gradle/ADB, transporte real ou merge.
 
