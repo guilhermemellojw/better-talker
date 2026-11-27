@@ -9,29 +9,62 @@ class GlobalBottomBarTest {
     private val widths = listOf(320, 360, 411)
     private val scales = listOf(1.0f, 1.3f, 1.5f, 2.0f)
 
+    /** Expectativas independentes da implementação (matriz física A15/P4). */
+    private val expectedModes = mapOf(
+        320 to mapOf(
+            1.0f to BottomBarMode.ADAPTIVE,
+            1.3f to BottomBarMode.ADAPTIVE,
+            1.5f to BottomBarMode.ADAPTIVE,
+            2.0f to BottomBarMode.ADAPTIVE,
+        ),
+        360 to mapOf(
+            1.0f to BottomBarMode.CONVENTIONAL,
+            1.3f to BottomBarMode.ADAPTIVE,
+            1.5f to BottomBarMode.ADAPTIVE,
+            2.0f to BottomBarMode.ADAPTIVE,
+        ),
+        411 to mapOf(
+            1.0f to BottomBarMode.CONVENTIONAL,
+            1.3f to BottomBarMode.ADAPTIVE,
+            1.5f to BottomBarMode.ADAPTIVE,
+            2.0f to BottomBarMode.ADAPTIVE,
+        ),
+    )
+
     @Test
-    fun matriz12CombinaçõesTemModoDefinido() {
+    fun matrizFisica12Combinações() {
         for (width in widths) {
             for (scale in scales) {
-                val mode = bottomBarMode(width, scale)
-                assertTrue(mode == BottomBarMode.CONVENTIONAL || mode == BottomBarMode.ADAPTIVE)
+                assertEquals(
+                    "largura=$width escala=$scale",
+                    expectedModes[width]!![scale],
+                    bottomBarMode(width, scale),
+                )
             }
         }
     }
 
     @Test
-    fun barraConvencionalQuandoHaEspaco() {
-        assertEquals(BottomBarMode.CONVENTIONAL, bottomBarMode(360, 1.0f))
-        assertEquals(BottomBarMode.CONVENTIONAL, bottomBarMode(360, 1.3f))
-        assertEquals(BottomBarMode.CONVENTIONAL, bottomBarMode(411, 1.0f))
-        assertEquals(BottomBarMode.CONVENTIONAL, bottomBarMode(411, 1.3f))
+    fun fronteira360x13Adaptativa() {
+        assertEquals(BottomBarMode.ADAPTIVE, bottomBarMode(360, 1.3f))
     }
 
     @Test
-    fun seletorAdaptativoNasFronteiras() {
-        assertEquals(BottomBarMode.ADAPTIVE, bottomBarMode(320, 1.0f))
-        assertEquals(BottomBarMode.ADAPTIVE, bottomBarMode(360, 1.5f))
-        assertEquals(BottomBarMode.ADAPTIVE, bottomBarMode(411, 2.0f))
+    fun fronteira411x13Adaptativa() {
+        assertEquals(BottomBarMode.ADAPTIVE, bottomBarMode(411, 1.3f))
+    }
+
+    @Test
+    fun convencionalSomenteEm10() {
+        assertEquals(BottomBarMode.CONVENTIONAL, bottomBarMode(360, 1.0f))
+        assertEquals(BottomBarMode.CONVENTIONAL, bottomBarMode(411, 1.0f))
+    }
+
+    @Test
+    fun largura320SempreAdaptativa() {
+        for (scale in scales) {
+            assertEquals(BottomBarMode.ADAPTIVE, bottomBarMode(320, scale))
+        }
     }
 
     @Test
@@ -50,10 +83,9 @@ class GlobalBottomBarTest {
     fun cincoDestinosDisponiveisEmTodosOsModos() {
         for (width in widths) {
             for (scale in scales) {
-                val mode = bottomBarMode(width, scale)
                 assertEquals(5, bottomBarFullLabels.size)
                 assertEquals(5, bottomBarDestinationIds.size)
-                assertTrue(mode.name.isNotBlank())
+                assertTrue(bottomBarMode(width, scale).name.isNotBlank())
             }
         }
     }
@@ -62,12 +94,6 @@ class GlobalBottomBarTest {
     fun nuncaUsaRotulosAbreviadosOuIconOnly() {
         for (label in bottomBarFullLabels) {
             assertTrue(label.length >= 5)
-        }
-        // Nenhuma política produz rótulo vazio; a identificação é sempre textual.
-        for (width in widths) {
-            for (scale in scales) {
-                assertTrue(bottomBarMode(width, scale).name.isNotBlank())
-            }
         }
     }
 }

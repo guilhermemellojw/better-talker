@@ -30,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.navigation.BottomTab
 import com.bettertalker.app.navigation.activeTab
@@ -58,7 +60,7 @@ internal enum class BottomBarMode { CONVENTIONAL, ADAPTIVE }
  * Nunca reduz fontScale nem remove a identificação visual.
  */
 internal fun bottomBarMode(widthDp: Int, fontScale: Float): BottomBarMode =
-    if (widthDp >= 360 && fontScale <= 1.3f) {
+    if (widthDp >= 360 && fontScale <= 1.0f) {
         BottomBarMode.CONVENTIONAL
     } else {
         BottomBarMode.ADAPTIVE
@@ -193,6 +195,9 @@ private fun AdaptiveBottomBar(
         ) {
             destinations.forEach { destination ->
                 DropdownMenuItem(
+                    modifier = Modifier.semantics {
+                        selected = destination.tab == current.tab
+                    },
                     text = { Text(destination.label) },
                     leadingIcon = {
                         if (destination.tab == current.tab) {
