@@ -61,10 +61,9 @@ jobs:
           COORD_TMP="$RUNNER_TEMP/coord-tmp"
           COORD_STATE="$RUNNER_TEMP/coord-state"
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
-          cd "$GITHUB_WORKSPACE/.opencode/scripts"
           sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
-            python3 -m unittest discover -p 'test_*.py' -v \
+            python3 -m unittest discover -s "$GITHUB_WORKSPACE/.opencode/scripts" -p 'test_*.py' -v \
             2>&1 | tee "$COORD_LOGS/discover.log"
           count=$(grep -Eo 'Ran [0-9]+ tests' "$COORD_LOGS/discover.log" | awk '{print $2}')
           echo "DISCOVER_TESTS=$count"
