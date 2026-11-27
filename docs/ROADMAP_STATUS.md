@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | `ef2ceb5312ea` | Pendente |
+| [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | `cb4c95c5a8cc` | Pendente |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
