@@ -59,6 +59,8 @@ jobs:
           sudo -n mkdir -p /home/guilherme/Documentos /repo
           sudo -n ln -sfn "$GITHUB_WORKSPACE" /home/guilherme/Documentos/better-talker
           sudo -n ln -sfn "$GITHUB_WORKSPACE" /repo/wt
+          sudo -n ln -sfn "$GITHUB_WORKSPACE" \
+            /home/guilherme/Documentos/better-talker-coord-supervisor-shadow
           echo "ISOLATION-READY"
 
       - name: Provar bloqueio de rede
