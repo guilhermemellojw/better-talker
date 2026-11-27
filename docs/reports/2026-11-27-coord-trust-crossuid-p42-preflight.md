@@ -7,7 +7,7 @@ transporte real, POST, LLM ou Android foi executado.
 **Baseline recebida:** `131cdb51db0fd206036f375ba4ff884d8d230824` (P4.1,
 aceita). **Base de ancestralidade:** `main` `cc7b452253d0e6a8039e36c32e4276fd14937e80`.
 **Branch:** `feat/coord-trust-crossuid-cert`.
-**HEAD do código:** `<CODE_SHA>`.
+**HEAD do código:** `0f22fd35d7f352f522604604dc021a2405ec3878`.
 **HEAD final do PR:** publicado no corpo/comentário do PR.
 
 ## 1. Correções A1–A6 + limites de execução
