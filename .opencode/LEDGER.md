@@ -123,3 +123,12 @@ esquema, bootstrap interrompido e reinício da instância.
 
 Transporte real, OpenCode, LLM, credenciais, HealthAgentForms, ASSISTED/DELEGATED,
 integração com COORD-04, notificações e autorização automática.
+
+## Extensão 1.1
+
+A extensão `coord-ledger-1.1` adiciona autorização assinada por porta neutra,
+snapshot canônico, consumo/lease, revogação, receipt/evidence e reconciliação
+terminal persistidos no ledger. O cache externo deixa de ser autoridade. O
+contrato detalhado e a migração opt-in estão em `LEDGER-1.1.md`; o schema 1.0
+exige `allow_migration=True` e, após migrado, os registros legados não são
+despacháveis sob política assinada.
