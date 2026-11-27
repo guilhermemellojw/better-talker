@@ -24,6 +24,8 @@ data class DeliveryProvenance(
     val contentSha256: String = "",
     val boundAt: Long = 0L,
     val sourceMessageId: String? = null,
+    /** P1-B — conteúdo rejeitado: exibível, mas nunca copiável/inserível. */
+    val rejected: Boolean = false,
 ) {
     fun binds(content: String): Boolean =
         contentSha256.isNotBlank() && contentSha256 == sha256(content)
@@ -36,7 +38,7 @@ data class DeliveryProvenance(
         noteId: String?,
         text: String,
         scopeId: String? = null,
-    ): Boolean = this.noteId == noteId && binds(text) &&
+    ): Boolean = !rejected && this.noteId == noteId && binds(text) &&
         (this.scopeId == null || scopeId == null || this.scopeId == scopeId)
 
     /** Contrato único de inserção: nota, origem, alvo, escopo e conteúdo. */
@@ -45,7 +47,7 @@ data class DeliveryProvenance(
         targetKey: String?,
         text: String,
         scopeId: String? = null,
-    ): Boolean = matches(noteId, targetKey) && binds(text) &&
+    ): Boolean = !rejected && matches(noteId, targetKey) && binds(text) &&
         (this.scopeId == null || scopeId == null || this.scopeId == scopeId)
 
     /**
@@ -53,7 +55,16 @@ data class DeliveryProvenance(
      * identificador novo não reautoriza o conteúdo.
      */
     fun withTargetKey(targetKey: String?, authorized: Boolean): DeliveryProvenance? =
-        if (!authorized) null else copy(targetKey = targetKey)
+        if (!authorized || rejected) null else copy(targetKey = targetKey)
+
+    /**
+     * P2.4 — continua a MESMA mensagem: mantém identidade, nota, escopo,
+     * alvo, corpus e refs; só o hash e o timestamp são renovados.
+     */
+    fun continueFrom(existingText: String, mergedText: String, boundAt: Long): DeliveryProvenance? {
+        if (rejected || !binds(existingText) || mergedText.isBlank()) return null
+        return copy(contentSha256 = sha256(mergedText), boundAt = boundAt)
+    }
 
     /** Payload persistido na própria ChatEntity; nenhum schema novo. */
     fun toPayload(): Map<String, String> {
@@ -69,6 +80,7 @@ data class DeliveryProvenance(
             put("contentSha256", contentSha256)
             put("boundAt", boundAt)
             put("sourceMessageId", sourceMessageId)
+            put("rejected", rejected)
         }.toString()
         return mapOf(KEY to json, KEY_SHA256 to sha256(json))
     }
@@ -89,6 +101,7 @@ data class DeliveryProvenance(
             questionRefs: List<String>,
             content: String,
             boundAt: Long,
+            rejected: Boolean = false,
         ): DeliveryProvenance = DeliveryProvenance(
             messageId = messageId,
             turnId = turnId,
@@ -99,6 +112,7 @@ data class DeliveryProvenance(
             questionRefs = questionRefs.filter { it.isNotBlank() }.distinct(),
             contentSha256 = sha256(content),
             boundAt = boundAt,
+            rejected = rejected,
         )
 
         /**
@@ -135,6 +149,7 @@ data class DeliveryProvenance(
                 contentSha256 = sha256(revisedText),
                 boundAt = boundAt,
                 sourceMessageId = source.sourceMessageId ?: source.messageId,
+                rejected = source.rejected,
             )
         }
 
@@ -168,6 +183,7 @@ data class DeliveryProvenance(
                     contentSha256 = contentSha,
                     boundAt = obj.optLong("boundAt", 0L),
                     sourceMessageId = optional("sourceMessageId"),
+                    rejected = obj.optBoolean("rejected", false),
                 )
             } catch (_: Exception) {
                 null

@@ -166,6 +166,7 @@ import com.bettertalker.app.data.llm.ResponseFormat
 import com.bettertalker.app.data.llm.DeepSeekProvider
 import com.bettertalker.app.data.copilot.ProviderErrorCode
 import com.bettertalker.app.data.llm.VerificationCategory
+import com.bettertalker.app.data.llm.VerificationMetrics
 import com.bettertalker.app.data.llm.VerificationResult
 import com.bettertalker.app.data.planning.RoomReferenceResolver
 import com.bettertalker.app.data.prefs.SettingsStore
@@ -685,6 +686,12 @@ fun verifyChatTextForDelivery(
     questionRefs: List<String> = emptyList(),
 ): ChatVerificationOutcome {
     val gated = ContentEligibilityGate.forFinalAnswer(text, corpus, questionRefs)
+    if (!gated.allowed) {
+        return ChatVerificationOutcome(
+            VerificationResult("", gated.removed, VerificationMetrics()),
+            gated.notice,
+        )
+    }
     val strict = GroundednessVerifier.verify(gated.text, corpus, warnOnly = false)
     val clean = strict.text
         .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE)
@@ -1590,15 +1597,23 @@ class CopilotViewModel(
         val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
             ?: return ""
         if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return ""
-        return ContentEligibilityGate.forHistory(
+        val decision = ContentEligibilityGate.forHistory(
             text, bound.corpus, bound.questionRefs,
-        ).text
+        )
+        return if (decision.allowed) decision.text else ""
     }
 
-    /** P3 — rota real de inserção: o destino recebe o texto JÁ verificado. */
+    /** P3/P4 — rota real de inserção usa `forTopicInsert`, não `forHistory`. */
     fun insertEligibleTextIntoScope(messageId: String, text: String) {
-        val safe = eligibleTextForUse(messageId, text)
-        if (safe.isNotBlank()) insertTextIntoScope(safe)
+        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
+            ?: return
+        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return
+        val decision = ContentEligibilityGate.forTopicInsert(
+            text, bound.corpus, bound.questionRefs,
+        )
+        if (decision.allowed && decision.text.isNotBlank()) {
+            insertTextIntoScope(decision.text)
+        }
     }
 
     /** P3 — registro antigo permanece no banco; a exibição é marcada. */
@@ -1618,9 +1633,10 @@ class CopilotViewModel(
         val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
             ?: return ""
         if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return ""
-        return ContentEligibilityGate.forResponseCopy(
+        val decision = ContentEligibilityGate.forResponseCopy(
             text, bound.corpus, bound.questionRefs,
-        ).text
+        )
+        return if (decision.allowed) decision.text else ""
     }
 
     /** BETA-TRUST/P2 — cópia de card usa a entrada específica da rota. */
@@ -1628,17 +1644,8 @@ class CopilotViewModel(
         val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
             ?: return ""
         if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return ""
-        return ContentEligibilityGate.forCardCopy(text, bound.corpus, bound.questionRefs).text
-    }
-
-    /** BETA-TRUST/P2 — inserção usa o vínculo do card original, nunca o estado vivo. */
-    fun cardEligible(messageId: String, text: String): Boolean {
-        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
-            ?: return false
-        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return false
-        return ContentEligibilityGate.forTopicInsert(
-            text, bound.corpus, bound.questionRefs,
-        ).allowed
+        val decision = ContentEligibilityGate.forCardCopy(text, bound.corpus, bound.questionRefs)
+        return if (decision.allowed) decision.text else ""
     }
 
     /**
@@ -4495,12 +4502,40 @@ class CopilotViewModel(
                     postText("Não consegui continuar a resposta agora. Tente novamente.")
                     return@launch
                 }
-                val merged = mergeContinuation(existingText, cont)
+                // P2.4 — a continuação não cria autoridade nova: exige o
+                // vínculo original válido e revalida TODO o conteúdo final
+                // contra o corpus/herança da própria mensagem.
+                val bound = DeliveryProvenance.fromPayload(oldMap)
+                    ?.takeIf { it.messageId == target.id && it.noteId == nid }
+                if (bound == null || !bound.binds(existingText)) {
+                    postText("Não há proveniência válida para continuar esta resposta.")
+                    return@launch
+                }
+                val contGate = ContentEligibilityGate.forFinalAnswer(
+                    cont, bound.corpus, bound.questionRefs,
+                )
+                if (!contGate.allowed) {
+                    postText("Não foi possível continuar: o trecho não tem fonte verificável.")
+                    return@launch
+                }
+                val merged = mergeContinuation(existingText, contGate.text)
+                val mergedGate = ContentEligibilityGate.forFinalAnswer(
+                    merged, bound.corpus, bound.questionRefs,
+                )
+                val updated = bound.continueFrom(
+                    existingText, merged, System.currentTimeMillis(),
+                )
+                if (!mergedGate.allowed || updated == null) {
+                    postText("Continuação rejeitada: o conteúdo final não foi validado.")
+                    return@launch
+                }
                 val newMap = oldMap.toMutableMap().apply {
                     put("text", merged)
                     if (continueTruncated) put("truncated", "1") else remove("truncated")
+                    putAll(updated.toPayload())
                 }
                 db.chatDao().updateMessagePayload(target.id, ChatCodec.escMap(newMap))
+                deliveryProvenance[target.id] = updated
                 // #streaming-fix: a bolha existente já recebeu o texto novo.
                 com.bettertalker.app.data.llm.LocalProgress.clearPartial()
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -4761,6 +4796,15 @@ class CopilotViewModel(
         }
         val payload = safeTurn.cancelledPayload().toMutableMap()
         val messageId = newId("msg")
+        // P1-B: trecho rejeitado continua visível como parcial seguro, mas
+        // nunca vira conteúdo copiável/inserível após o cancelamento.
+        val partialDecision = if (looksLikeOutlineJson(turn.partialText)) {
+            null
+        } else {
+            ContentEligibilityGate.forCancelledPartial(
+                turn.partialText, activeDeliveryCorpus, activeQuestionRefs,
+            )
+        }
         val provenance = DeliveryProvenance.newForMessage(
             messageId = messageId,
             turnId = safeTurn.turnId,
@@ -4771,6 +4815,7 @@ class CopilotViewModel(
             questionRefs = activeQuestionRefs,
             content = safeTurn.partialText,
             boundAt = System.currentTimeMillis(),
+            rejected = partialDecision?.allowed == false,
         )
         payload.putAll(provenance.toPayload())
         deliveryProvenance[messageId] = provenance

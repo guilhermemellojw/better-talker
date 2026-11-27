@@ -31,12 +31,26 @@ object ContentEligibilityGate {
         // PROBE_OPEN: aspas abertas/referência truncada também são bloqueadas
         // no resultado final, histórico e cards — não só no parcial.
         val safe = SourceFidelityGate.redactUnfinished(fidelity.text)
+        val unfinished = safe != fidelity.text
+        val findings = fidelity.findings + if (unfinished) {
+            listOf(FidelityFinding.UNFINISHED_REDACTED)
+        } else {
+            emptyList()
+        }
+        val reasons = buildList {
+            fidelity.notice?.removePrefix("⚠️ ")?.let { add(it) }
+            if (unfinished) add("trecho incompleto removido; a resposta não foi entregue")
+        }
         return ContentEligibility(
-            allowed = !fidelity.blocked && safe.isNotBlank(),
+            // P1-B: fragmento rejeitado nunca é elegível, mesmo que sobreviva
+            // texto à esquerda. A exibição segura existe apenas para parcial.
+            allowed = !fidelity.blocked && !unfinished && safe.isNotBlank(),
             text = safe,
-            notice = fidelity.notice,
-            findings = fidelity.findings,
-            removed = fidelity.removed + if (safe != fidelity.text) {
+            notice = reasons.takeIf { it.isNotEmpty() }
+                ?.joinToString("; ")
+                ?.let { "⚠️ Revise: $it." },
+            findings = findings,
+            removed = fidelity.removed + if (unfinished) {
                 listOf("trecho incompleto removido")
             } else {
                 emptyList()

@@ -59,9 +59,10 @@ private fun structuralItem(id: String, text: String, resolved: Boolean = true): 
  * texto ao usuário.
  *
  * Corpus factual = [turnContext] + [documentarySources] elegíveis. Textos de
- * [structuralExtras] permanecem como contexto, nunca como prova. Corpus vazio
- * → o verificador devolve o texto intacto (não bloqueia), o que significa
- * "sem verificação factual", nunca "fato confirmado". Puro/testável.
+ * [structuralExtras] permanecem como contexto, nunca como prova. Com corpus
+ * vazio, citações literais não comprovadas são removidas pelo contrato
+ * central; explicações e paráfrases legítimas, sem aspas/referência, seguem
+ * utilizáveis ("sem fonte" ≠ "fato confirmado"). Puro/testável.
  */
 internal fun verifyGeneratedText(
     text: String,
@@ -106,8 +107,12 @@ internal fun verifyGeneratedText(
             },
         ).filterValues { it > 0 }
         return VerificationResult(
-            text = decision.text,
-            removed = decision.removed,
+            text = if (decision.allowed) decision.text else "",
+            removed = decision.removed + if (!decision.allowed && decision.removed.isEmpty()) {
+                listOf("conteúdo rejeitado")
+            } else {
+                emptyList()
+            },
             metrics = VerificationMetrics(
                 flaggedChars = decision.removed.sumOf { it.length },
                 flaggedByCategory = categories,

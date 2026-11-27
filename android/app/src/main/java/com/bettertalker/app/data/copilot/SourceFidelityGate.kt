@@ -29,6 +29,8 @@ enum class FidelityFinding {
     PUBLICATION_UNSUPPORTED,
     PARAPHRASE_ALLOWED,
     TERM_QUOTE,
+    /** P1-B — trecho incompleto removido: nunca é conteúdo elegível. */
+    UNFINISHED_REDACTED,
 }
 
 data class SourceFidelityDecision(
