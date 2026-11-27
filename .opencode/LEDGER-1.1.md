@@ -16,12 +16,13 @@ O componente de verificação real (#77) permanece externo. O ledger recebe uma 
 - A migração roda em uma única transação `BEGIN IMMEDIATE`:
   - adiciona colunas a `missions`, `transitions` e `reservations`;
   - cria `authorizations`, `authorization_revocations`, `mission_evidence` e `schema_migrations`;
-  - cria índices únicos de autorização/lease;
+  - cria índices únicos de autorização/lease e de `nonce` de revogação;
   - faz backfill de `transmissions_used` (1 se `dispatched_at`, 0 caso contrário);
   - marca registros antigos como `authorization_mode='LEGACY_UNVERIFIED'`;
   - atualiza `meta.schema_version` e registra `schema_migrations` no commit.
 - Falha em qualquer DDL → rollback integral; versão 1.0 e dados intactos.
-- Registros legados continuam legíveis/históricos, mas não são despacháveis quando a política `require_signed_authorization=True`.
+- Registros legados continuam legíveis/históricos, mas o despacho legado é **fail-closed por padrão**: exige `policy={"allow_legacy_dispatch": True}`; produção usa a via assinada.
+- Bancos 1.1 intermediários (sem envelope/assinatura persistidos) não são migrados por esta revisão: a validação de schema falha fechada. Como o PR ainda não foi mesclado, não há migração operacional nesta rodada.
 - Antes de migrar um banco operacional, o operador deve fazer backup; esta rodada testa apenas bancos temporários.
 
 ## 3. Snapshot canônico
@@ -39,7 +40,9 @@ O componente de verificação real (#77) permanece externo. O ledger recebe uma 
 
 O snapshot é serializado canonicamente e persistido com `mission_snapshot_sha256`. Ao carregar, o ledger recalcula o hash, o payload hash e compara os campos da linha; qualquer divergência é `LedgerStorageError` (falha fechada).
 
-`ExpectedOperation` é o material que o adapter #77 deve comparar com o envelope assinado. `VerifiedAuthorization` e `VerifiedRevocation` são os resultados tipados que o verificador real devolve. O ledger **não** assina, não lê chaves e não importa #77.
+`authority_material` vincula `mission_identity`, `payload_sha256`, modelo, escopo, critérios de aceitação, ambiente, HEAD/digests, limite, custo e `free_only`. O envelope assinado é persistido (`envelope_json` + hash) e a assinatura/material são **revalidados** em reserva, assert, evidência e reconciliação; nenhum campo mutável isolado (como `expires_at`) é autoridade.
+
+`ExpectedOperation` é o material que o adapter #77 deve comparar com o envelope assinado. `VerifiedAuthorization` e `VerifiedRevocation` são os resultados tipados que o verificador real devolve. `ExpectedReconciliation`/`VerifiedReconciliation` exigem uma atestação terminal assinada; `authority_reference`/`human_decision` livres não são aceitos. O ledger **não** assina, não lê chaves e não importa #77.
 
 ## 4. API
 
@@ -103,31 +106,39 @@ Ledger.reconcile_signed(
     authorization_digest: str,
     lease_id: str,
     target_state: str,
+    attestation: Any,
+    attestation_signature: bytes,
     report: Optional[Mapping[str, Any]] = None,
     evidence: Optional[Mapping[str, Any]] = None,
-    authority_reference: str,
     actor: str,
-    human_decision: bool = False,
+) -> MissionRecord
+
+# terminalização segura de expirada/revogada antes do POST
+Ledger.terminate_signed_before_dispatch(
+    mission_id: str, *,
+    authorization_digest: str, lease_id: Optional[str],
+    evidence: Mapping[str, Any], actor: str,
 ) -> MissionRecord
 ```
 
 Leituras: `get_authorization`, `get_authorization_by_digest`, `get_revocation`, `get_evidence`.
 
-`AuthorityVerifier` é uma `Protocol` injetada no `Ledger`; o adapter P14B deve implementá-la com o verificador #77. O agente nunca fornece a porta, allowlist ou um booleano `eligible` por chamada.
+`AuthorityVerifier` e `ReconciliationVerifier` são `Protocol`s injetadas no `Ledger`; o adapter P14B deve implementá-las com #77/autoridade. O agente nunca fornece as portas, allowlist ou um booleano `eligible` por chamada.
 
 ## 5. Transações e invariantes
 
-- **Autorização:** `authorize_signed` verifica fora da transação de escrita e relê a missão em `BEGIN IMMEDIATE`; insere `authorizations` e transita `PROPOSED→AUTHORIZED` no mesmo commit. Digest/autorização/missão únicos.
+- **Autorização:** `authorize_signed` verifica fora da transação e relê a missão em `BEGIN IMMEDIATE`; persiste envelope, assinatura, digest e material, e transita `PROPOSED→AUTHORIZED` no mesmo commit. Digest/autorização/missão/nonce únicos; o envelope/assinatura são revalidados em cada gate.
 - **Consumo:** `reserve_dispatch_signed` exige `AUTHORIZED`, digest autorizado, snapshot íntegro, `consumed_at IS NULL`, janela válida, sem revogação e `transmissions_used=0`; na mesma transação insere reservation com `lease_id`, marca `consumed_at`, `transmissions_used=1` e `DISPATCHING`.
 - **Lease:** `assert_dispatchable` é leitura consistente e exige estado `DISPATCHING`, digest/lease/reservation, consumo, snapshot e janela. Não consome nem cria novo lease.
-- **Revogação:** verificada pelo port e persistida por digest; bloqueia `authorize_signed`, `reserve_dispatch_signed` e `assert_dispatchable`. Não cancela POST em voo nem faz rollback de consumo.
+- **Revogação:** verificada pelo port e persistida por digest; `nonce` é único. Bloqueia `authorize_signed`, `reserve_dispatch_signed` e `assert_dispatchable`. Não cancela POST em voo nem faz rollback de consumo.
 - **Expiração:** verificada na autorização, na reserva e no assert; relógio do ledger (`clock` injetável em testes).
-- **Reconciliação:** `reconcile_signed` exige receipt persistido para `COMPLETED`; valida projeto/repo/missão/operação/agente/sessão, `reply_to` do receipt, critérios de aceitação, payload, `status=COMPLETED`, ausência de blockers e janela temporal. Divergência → falha fechada. `FAILED` exige evidência/decisão e `authority_reference`.
+- **Reconciliação:** `reconcile_signed` exige atestação verificada (`ReconciliationVerifier`), receipt persistido para `COMPLETED`, payload_sha256 obrigatório, projeto/repo/missão/operação/agente/sessão, critérios, `status`, blockers e coerência temporal (relatório ≥ despacho, atestação ≥ relatório). Evidência REAL em missão FIXTURE é rejeitada. Divergência → falha fechada; `FAILED` exige atestação e evidência.
 - **UNKNOWN:** `recover_stale_dispatching` leva `DISPATCHING→UNKNOWN`, preserva reservation e consumo; não há transição para `DISPATCHING` nem reenvio. `reconcile_signed` pode encerrar `UNKNOWN` com receipt/relatório válidos.
 - **Idempotência:** registro, autorização, revogação, evidência e reconciliação repetidos com o mesmo material são idempotentes; material divergente é rejeitado.
-- **Bypass:** missões `SIGNED_V1` rejeitam `authorize`, `reserve_dispatch`, `complete`, `fail`, `mark_*` e `reconcile` legados; transições assinadas exigem a API 1.1. `can_dispatch` legado retorna falso para `SIGNED_V1` e para legado sob política assinada.
+- **Bypass:** missões `SIGNED_V1` rejeitam `authorize`, `reserve_dispatch`, `complete`, `fail`, `mark_*` e `reconcile` legados; transições assinadas exigem a API 1.1. Despacho legado é bloqueado por padrão; `can_dispatch` é falso para `SIGNED_V1` e para legado sem opt-in explícito.
 - **Transporte:** o ledger não executa POST. `record_dispatch_evidence` rejeita `service_contacted=True`, `transport_real=True` ou `source=real` quando `allow_real_transport` não está habilitado; esta rodada permanece SHADOW/sintética.
 - **Cache:** o ledger 1.1 não lê nem grava `evidence-cache.json`; snapshot, receipt, evidência e reconciliação são persistidos no SQLite. O cache externo não é autoridade para nenhuma transição.
+- **Trust boundary:** hash local não é proteção contra agente com escrita irrestrita no SQLite. Revalidação detecta adulteração acidental/DB, mas a garantia forte exige DB/trust store/ledger em UID/serviço separado. Sem essa separação, o ledger é defesa em profundidade, não autoridade autenticada.
 
 ## 6. Compatibilidade
 
@@ -155,14 +166,14 @@ A integração real de transporte, credenciais e #72/#77 permanece fora desta PR
 - `SyntheticAuthorization`/fixtures não são autenticação humana; #72/#77 continuam necessários para o piloto real.
 - Não há exactly-once; a reservation/consumo reduz duplicação, mas crash após POST vai a `UNKNOWN` sem reenvio.
 - A janela entre `assert_dispatchable` e POST é residual; revogação nessa janela não é cancelamento retroativo.
-- Aprovação exige: migração 1.1 revisada e testada, snapshot/receipt/evidence vinculados, testes 49+31 host-only, concorrência/crash, e integração P14A/P14B separada.
+- Aprovação exige: migração 1.1 revisada e testada, snapshot/receipt/evidence vinculados, revalidação de assinatura/material, atestação terminal, testes 49+49 host-only, concorrência/crash e integração P14A/P14B separada.
 
 ## 9. Testes desta PR
 
 ```sh
 cd .opencode/scripts
 python3 -m unittest test_coord_ledger test_coord_ledger_11 -v
-# 49 + 34 = 83/83
+# 49 + 49 = 98/98
 ```
 
-Fail-first: em `origin/main` `05176ada` (sem 1.1), os 34 testes novos falham/erram por ausência de `allow_migration`/API assinada; após a extensão, 83/83 passam. O CI atual só executa `propose`; a suíte é host-only.
+Fail-first: em `origin/main` `05176ada` (sem 1.1), os 49 testes novos falham/erram por ausência de `allow_migration`/API assinada; após a extensão, 98/98 passam. O CI atual só executa `propose`; a suíte é host-only.

@@ -27,8 +27,11 @@ from coord_ledger_authority import (
     AuthorityContractError,
     AuthorityVerifier,
     ExpectedOperation,
+    ExpectedReconciliation,
     MissionSnapshot,
+    ReconciliationVerifier,
     VerifiedAuthorization,
+    VerifiedReconciliation,
     VerifiedRevocation,
 )
 
@@ -126,6 +129,14 @@ class DispatchBlocked(LedgerError):
     """Reserva/lease não permite o despacho no instante consultado."""
 
 
+class ReconciliationRequired(LedgerError):
+    """Reconciliação terminal exige atestação verificada por autoridade."""
+
+
+class LegacyDispatchDisabled(LedgerError):
+    """Despacho legado é fail-closed sem opt-in explícito."""
+
+
 def canonical_json(value: Any) -> str:
     """Mesmo contrato COORD-04: chaves ordenadas, sem espaços, UTF-8."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -200,6 +211,8 @@ class AuthorizationRecord:
     approver_key_fingerprint: str
     trust_policy_sha256: str
     environment: str
+    signature_sha256: str
+    envelope_sha256: str
     issued_at: str
     expires_at: str
     nonce: str
@@ -317,6 +330,8 @@ CREATE TABLE IF NOT EXISTS authorizations (
     environment TEXT NOT NULL,
     signature TEXT NOT NULL,
     signature_sha256 TEXT NOT NULL,
+    envelope_json TEXT NOT NULL,
+    envelope_sha256 TEXT NOT NULL,
     issued_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     nonce TEXT NOT NULL UNIQUE,
@@ -332,7 +347,7 @@ CREATE TABLE IF NOT EXISTS authorization_revocations (
     revoked_at TEXT NOT NULL,
     recorded_at TEXT NOT NULL,
     reason TEXT NOT NULL,
-    nonce TEXT NOT NULL,
+    nonce TEXT NOT NULL UNIQUE,
     signature TEXT NOT NULL,
     signature_sha256 TEXT NOT NULL
 );
@@ -360,6 +375,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_reservations_authorization
     ON reservations(authorization_digest) WHERE authorization_digest IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_reservations_lease
     ON reservations(lease_id) WHERE lease_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_authorization_revocations_nonce
+    ON authorization_revocations(nonce);
 CREATE INDEX IF NOT EXISTS idx_transitions_mission ON transitions(mission_id);
 CREATE INDEX IF NOT EXISTS idx_mission_evidence_mission ON mission_evidence(mission_id, kind);
 """
@@ -410,6 +427,8 @@ def _migrate_1_0_to_1_1(conn: sqlite3.Connection, *, now: str) -> None:
             environment TEXT NOT NULL,
             signature TEXT NOT NULL,
             signature_sha256 TEXT NOT NULL,
+            envelope_json TEXT NOT NULL,
+            envelope_sha256 TEXT NOT NULL,
             issued_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,
             nonce TEXT NOT NULL UNIQUE,
@@ -425,10 +444,12 @@ def _migrate_1_0_to_1_1(conn: sqlite3.Connection, *, now: str) -> None:
             revoked_at TEXT NOT NULL,
             recorded_at TEXT NOT NULL,
             reason TEXT NOT NULL,
-            nonce TEXT NOT NULL,
+            nonce TEXT NOT NULL UNIQUE,
             signature TEXT NOT NULL,
             signature_sha256 TEXT NOT NULL
         )""",
+        """CREATE UNIQUE INDEX IF NOT EXISTS ux_authorization_revocations_nonce
+            ON authorization_revocations(nonce)""",
         """CREATE TABLE IF NOT EXISTS mission_evidence (
             seq INTEGER PRIMARY KEY AUTOINCREMENT,
             mission_id TEXT NOT NULL,
@@ -469,6 +490,7 @@ class Ledger:
         policy: Optional[Mapping[str, Any]] = None,
         allow_migration: bool = False,
         authority_verifier: Optional[AuthorityVerifier] = None,
+        reconciliation_verifier: Optional[ReconciliationVerifier] = None,
         clock: Optional[Callable[[], datetime]] = None,
     ) -> None:
         if not project_id or not repository_id:
@@ -479,9 +501,14 @@ class Ledger:
         self.policy = dict(policy or {})
         self.allow_migration = bool(allow_migration)
         self.authority_verifier = authority_verifier
+        self.reconciliation_verifier = reconciliation_verifier
         self.clock = clock or utc_now
         self._local = threading.local()
         self._initialize()
+
+    def _legacy_dispatch_allowed(self) -> bool:
+        """Despacho legado é fail-closed por padrão; opt-in explícito."""
+        return bool(self.policy.get("allow_legacy_dispatch", False))
 
     def _now(self) -> datetime:
         value = self.clock()
@@ -503,6 +530,15 @@ class Ledger:
             return conn
         except sqlite3.Error as exc:
             raise LedgerStorageError(f"falha ao abrir banco: {exc}") from exc
+
+    @contextmanager
+    def _read(self) -> Iterator[sqlite3.Connection]:
+        """Conexão de leitura sempre fechada; evita snapshot/WAL órfão."""
+        conn = self._connect()
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     @contextmanager
     def _write(self) -> Iterator[sqlite3.Connection]:
@@ -547,6 +583,29 @@ class Ledger:
                 yield
             finally:
                 os.umask(previous)
+
+    @contextmanager
+    def _initialization_lock(self) -> Iterator[None]:
+        """Serializa migração/schema entre processos; não é autoridade."""
+        try:
+            import fcntl
+        except ImportError:
+            yield
+            return
+        try:
+            fd = os.open(
+                self.db_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
+                0o600)
+        except OSError as exc:
+            raise LedgerStorageError(f"falha ao abrir lock de inicialização: {exc}") from exc
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
 
     def _validate_paths(self) -> bool:
         """Valida caminhos em modo somente leitura; retorna se o pai já existia."""
@@ -605,48 +664,93 @@ class Ledger:
         except sqlite3.Error as exc:
             raise LedgerStorageError(f"falha ao validar banco: {exc}") from exc
 
+    def _validate_schema_1_1(self, conn: sqlite3.Connection) -> None:
+        """Falha fechado se uma tabela 1.1 preexistente estiver incompatível."""
+        required = {
+            "missions": {
+                "authorization_mode", "authorization_digest", "mission_snapshot_json",
+                "mission_snapshot_sha256", "environment", "transmissions_used",
+                "receipt_json", "receipt_sha256", "dispatch_evidence_json",
+                "dispatch_evidence_sha256", "reconciliation_json", "reconciliation_sha256",
+            },
+            "transitions": {"authorization_digest"},
+            "reservations": {"authorization_digest", "lease_id", "reserved_at"},
+            "authorizations": {
+                "authorization_digest", "authorization_id", "approval_reference",
+                "mission_id", "mission_snapshot_sha256", "authority_material_sha256",
+                "approver_id", "approver_key_fingerprint", "trust_policy_sha256",
+                "environment", "signature", "signature_sha256", "envelope_json",
+                "envelope_sha256", "issued_at", "expires_at", "nonce", "consumed_at",
+                "consumed_by_mission_id", "created_at",
+            },
+            "authorization_revocations": {
+                "authorization_digest", "approver_id", "approver_key_fingerprint",
+                "trust_policy_sha256", "revoked_at", "recorded_at", "reason",
+                "nonce", "signature", "signature_sha256",
+            },
+            "mission_evidence": {
+                "mission_id", "kind", "evidence_json", "evidence_sha256",
+                "actor", "source", "recorded_at", "authorization_digest", "lease_id",
+            },
+            "schema_migrations": {"version", "source_version", "applied_at"},
+        }
+        for table, columns in required.items():
+            rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+            present = {row[1] for row in rows}
+            if not present:
+                raise LedgerStorageError(f"tabela 1.1 ausente: {table}")
+            missing = columns - present
+            if missing:
+                raise LedgerStorageError(
+                    f"tabela 1.1 incompatível {table}: faltam {sorted(missing)}")
+
     def _initialize(self) -> None:
         with self._private_umask():
             parent_existed = self._validate_paths()
-            fresh, version = self._check_compatibility()
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             if not parent_existed:
                 os.chmod(self.db_path.parent, 0o700)
             try:
-                if fresh:
-                    # Meta e versão primeiro, em transação própria. Se a
-                    # inicialização for interrompida, o rollback deixa um banco
-                    # vazio (reconhecido como novo na reabertura).
-                    with self._write() as conn:
-                        conn.execute(
-                            "CREATE TABLE IF NOT EXISTS meta "
-                            "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-                        )
-                        conn.execute(
-                            "INSERT OR IGNORE INTO meta (key, value) "
-                            "VALUES ('schema_version', ?)",
-                            (SCHEMA_VERSION,),
-                        )
-                elif version == OLD_SCHEMA_VERSION:
-                    if not self.allow_migration:
-                        raise SchemaMigrationRequired(
-                            "banco coord-ledger-1.0 exige allow_migration=True")
-                    with self._write() as conn:
-                        _migrate_1_0_to_1_1(conn, now=iso(self._now()))
-                with self._connect() as conn:
-                    conn.executescript(_SCHEMA_1_1_SQL)
+                with self._initialization_lock():
+                    fresh, version = self._check_compatibility()
                     if fresh:
-                        conn.execute(
-                            "INSERT OR IGNORE INTO schema_migrations"
-                            "(version, source_version, applied_at) VALUES (?,?,?)",
-                            (SCHEMA_VERSION, "fresh", iso(self._now())),
-                        )
-                self._harden_files()
+                        # Meta e versão primeiro, em transação própria. Se a
+                        # inicialização for interrompida, o rollback deixa um
+                        # banco vazio (reconhecido como novo na reabertura).
+                        with self._write() as conn:
+                            conn.execute(
+                                "CREATE TABLE IF NOT EXISTS meta "
+                                "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                            )
+                            conn.execute(
+                                "INSERT OR IGNORE INTO meta (key, value) "
+                                "VALUES ('schema_version', ?)",
+                                (SCHEMA_VERSION,),
+                            )
+                    elif version == OLD_SCHEMA_VERSION:
+                        if not self.allow_migration:
+                            raise SchemaMigrationRequired(
+                                "banco coord-ledger-1.0 exige allow_migration=True")
+                        with self._write() as conn:
+                            current = conn.execute(
+                                "SELECT value FROM meta WHERE key='schema_version'"
+                            ).fetchone()
+                            if current is None or current["value"] != SCHEMA_VERSION:
+                                _migrate_1_0_to_1_1(conn, now=iso(self._now()))
+                    with self._read() as conn:
+                        conn.executescript(_SCHEMA_1_1_SQL)
+                        self._validate_schema_1_1(conn)
+                        if fresh:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO schema_migrations"
+                                "(version, source_version, applied_at) VALUES (?,?,?)",
+                                (SCHEMA_VERSION, "fresh", iso(self._now())),
+                            )
+                    self._harden_files()
             except LedgerError:
                 raise
             except sqlite3.Error as exc:
                 raise LedgerStorageError(f"falha ao inicializar banco: {exc}") from exc
-
 
     def _assert_scope(self, row: sqlite3.Row) -> None:
         if (
@@ -658,7 +762,7 @@ class Ledger:
     # ---------- leitura ----------
     def get(self, mission_id: str) -> Optional[MissionRecord]:
         try:
-            with self._connect() as conn:
+            with self._read() as conn:
                 row = conn.execute(
                     "SELECT * FROM missions WHERE mission_id=?", (mission_id,)
                 ).fetchone()
@@ -673,7 +777,7 @@ class Ledger:
 
     def history(self, mission_id: str) -> list[Transition]:
         try:
-            with self._connect() as conn:
+            with self._read() as conn:
                 rows = conn.execute(
                     """SELECT t.*, m.project_id, m.repository_id
                        FROM transitions t JOIN missions m ON m.mission_id=t.mission_id
@@ -971,7 +1075,7 @@ class Ledger:
 
     def get_authorization(self, mission_id: str) -> Optional[AuthorizationRecord]:
         try:
-            with self._connect() as conn:
+            with self._read() as conn:
                 row = conn.execute(
                     "SELECT * FROM authorizations WHERE mission_id=?", (mission_id,)
                 ).fetchone()
@@ -981,7 +1085,7 @@ class Ledger:
 
     def get_authorization_by_digest(self, digest: str) -> Optional[AuthorizationRecord]:
         try:
-            with self._connect() as conn:
+            with self._read() as conn:
                 row = conn.execute(
                     "SELECT * FROM authorizations WHERE authorization_digest=?", (digest,)
                 ).fetchone()
@@ -1002,6 +1106,8 @@ class Ledger:
             approver_key_fingerprint=row["approver_key_fingerprint"],
             trust_policy_sha256=row["trust_policy_sha256"],
             environment=row["environment"],
+            signature_sha256=row["signature_sha256"],
+            envelope_sha256=row["envelope_sha256"],
             issued_at=row["issued_at"],
             expires_at=row["expires_at"],
             nonce=row["nonce"],
@@ -1010,9 +1116,110 @@ class Ledger:
             created_at=row["created_at"],
         )
 
+    def _revalidate_authorization(
+        self,
+        conn: sqlite3.Connection,
+        mission_row: sqlite3.Row,
+        snapshot: MissionSnapshot,
+        *,
+        now: datetime,
+        require_validity: bool,
+    ) -> tuple[sqlite3.Row, VerifiedAuthorization]:
+        """Revalida assinatura e vínculo persistido; DB não é autoridade."""
+        if self.authority_verifier is None:
+            raise AuthorizationMissing("authority_verifier não injetado")
+        auth = conn.execute(
+            "SELECT * FROM authorizations WHERE mission_id=?",
+            (mission_row["mission_id"],),
+        ).fetchone()
+        if auth is None:
+            raise AuthorizationMissing("autorização persistida ausente")
+        if auth["mission_id"] != mission_row["mission_id"]:
+            raise EvidenceDivergence("autorização de outra missão")
+        if auth["mission_snapshot_sha256"] != snapshot.sha256():
+            raise EvidenceDivergence("autorização não vincula o snapshot atual")
+        if auth["authority_material_sha256"] != snapshot.authority_material_sha256():
+            raise EvidenceDivergence("material de autoridade divergente")
+        if auth["environment"] != snapshot.environment:
+            raise EvidenceDivergence("ambiente da autorização divergente")
+        try:
+            envelope = json.loads(auth["envelope_json"])
+            signature = bytes.fromhex(auth["signature"])
+            envelope_sha = hashlib.sha256(
+                canonical_json(envelope).encode("utf-8")).hexdigest()
+            signature_sha = hashlib.sha256(signature).hexdigest()
+        except (TypeError, ValueError, KeyError) as exc:
+            raise LedgerStorageError("envelope/assinatura persistidos inválidos") from exc
+        if envelope_sha != auth["envelope_sha256"]:
+            raise LedgerStorageError("envelope persistido adulterado")
+        if signature_sha != auth["signature_sha256"]:
+            raise LedgerStorageError("assinatura persistida adulterada")
+        verified = self.authority_verifier.verify_authorization(
+            envelope=envelope, signature=signature, payload=snapshot.payload,
+            expected=snapshot.expected_operation(), now=now,
+        )
+        verified.validate()
+        comparisons = (
+            ("authorization_digest", verified.authorization_digest, auth["authorization_digest"]),
+            ("authorization_id", verified.authorization_id, auth["authorization_id"]),
+            ("approval_reference", verified.approval_reference, auth["approval_reference"]),
+            ("mission_id", verified.mission_id, auth["mission_id"]),
+            ("mission_identity", verified.mission_identity, snapshot.mission_identity),
+            ("authority_material_sha256", verified.authority_material_sha256,
+             auth["authority_material_sha256"]),
+            ("approver_id", verified.approver_id, auth["approver_id"]),
+            ("approver_key_fingerprint", verified.approver_key_fingerprint,
+             auth["approver_key_fingerprint"]),
+            ("trust_policy_sha256", verified.trust_policy_sha256, auth["trust_policy_sha256"]),
+            ("environment", verified.environment, auth["environment"]),
+            ("issued_at", iso(verified.issued_at), auth["issued_at"]),
+            ("expires_at", iso(verified.expires_at), auth["expires_at"]),
+            ("nonce", verified.nonce, auth["nonce"]),
+        )
+        for label, left, right in comparisons:
+            if left != right:
+                raise EvidenceDivergence(f"autorização revalidada diverge: {label}")
+        if require_validity:
+            if now < verified.issued_at.astimezone(timezone.utc):
+                raise AuthorizationExpired("autorização ainda não válida")
+            if now >= verified.expires_at.astimezone(timezone.utc):
+                raise AuthorizationExpired("autorização expirada")
+        return auth, verified
+
+    def _validate_stored_evidence(
+        self, row: sqlite3.Row, snapshot: MissionSnapshot,
+    ) -> tuple[Optional[Mapping[str, Any]], Optional[Mapping[str, Any]]]:
+        receipt = None
+        evidence = None
+        for raw_key, sha_key, label, is_receipt in (
+            ("receipt_json", "receipt_sha256", "receipt", True),
+            ("dispatch_evidence_json", "dispatch_evidence_sha256", "dispatch", False),
+        ):
+            raw = row[raw_key]
+            if raw is None:
+                continue
+            digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+            if row[sha_key] != digest:
+                raise LedgerStorageError(f"{label} persistido adulterado")
+            try:
+                value = json.loads(raw)
+            except ValueError as exc:
+                raise LedgerStorageError(f"{label} persistido inválido") from exc
+            self._validate_transport_material(snapshot, value, receipt=is_receipt)
+            if is_receipt:
+                receipt = value
+            else:
+                evidence = value
+        if row["reconciliation_json"] is not None:
+            digest = hashlib.sha256(
+                row["reconciliation_json"].encode("utf-8")).hexdigest()
+            if row["reconciliation_sha256"] != digest:
+                raise LedgerStorageError("reconciliação persistida adulterada")
+        return receipt, evidence
+
     def get_revocation(self, digest: str) -> Optional[RevocationRecord]:
         try:
-            with self._connect() as conn:
+            with self._read() as conn:
                 row = conn.execute(
                     "SELECT * FROM authorization_revocations WHERE authorization_digest=?",
                     (digest,),
@@ -1035,7 +1242,7 @@ class Ledger:
 
     def get_evidence(self, mission_id: str) -> list[EvidenceRecord]:
         try:
-            with self._connect() as conn:
+            with self._read() as conn:
                 rows = conn.execute(
                     "SELECT * FROM mission_evidence WHERE mission_id=? ORDER BY seq",
                     (mission_id,),
@@ -1068,12 +1275,14 @@ class Ledger:
             raise AuthorizationMissing("authority_verifier não injetado")
         if not isinstance(payload, Mapping):
             raise LedgerError("payload deve ser mapping")
+        if not isinstance(envelope, Mapping):
+            raise LedgerError("envelope deve ser mapping canônico")
         record = self.get(mission_id)
         if record is None:
             raise LedgerError("missão inexistente")
         if record.authorization_mode != AUTHORIZATION_MODE_SIGNED:
             raise SignedAuthorizationRequired("authorize_signed exige missão SIGNED_V1")
-        with self._connect() as conn:
+        with self._read() as conn:
             row = conn.execute(
                 "SELECT * FROM missions WHERE mission_id=?", (mission_id,)
             ).fetchone()
@@ -1115,6 +1324,8 @@ class Ledger:
             raise AuthorizationExpired("autorização expirada")
         signature_bytes = bytes(signature)
         signature_sha = hashlib.sha256(signature_bytes).hexdigest()
+        envelope_raw = canonical_json(dict(envelope))
+        envelope_sha = hashlib.sha256(envelope_raw.encode("utf-8")).hexdigest()
         with self._write() as conn:
             row = conn.execute(
                 "SELECT * FROM missions WHERE mission_id=?", (mission_id,)
@@ -1148,16 +1359,18 @@ class Ledger:
                         authorization_digest, authorization_id, approval_reference,
                         mission_id, mission_snapshot_sha256, authority_material_sha256,
                         approver_id, approver_key_fingerprint, trust_policy_sha256,
-                        environment, signature, signature_sha256, issued_at, expires_at,
-                        nonce, consumed_at, consumed_by_mission_id, created_at
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?)""",
+                        environment, signature, signature_sha256, envelope_json,
+                        envelope_sha256, issued_at, expires_at, nonce, consumed_at,
+                        consumed_by_mission_id, created_at
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?)""",
                     (
                         verified.authorization_digest, verified.authorization_id,
                         verified.approval_reference, mission_id,
                         snapshot.sha256(), verified.authority_material_sha256,
                         verified.approver_id, verified.approver_key_fingerprint,
                         verified.trust_policy_sha256, verified.environment,
-                        signature_bytes.hex(), signature_sha, iso(issued), iso(expires),
+                        signature_bytes.hex(), signature_sha, envelope_raw,
+                        envelope_sha, iso(issued), iso(expires),
                         verified.nonce, iso(now),
                     ),
                 )
@@ -1211,19 +1424,23 @@ class Ledger:
                     )
                 raise EvidenceDivergence("revogação divergente para o mesmo digest")
             recorded = iso(now)
-            conn.execute(
-                """INSERT INTO authorization_revocations (
-                    authorization_digest, approver_id, approver_key_fingerprint,
-                    trust_policy_sha256, revoked_at, recorded_at, reason, nonce,
-                    signature, signature_sha256
-                ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (
-                    verified.authorization_digest, verified.approver_id,
-                    verified.approver_key_fingerprint, verified.trust_policy_sha256,
-                    iso(verified.revoked_at), recorded, verified.reason,
-                    verified.nonce, signature_bytes.hex(), signature_sha,
-                ),
-            )
+            try:
+                conn.execute(
+                    """INSERT INTO authorization_revocations (
+                        authorization_digest, approver_id, approver_key_fingerprint,
+                        trust_policy_sha256, revoked_at, recorded_at, reason, nonce,
+                        signature, signature_sha256
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        verified.authorization_digest, verified.approver_id,
+                        verified.approver_key_fingerprint, verified.trust_policy_sha256,
+                        iso(verified.revoked_at), recorded, verified.reason,
+                        verified.nonce, signature_bytes.hex(), signature_sha,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise EvidenceDivergence(
+                    "nonce de revogação já utilizado") from exc
         result = self.get_revocation(verified.authorization_digest)
         assert result is not None
         return result
@@ -1257,25 +1474,20 @@ class Ledger:
             snapshot = self._snapshot_from_row(row)
             if snapshot.target_key != (agent, session_id, worktree, instance_id):
                 raise LedgerError("destino divergente do snapshot")
-            auth = conn.execute(
-                "SELECT * FROM authorizations WHERE authorization_digest=? AND mission_id=?",
-                (authorization_digest, mission_id),
-            ).fetchone()
-            if auth is None:
-                raise AuthorizationMissing("autorização persistida ausente")
-            if auth["mission_snapshot_sha256"] != snapshot.sha256():
-                raise EvidenceDivergence("autorização não vincula o snapshot atual")
-            if auth["authority_material_sha256"] != snapshot.authority_material_sha256():
-                raise EvidenceDivergence("material de autoridade divergente")
+            auth, verified = self._revalidate_authorization(
+                conn, row, snapshot, now=now, require_validity=True)
             if auth["consumed_at"] is not None:
                 raise AuthorizationRevoked("autorização já consumida")
-            expires = parse_iso(auth["expires_at"])
+            expires = verified.expires_at.astimezone(timezone.utc)
             if now >= expires:
                 raise AuthorizationExpired("autorização expirada na reserva")
-            if conn.execute(
-                "SELECT 1 FROM authorization_revocations WHERE authorization_digest=?",
+            revocation = conn.execute(
+                "SELECT revoked_at FROM authorization_revocations "
+                "WHERE authorization_digest=?",
                 (authorization_digest,),
-            ).fetchone():
+            ).fetchone()
+            if revocation is not None and parse_iso(
+                    revocation["revoked_at"]) <= now:
                 raise AuthorizationRevoked("autorização revogada")
             if int(row["transmissions_used"] or 0) != 0:
                 raise AuthorizationExpired("limite de transmissões já consumido")
@@ -1358,53 +1570,52 @@ class Ledger:
         lease_id: str,
         actor: str,
     ) -> DispatchLease:
-        """Leitura imediatamente antes do POST; não consome e não reenvia."""
+        """Leitura imediatamente antes do POST; revalida assinatura e material."""
         now = self._now()
-        try:
-            with self._connect() as conn:
-                row = conn.execute(
-                    """SELECT m.*, r.lease_id AS lease_id,
-                              r.authorization_digest AS reservation_digest,
-                              a.expires_at AS auth_expires_at,
-                              a.consumed_at AS auth_consumed_at
-                       FROM missions m
-                       LEFT JOIN reservations r ON r.mission_id=m.mission_id
-                       LEFT JOIN authorizations a
-                         ON a.authorization_digest=m.authorization_digest
-                       WHERE m.mission_id=?""",
-                    (mission_id,),
-                ).fetchone()
-                revoked = conn.execute(
-                    "SELECT 1 FROM authorization_revocations WHERE authorization_digest=?",
-                    (authorization_digest,),
-                ).fetchone()
-        except sqlite3.Error as exc:
-            raise LedgerStorageError(f"falha ao validar despacho: {exc}") from exc
-        if row is None:
-            raise DispatchBlocked("missão inexistente")
-        self._assert_scope(row)
-        if row["authorization_mode"] != AUTHORIZATION_MODE_SIGNED:
-            raise SignedAuthorizationRequired("assert_dispatchable exige SIGNED_V1")
-        if row["state"] != DISPATCHING:
-            raise DispatchBlocked(f"estado não despachável: {row['state']}")
-        if row["authorization_digest"] != authorization_digest:
-            raise DispatchBlocked("digest não corresponde")
-        if row["reservation_digest"] != authorization_digest or row["lease_id"] != lease_id:
-            raise DispatchBlocked("reserva/lease divergente")
-        if row["auth_consumed_at"] is None or row["auth_expires_at"] is None:
-            raise DispatchBlocked("autorização não consumida/persistida")
-        if revoked is not None:
-            raise AuthorizationRevoked("autorização revogada")
-        if now >= parse_iso(row["auth_expires_at"]):
-            raise AuthorizationExpired("autorização expirada")
-        if int(row["transmissions_used"] or 0) != 1:
-            raise DispatchBlocked("consumo de transmissão inválido")
-        snapshot = self._snapshot_from_row(row)
+        with self._read() as conn:
+            row = conn.execute(
+                "SELECT * FROM missions WHERE mission_id=?", (mission_id,)
+            ).fetchone()
+            if row is None:
+                raise DispatchBlocked("missão inexistente")
+            self._assert_scope(row)
+            if row["authorization_mode"] != AUTHORIZATION_MODE_SIGNED:
+                raise SignedAuthorizationRequired("assert_dispatchable exige SIGNED_V1")
+            if row["state"] != DISPATCHING:
+                raise DispatchBlocked(f"estado não despachável: {row['state']}")
+            if row["authorization_digest"] != authorization_digest:
+                raise DispatchBlocked("digest não corresponde")
+            snapshot = self._snapshot_from_row(row)
+            auth, verified = self._revalidate_authorization(
+                conn, row, snapshot, now=now, require_validity=True)
+            if auth["consumed_at"] is None:
+                raise DispatchBlocked("autorização não consumida")
+            reservation = conn.execute(
+                "SELECT lease_id, authorization_digest FROM reservations "
+                "WHERE mission_id=?", (mission_id,)
+            ).fetchone()
+            if (reservation is None
+                    or reservation["lease_id"] != lease_id
+                    or reservation["authorization_digest"] != authorization_digest):
+                raise DispatchBlocked("reserva/lease divergente")
+            revocation = conn.execute(
+                "SELECT revoked_at FROM authorization_revocations "
+                "WHERE authorization_digest=?",
+                (authorization_digest,),
+            ).fetchone()
+            if revocation is not None and parse_iso(
+                    revocation["revoked_at"]) <= now:
+                raise AuthorizationRevoked("autorização revogada")
+            if now >= verified.expires_at.astimezone(timezone.utc):
+                raise AuthorizationExpired("autorização expirada")
+            if int(row["transmissions_used"] or 0) != 1:
+                raise DispatchBlocked("consumo de transmissão inválido")
+            self._validate_stored_evidence(row, snapshot)
         return DispatchLease(
             mission_id=mission_id, authorization_digest=authorization_digest,
             lease_id=lease_id, target_key=snapshot.target_key,
             reserved_at=parse_iso(row["dispatched_at"]),
-            expires_at=parse_iso(row["auth_expires_at"]),
+            expires_at=verified.expires_at.astimezone(timezone.utc),
         )
 
     def _validate_transport_material(
@@ -1412,8 +1623,14 @@ class Ledger:
     ) -> None:
         if not isinstance(value, Mapping):
             raise EvidenceDivergence("evidência deve ser mapping")
-        if value.get("environment") is not None and value["environment"] != snapshot.environment:
-            raise EvidenceDivergence("ambiente divergente")
+        source = value.get("source")
+        if not isinstance(source, str) or not source.strip():
+            raise EvidenceDivergence("proveniência/source ausente")
+        if receipt:
+            if value.get("environment") is not None and value["environment"] != snapshot.environment:
+                raise EvidenceDivergence("ambiente divergente")
+        elif value.get("environment") != snapshot.environment:
+            raise EvidenceDivergence("ambiente da evidência divergente")
         allow_real = bool(self.policy.get("allow_real_transport", False))
         if not allow_real:
             if value.get("service_contacted") is True or value.get("transport_real") is True:
@@ -1466,18 +1683,45 @@ class Ledger:
                 raise InvalidTransition("evidência exige reserva")
             if row["state"] not in {DISPATCHING, DELIVERED, RUNNING, UNKNOWN, COMPLETED, FAILED}:
                 raise InvalidTransition("estado incompatível com evidência")
-            reservation = conn.execute(
-                "SELECT lease_id FROM reservations WHERE mission_id=?", (mission_id,)
-            ).fetchone()
-            if reservation is not None and reservation["lease_id"] != lease_id:
-                raise DispatchBlocked("lease divergente")
             snapshot = self._snapshot_from_row(row)
+            auth, verified = self._revalidate_authorization(
+                conn, row, snapshot, now=now, require_validity=False)
+            if (auth["consumed_at"] is None
+                    or auth["consumed_by_mission_id"] != mission_id):
+                raise DispatchBlocked("autorização não consumida por esta missão")
+            dispatched_at = row["dispatched_at"]
+            if not dispatched_at:
+                raise DispatchBlocked("receipt/evidence sem dispatcher registrado")
+            dispatched = parse_iso(dispatched_at)
+            if dispatched >= verified.expires_at.astimezone(timezone.utc):
+                raise AuthorizationExpired("despacho posterior à expiração")
+            revocation = conn.execute(
+                "SELECT revoked_at FROM authorization_revocations "
+                "WHERE authorization_digest=?", (authorization_digest,)
+            ).fetchone()
+            if revocation is not None and parse_iso(
+                    revocation["revoked_at"]) <= dispatched:
+                raise AuthorizationRevoked("despacho posterior à revogação")
             self._validate_transport_material(snapshot, receipt, receipt=True)
             self._validate_transport_material(snapshot, evidence, receipt=False)
+            # Hash local detecta adulteração acidental/DB; a fronteira de
+            # confiança forte continua dependendo de UID/serviço separado.
+            self._validate_stored_evidence(row, snapshot)
             receipt_raw = canonical_json(dict(receipt))
             evidence_raw = canonical_json(dict(evidence))
             receipt_sha = hashlib.sha256(receipt_raw.encode("utf-8")).hexdigest()
             evidence_sha = hashlib.sha256(evidence_raw.encode("utf-8")).hexdigest()
+            if row["state"] in TERMINAL:
+                if (row["receipt_sha256"] == receipt_sha
+                        and row["dispatch_evidence_sha256"] == evidence_sha):
+                    return self._record(row)
+                raise EvidenceDivergence(
+                    "missão terminal não aceita nova evidência de dispatch")
+            reservation = conn.execute(
+                "SELECT lease_id FROM reservations WHERE mission_id=?", (mission_id,)
+            ).fetchone()
+            if reservation is None or reservation["lease_id"] != lease_id:
+                raise DispatchBlocked("lease/reserva ausente ou divergente")
             if row["receipt_sha256"] and row["receipt_sha256"] != receipt_sha:
                 raise EvidenceDivergence("receipt divergente do persistido")
             if row["dispatch_evidence_sha256"] and row["dispatch_evidence_sha256"] != evidence_sha:
@@ -1503,6 +1747,7 @@ class Ledger:
     def _validate_report(
         self, snapshot: MissionSnapshot, report: Mapping[str, Any],
         receipt: Mapping[str, Any], now: datetime, created_at: str,
+        dispatched_at: str,
     ) -> None:
         if not isinstance(report, Mapping):
             raise UnsafeReconciliation("relatório deve ser mapping")
@@ -1534,8 +1779,8 @@ class Ledger:
         if missing:
             raise UnsafeReconciliation("critérios de aceitação incompletos")
         payload_hash = report.get("payload_sha256")
-        if payload_hash is not None and payload_hash != snapshot.payload_sha256:
-            raise EvidenceDivergence("payload do relatório divergente")
+        if payload_hash != snapshot.payload_sha256:
+            raise EvidenceDivergence("payload do relatório divergente/ausente")
         completed = report.get("completed_at")
         if not isinstance(completed, str):
             raise EvidenceDivergence("completed_at ausente")
@@ -1543,8 +1788,12 @@ class Ledger:
             completed_at = parse_iso(completed)
         except ValueError as exc:
             raise EvidenceDivergence("completed_at inválido") from exc
+        if completed_at.tzinfo is None:
+            raise EvidenceDivergence("completed_at sem fuso")
         if completed_at >= now + timedelta(minutes=5):
             raise UnsafeReconciliation("relatório no futuro")
+        if completed_at < parse_iso(dispatched_at):
+            raise UnsafeReconciliation("relatório anterior ao despacho")
         if completed_at < parse_iso(created_at):
             raise UnsafeReconciliation("relatório anterior à missão")
 
@@ -1555,33 +1804,30 @@ class Ledger:
         authorization_digest: str,
         lease_id: str,
         target_state: str,
+        attestation: Any,
+        attestation_signature: bytes,
         report: Optional[Mapping[str, Any]] = None,
         evidence: Optional[Mapping[str, Any]] = None,
-        authority_reference: str,
         actor: str,
-        human_decision: bool = False,
     ) -> MissionRecord:
-        """Reconciliação terminal vinculada a snapshot/receipt/lease persistidos."""
+        """Reconciliação terminal com atestação externa autenticada."""
         if target_state not in TERMINAL:
             raise InvalidTransition("reconciliação assinada exige COMPLETED/FAILED")
-        if not isinstance(authority_reference, str) or not authority_reference.strip():
-            raise UnsafeReconciliation("authority_reference obrigatória")
+        if self.reconciliation_verifier is None:
+            raise ReconciliationRequired("reconciliation_verifier não injetado")
+        if not isinstance(attestation, Mapping):
+            raise UnsafeReconciliation("attestation deve ser mapping")
         if report is not None and not isinstance(report, Mapping):
             raise UnsafeReconciliation("report deve ser mapping")
-        if evidence is not None and not isinstance(evidence, Mapping):
-            raise UnsafeReconciliation("evidence deve ser mapping")
-        if not evidence and not human_decision and target_state == FAILED:
-            raise UnsafeReconciliation("falha exige evidência/decisão")
+        if not isinstance(evidence, Mapping) or not evidence:
+            raise UnsafeReconciliation("evidence terminal obrigatória")
+        if target_state == COMPLETED and report is None:
+            raise UnsafeReconciliation("COMPLETED exige relatório")
         now = self._now()
-        payload = {
-            "target_state": target_state,
-            "authority_reference": authority_reference,
-            "report": dict(report) if report is not None else None,
-            "evidence": dict(evidence) if evidence is not None else None,
-            "human_decision": bool(human_decision),
-        }
-        reconciliation_sha = hashlib.sha256(
-            canonical_json(payload).encode("utf-8")).hexdigest()
+        report_raw = canonical_json(report) if report is not None else canonical_json(None)
+        evidence_raw = canonical_json(dict(evidence))
+        report_sha = hashlib.sha256(report_raw.encode("utf-8")).hexdigest()
+        evidence_sha = hashlib.sha256(evidence_raw.encode("utf-8")).hexdigest()
         with self._write() as conn:
             row = conn.execute(
                 "SELECT * FROM missions WHERE mission_id=?", (mission_id,)
@@ -1593,29 +1839,43 @@ class Ledger:
                 raise SignedTransitionRequired("reconcile_signed exige SIGNED_V1")
             if row["authorization_digest"] != authorization_digest:
                 raise AuthorizationMissing("digest divergente")
-            state = row["state"]
-            if state in TERMINAL:
-                if state == target_state and row["reconciliation_sha256"] == reconciliation_sha:
-                    return self._record(row)
-                raise EvidenceDivergence("estado terminal divergente")
             snapshot = self._snapshot_from_row(row)
-            reservation = conn.execute(
-                "SELECT lease_id FROM reservations WHERE mission_id=?", (mission_id,)
+            auth, verified = self._revalidate_authorization(
+                conn, row, snapshot, now=now, require_validity=False)
+            if (auth["consumed_at"] is None
+                    or auth["consumed_by_mission_id"] != mission_id):
+                raise DispatchBlocked("autorização não consumida por esta missão")
+            dispatched_at = row["dispatched_at"]
+            if not dispatched_at:
+                raise DispatchBlocked("reconciliação exige despacho registrado")
+            dispatched = parse_iso(dispatched_at)
+            if dispatched >= verified.expires_at.astimezone(timezone.utc):
+                raise AuthorizationExpired("despacho posterior à expiração")
+            revocation = conn.execute(
+                "SELECT revoked_at FROM authorization_revocations "
+                "WHERE authorization_digest=?", (authorization_digest,)
             ).fetchone()
-            if reservation is None or reservation["lease_id"] != lease_id:
-                raise DispatchBlocked("lease/reserva ausente ou divergente")
-            if target_state == COMPLETED:
-                receipt_raw = row["receipt_json"]
-                if not receipt_raw:
-                    raise EvidenceDivergence("receipt ausente para conclusão")
+            if revocation is not None and parse_iso(
+                    revocation["revoked_at"]) <= dispatched:
+                raise AuthorizationRevoked("despacho posterior à revogação")
+            receipt_raw = row["receipt_json"]
+            receipt = None
+            if receipt_raw is not None:
                 receipt_sha = hashlib.sha256(receipt_raw.encode("utf-8")).hexdigest()
                 if row["receipt_sha256"] != receipt_sha:
                     raise LedgerStorageError("receipt persistido adulterado")
-                receipt = json.loads(receipt_raw)
+                try:
+                    receipt = json.loads(receipt_raw)
+                except ValueError as exc:
+                    raise LedgerStorageError("receipt persistido inválido") from exc
                 self._validate_transport_material(snapshot, receipt, receipt=True)
-                if report is None:
-                    raise UnsafeReconciliation("COMPLETED exige relatório")
-                self._validate_report(snapshot, report, receipt, now, row["created_at"])
+            if target_state == COMPLETED and receipt is None:
+                raise EvidenceDivergence("receipt ausente para conclusão")
+            self._validate_transport_material(snapshot, evidence, receipt=False)
+            self._validate_stored_evidence(row, snapshot)
+            if target_state == COMPLETED:
+                self._validate_report(snapshot, report, receipt, now,
+                                      row["created_at"], dispatched_at)
             else:
                 if report is not None:
                     if report.get("status") not in {"FAILED", "BLOCKED", "UNKNOWN"}:
@@ -1630,8 +1890,72 @@ class Ledger:
                     ):
                         if report.get(key) != expected:
                             raise EvidenceDivergence(f"relatório: {key} divergente")
-                    if report.get("payload_sha256") not in (None, snapshot.payload_sha256):
-                        raise EvidenceDivergence("payload do relatório divergente")
+                    if report.get("payload_sha256") != snapshot.payload_sha256:
+                        raise EvidenceDivergence("payload do relatório divergente/ausente")
+            receipt_sha = hashlib.sha256(
+                (receipt_raw or canonical_json({})).encode("utf-8")).hexdigest()
+            expected = ExpectedReconciliation(
+                mission_id=mission_id, authorization_digest=authorization_digest,
+                payload_sha256=snapshot.payload_sha256, receipt_sha256=receipt_sha,
+                report_sha256=report_sha, evidence_sha256=evidence_sha,
+                outcome=target_state,
+            )
+            expected.validate()
+            verified_reconciliation = self.reconciliation_verifier.verify_reconciliation(
+                attestation=attestation, signature=attestation_signature,
+                expected=expected, now=now,
+            )
+            verified_reconciliation.validate()
+            checks = (
+                ("mission_id", verified_reconciliation.mission_id, mission_id),
+                ("authorization_digest", verified_reconciliation.authorization_digest,
+                 authorization_digest),
+                ("payload_sha256", verified_reconciliation.payload_sha256,
+                 snapshot.payload_sha256),
+                ("receipt_sha256", verified_reconciliation.receipt_sha256, receipt_sha),
+                ("report_sha256", verified_reconciliation.report_sha256, report_sha),
+                ("evidence_sha256", verified_reconciliation.evidence_sha256, evidence_sha),
+                ("outcome", verified_reconciliation.outcome, target_state),
+            )
+            for label, left, right in checks:
+                if left != right:
+                    raise EvidenceDivergence(f"atestção terminal diverge: {label}")
+            if now < verified_reconciliation.issued_at.astimezone(timezone.utc):
+                raise UnsafeReconciliation("atestação terminal ainda não válida")
+            if now >= verified_reconciliation.expires_at.astimezone(timezone.utc):
+                raise UnsafeReconciliation("atestação terminal expirada")
+            if verified_reconciliation.issued_at.astimezone(timezone.utc) < dispatched:
+                raise UnsafeReconciliation("atestação anterior ao despacho")
+            if report is not None:
+                completed_at = parse_iso(str(report.get("completed_at")))
+                if completed_at > verified_reconciliation.issued_at.astimezone(timezone.utc):
+                    raise UnsafeReconciliation("relatório posterior à atestação")
+            attestation_sha = hashlib.sha256(
+                canonical_json(dict(attestation)).encode("utf-8")).hexdigest()
+            payload = {
+                "target_state": target_state,
+                "authority_id": verified_reconciliation.authority_id,
+                "attestation_sha256": attestation_sha,
+                "attestation_signature_sha256": hashlib.sha256(
+                    bytes(attestation_signature)).hexdigest(),
+                "receipt_sha256": receipt_sha,
+                "report_sha256": report_sha,
+                "evidence_sha256": evidence_sha,
+                "report": dict(report) if report is not None else None,
+                "evidence": dict(evidence),
+            }
+            reconciliation_sha = hashlib.sha256(
+                canonical_json(payload).encode("utf-8")).hexdigest()
+            state = row["state"]
+            if state in TERMINAL:
+                if state == target_state and row["reconciliation_sha256"] == reconciliation_sha:
+                    return self._record(row)
+                raise EvidenceDivergence("estado terminal divergente")
+            reservation = conn.execute(
+                "SELECT lease_id FROM reservations WHERE mission_id=?", (mission_id,)
+            ).fetchone()
+            if reservation is None or reservation["lease_id"] != lease_id:
+                raise DispatchBlocked("lease/reserva ausente ou divergente")
             now_s = iso(now)
             detail = canonical_json(payload)
             if state == DISPATCHING and target_state == COMPLETED:
@@ -1670,7 +1994,78 @@ class Ledger:
                          actor, now_s, authorization_digest)
             self._insert_evidence(
                 conn, mission_id, "RECONCILE", payload, actor=actor,
-                source="ledger", at=now_s,
+                source="authority", at=now_s,
+                authorization_digest=authorization_digest, lease_id=lease_id)
+        return self.get(mission_id)
+
+    def terminate_signed_before_dispatch(
+        self,
+        mission_id: str,
+        *,
+        authorization_digest: str,
+        lease_id: Optional[str],
+        evidence: Mapping[str, Any],
+        actor: str,
+    ) -> MissionRecord:
+        """Terminaliza expirada/revogada antes do POST sem liberar reenvio."""
+        if not isinstance(evidence, Mapping) or not evidence:
+            raise UnsafeReconciliation("evidência de terminalização obrigatória")
+        now = self._now()
+        now_s = iso(now)
+        with self._write() as conn:
+            row = conn.execute(
+                "SELECT * FROM missions WHERE mission_id=?", (mission_id,)
+            ).fetchone()
+            if row is None:
+                raise LedgerError("missão inexistente")
+            self._assert_scope(row)
+            if row["authorization_mode"] != AUTHORIZATION_MODE_SIGNED:
+                raise SignedTransitionRequired("terminalização exige SIGNED_V1")
+            if row["authorization_digest"] != authorization_digest:
+                raise AuthorizationMissing("digest divergente")
+            snapshot = self._snapshot_from_row(row)
+            auth, verified = self._revalidate_authorization(
+                conn, row, snapshot, now=now, require_validity=False)
+            self._validate_transport_material(snapshot, evidence, receipt=False)
+            self._validate_stored_evidence(row, snapshot)
+            state = row["state"]
+            if state in TERMINAL:
+                if state == FAILED:
+                    return self._record(row)
+                raise EvidenceDivergence("missão terminal não elegível")
+            if state not in {AUTHORIZED, DISPATCHING}:
+                raise InvalidTransition("terminalização exige AUTHORIZED/DISPATCHING")
+            if row["receipt_json"] is not None or row["dispatch_evidence_json"] is not None:
+                raise EvidenceDivergence("há evidência de dispatch; use reconciliação")
+            revocation = conn.execute(
+                "SELECT revoked_at FROM authorization_revocations "
+                "WHERE authorization_digest=?", (authorization_digest,)
+            ).fetchone()
+            expired = now >= verified.expires_at.astimezone(timezone.utc)
+            revoked = revocation is not None and parse_iso(
+                revocation["revoked_at"]) <= now
+            if not (expired or revoked):
+                raise InvalidTransition("autorização ainda válida; não terminalizar")
+            if state == DISPATCHING:
+                reservation = conn.execute(
+                    "SELECT lease_id FROM reservations WHERE mission_id=?", (mission_id,)
+                ).fetchone()
+                if reservation is None or reservation["lease_id"] != lease_id:
+                    raise DispatchBlocked("lease/reserva ausente ou divergente")
+                conn.execute("DELETE FROM reservations WHERE mission_id=?", (mission_id,))
+            conn.execute(
+                "UPDATE missions SET state=?, updated_at=? WHERE mission_id=?",
+                (FAILED, now_s, mission_id))
+            detail = canonical_json({
+                "reason": evidence.get("reason", "expired_or_revoked_before_dispatch"),
+                "authorization_digest": authorization_digest,
+                "expired": expired, "revoked": revoked,
+            })
+            self._append(conn, mission_id, state, FAILED, detail, actor, now_s,
+                         authorization_digest)
+            self._insert_evidence(
+                conn, mission_id, "TERMINALIZE", evidence, actor=actor,
+                source=str(evidence["source"]), at=now_s,
                 authorization_digest=authorization_digest, lease_id=lease_id)
         return self.get(mission_id)
 
@@ -1757,9 +2152,9 @@ class Ledger:
         if record.authorization_mode == AUTHORIZATION_MODE_SIGNED:
             raise SignedAuthorizationRequired(
                 "missão SIGNED_V1 exige authorize_signed")
-        if self.policy.get("require_signed_authorization"):
-            raise SignedAuthorizationRequired(
-                "política exige autorização assinada; legado inelegível")
+        if not self._legacy_dispatch_allowed():
+            raise LegacyDispatchDisabled(
+                "despacho legado desabilitado; allow_legacy_dispatch explícito")
         if record.payload_sha256 != payload_sha256_value:
             raise DuplicateMission("hash do payload divergente da autorização")
         if record.authorization_reference != authorization_reference:
@@ -1791,9 +2186,9 @@ class Ledger:
             if row["authorization_mode"] == AUTHORIZATION_MODE_SIGNED:
                 raise SignedAuthorizationRequired(
                     "missão SIGNED_V1 exige reserve_dispatch_signed")
-            if self.policy.get("require_signed_authorization"):
-                raise SignedAuthorizationRequired(
-                    "política exige autorização assinada; legado inelegível")
+            if not self._legacy_dispatch_allowed():
+                raise LegacyDispatchDisabled(
+                    "despacho legado desabilitado; allow_legacy_dispatch explícito")
             self._assert_scope(row)
             if conn.execute(
                 "SELECT project_id FROM reservations WHERE mission_id=?", (mission_id,)
@@ -1976,7 +2371,7 @@ class Ledger:
         """
         if cause not in self.RECOVERY_CAUSES:
             return []
-        reference = now or utc_now()
+        reference = now or self._now()
         recovered: list[str] = []
         with self._write() as conn:
             rows = conn.execute(
@@ -2023,7 +2418,7 @@ class Ledger:
 
     def is_reserved(self, mission_id: str) -> bool:
         try:
-            with self._connect() as conn:
+            with self._read() as conn:
                 return (
                     conn.execute(
                         """SELECT 1 FROM reservations r
@@ -2051,6 +2446,6 @@ class Ledger:
             return False
         if record.authorization_mode == AUTHORIZATION_MODE_SIGNED:
             return False
-        if self.policy.get("require_signed_authorization"):
+        if not self._legacy_dispatch_allowed():
             return False
         return not self.is_reserved(mission_id)

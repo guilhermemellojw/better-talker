@@ -45,6 +45,10 @@ class RevocationRejected(AuthorityContractError):
     """O verificador rejeitou a revogação; nenhuma transição é permitida."""
 
 
+class ReconciliationRejected(AuthorityContractError):
+    """O verificador rejeitou a evidência terminal; nenhuma transição é permitida."""
+
+
 def canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -220,8 +224,11 @@ class MissionSnapshot:
         return {
             "schema": AUTHORITY_MATERIAL_SCHEMA,
             "mission_identity": self.mission_identity,
+            "payload_sha256": self.payload_sha256,
             "model": self.model,
             "scope": self.scope,
+            "acceptance_criteria": list(self.acceptance_criteria),
+            "environment": self.environment,
             "reviewed_head_sha": self.reviewed_head_sha,
             "operational_digests": dict(sorted(self.operational_digests.items())),
             "max_transmissions": self.max_transmissions,
@@ -341,6 +348,78 @@ class VerifiedRevocation:
         _ident(self.nonce, "nonce")
         if not isinstance(self.signature, (bytes, bytearray)) or not self.signature:
             raise AuthorityContractError("assinatura da revogação ausente")
+
+
+@dataclass(frozen=True)
+class ExpectedReconciliation:
+    """Material que a autoridade externa deve autenticar na reconciliação."""
+
+    mission_id: str
+    authorization_digest: str
+    payload_sha256: str
+    receipt_sha256: str
+    report_sha256: str
+    evidence_sha256: str
+    outcome: str
+
+    def validate(self) -> None:
+        _ident(self.mission_id, "mission_id")
+        _digest(self.authorization_digest, "authorization_digest")
+        _digest(self.payload_sha256, "payload_sha256")
+        _digest(self.receipt_sha256, "receipt_sha256")
+        _digest(self.report_sha256, "report_sha256")
+        _digest(self.evidence_sha256, "evidence_sha256")
+        if self.outcome not in {"COMPLETED", "FAILED"}:
+            raise AuthorityContractError("outcome de reconciliação inválido")
+
+
+@dataclass(frozen=True)
+class VerifiedReconciliation:
+    """Atestação de reconciliação verificada; nunca authority_reference livre."""
+
+    authority_id: str
+    mission_id: str
+    authorization_digest: str
+    payload_sha256: str
+    receipt_sha256: str
+    report_sha256: str
+    evidence_sha256: str
+    outcome: str
+    issued_at: datetime
+    expires_at: datetime
+    nonce: str
+    signature: bytes
+
+    def validate(self) -> None:
+        _ident(self.authority_id, "authority_id")
+        _ident(self.mission_id, "mission_id")
+        _digest(self.authorization_digest, "authorization_digest")
+        _digest(self.payload_sha256, "payload_sha256")
+        _digest(self.receipt_sha256, "receipt_sha256")
+        _digest(self.report_sha256, "report_sha256")
+        _digest(self.evidence_sha256, "evidence_sha256")
+        if self.outcome not in {"COMPLETED", "FAILED"}:
+            raise AuthorityContractError("outcome verificado inválido")
+        issued = _utc(self.issued_at, "issued_at")
+        expires = _utc(self.expires_at, "expires_at")
+        if expires <= issued:
+            raise AuthorityContractError("janela da atestação invertida")
+        _ident(self.nonce, "nonce")
+        if not isinstance(self.signature, (bytes, bytearray)) or not self.signature:
+            raise AuthorityContractError("assinatura da atestação ausente")
+
+
+class ReconciliationVerifier(Protocol):
+    """Porta independente para atestação terminal; não autentica sozinha."""
+
+    def verify_reconciliation(
+        self,
+        *,
+        attestation: Any,
+        signature: bytes,
+        expected: ExpectedReconciliation,
+        now: datetime,
+    ) -> VerifiedReconciliation: ...
 
 
 class AuthorityVerifier(Protocol):

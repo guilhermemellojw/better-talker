@@ -2,6 +2,7 @@
 """COORD-05A-EXT/1.1 — testes host-only do ledger, migração e reconciliação."""
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import multiprocessing
@@ -15,9 +16,11 @@ from unittest.mock import patch
 import coord_ledger as ledger
 from coord_ledger_authority import (
     AuthorityContractError,
+    AuthorizationRejected,
     MissionSnapshot,
     RevocationRejected,
     VerifiedAuthorization,
+    VerifiedReconciliation,
     VerifiedRevocation,
     canonical_json,
 )
@@ -50,13 +53,14 @@ class FakeVerifier:
         revocation_digest: str | None = None,
         revocation_at: datetime | None = None,
         revocation_reason: str = "contramandamento",
+        revocation_nonce: str | None = None,
     ) -> None:
         self.label = label
         self.digest = digest or hashlib.sha256(label.encode()).hexdigest()
         self.approval_reference = approval_reference
         self.environment = environment
-        self.issued_at = issued_at
-        self.expires_at = expires_at
+        self.issued_at = issued_at or NOW - timedelta(minutes=1)
+        self.expires_at = expires_at or NOW + timedelta(minutes=10)
         self.mission_identity = mission_identity
         self.authority_material_sha256 = authority_material_sha256
         self.authorization_error = authorization_error
@@ -64,6 +68,7 @@ class FakeVerifier:
         self.revocation_digest = revocation_digest
         self.revocation_at = revocation_at
         self.revocation_reason = revocation_reason
+        self.revocation_nonce = revocation_nonce
         self.signature = b"signature-" + label.encode()
         self.calls = 0
 
@@ -71,6 +76,8 @@ class FakeVerifier:
         self.calls += 1
         if self.authorization_error:
             raise self.authorization_error
+        if bytes(signature) != self.signature:
+            raise AuthorizationRejected("assinatura sintética divergente")
         material_sha = self.authority_material_sha256 or hashlib.sha256(
             canonical_json(expected.material).encode()).hexdigest()
         return VerifiedAuthorization(
@@ -100,9 +107,43 @@ class FakeVerifier:
             trust_policy_sha256="f" * 64,
             revoked_at=self.revocation_at or now,
             reason=self.revocation_reason,
-            nonce="rev-" + self.label,
+            nonce=self.revocation_nonce or ("rev-" + self.label),
             signature=b"revocation-" + self.label.encode(),
         )
+
+
+class FakeReconciliationVerifier:
+    def __init__(
+        self, *, outcome: str | None = None, error: Exception | None = None,
+        authority_id: str = "maintainer", issued_at: datetime | None = None,
+        expires_at: datetime | None = None, mutate=None,
+    ) -> None:
+        self.outcome = outcome
+        self.error = error
+        self.authority_id = authority_id
+        self.issued_at = issued_at or NOW
+        self.expires_at = expires_at or NOW + timedelta(hours=1)
+        self.mutate = dict(mutate or {})
+
+    def verify_reconciliation(self, *, attestation, signature, expected, now):
+        if self.error:
+            raise self.error
+        values = {
+            "authority_id": self.authority_id,
+            "mission_id": expected.mission_id,
+            "authorization_digest": expected.authorization_digest,
+            "payload_sha256": expected.payload_sha256,
+            "receipt_sha256": expected.receipt_sha256,
+            "report_sha256": expected.report_sha256,
+            "evidence_sha256": expected.evidence_sha256,
+            "outcome": self.outcome or expected.outcome,
+            "issued_at": self.issued_at,
+            "expires_at": self.expires_at,
+            "nonce": "attestation-nonce-1",
+            "signature": b"attestation-signature",
+        }
+        values.update(self.mutate)
+        return VerifiedReconciliation(**values)
 
 
 def make_snapshot(mission_id: str = "MISS-L11", operation_id: str = "OP-L11",
@@ -133,11 +174,13 @@ def make_snapshot(mission_id: str = "MISS-L11", operation_id: str = "OP-L11",
     return MissionSnapshot(**values)
 
 
-def make_ledger(directory: str, *, verifier=None, clock=None, policy=None,
+def make_ledger(directory: str, *, verifier=None, reconciliation_verifier=None,
+                clock=None, policy=None,
                 allow_migration=False) -> ledger.Ledger:
     return ledger.Ledger(
         os.path.join(directory, "ledger.db"), project_id=PROJECT,
         repository_id=REPO, authority_verifier=verifier,
+        reconciliation_verifier=reconciliation_verifier or FakeReconciliationVerifier(),
         clock=clock or Clock(), policy=policy, allow_migration=allow_migration)
 
 
@@ -222,6 +265,21 @@ class Ledger11Test(unittest.TestCase):
 
     def tearDown(self):
         self._tmp.cleanup()
+
+    def _mutate_snapshot(self, **changes):
+        tampered = dataclasses.replace(self.snapshot, **changes)
+        raw = canonical_json(tampered.canonical_material())
+        conn = sqlite3.connect(self.db.db_path)
+        conn.execute(
+            """UPDATE missions SET mission_snapshot_json=?,
+               mission_snapshot_sha256=?, payload_sha256=?, environment=?
+               WHERE mission_id=?""",
+            (raw, tampered.sha256(), tampered.payload_sha256,
+             tampered.environment, self.snapshot.mission_id),
+        )
+        conn.commit()
+        conn.close()
+        return tampered
 
     def test_register_snapshot_and_authorize_persist_digest(self):
         record = self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
@@ -400,7 +458,7 @@ class Ledger11Test(unittest.TestCase):
             self.snapshot.mission_id, authorization_digest=self.verifier.digest,
             lease_id=lease.lease_id, target_state=ledger.COMPLETED,
             report=report_value, evidence=evidence(self.snapshot),
-            authority_reference="QA-REPORT", actor="qa")
+            attestation={"authority": "maintainer"}, attestation_signature=b"attestation", actor="qa")
         self.assertEqual(ledger.COMPLETED, record.state)
         self.assertFalse(self.db.is_reserved(self.snapshot.mission_id))
         self.assertIsNotNone(self.db.get_authorization(
@@ -409,14 +467,14 @@ class Ledger11Test(unittest.TestCase):
             self.snapshot.mission_id, authorization_digest=self.verifier.digest,
             lease_id=lease.lease_id, target_state=ledger.COMPLETED,
             report=report_value, evidence=evidence(self.snapshot),
-            authority_reference="QA-REPORT", actor="qa")
+            attestation={"authority": "maintainer"}, attestation_signature=b"attestation", actor="qa")
         self.assertEqual(ledger.COMPLETED, same.state)
         with self.assertRaises(ledger.EvidenceDivergence):
             self.db.reconcile_signed(
                 self.snapshot.mission_id, authorization_digest=self.verifier.digest,
                 lease_id=lease.lease_id, target_state=ledger.COMPLETED,
                 report=dict(report_value, message_id="other"), evidence=evidence(self.snapshot),
-                authority_reference="QA-REPORT", actor="qa")
+                attestation={"authority": "maintainer"}, attestation_signature=b"attestation", actor="qa")
 
     def test_restart_preserves_evidence_and_allows_reconciliation(self):
         self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
@@ -424,8 +482,11 @@ class Ledger11Test(unittest.TestCase):
                                  signature=self.verifier.signature,
                                  payload=self.snapshot.payload, actor="human")
         lease, receipt_value = record_evidence(self.db, self.snapshot, self.verifier)
-        restarted = ledger.Ledger(self.db.db_path, project_id=PROJECT,
-                                  repository_id=REPO, clock=self.clock)
+        restarted = ledger.Ledger(
+            self.db.db_path, project_id=PROJECT, repository_id=REPO,
+            authority_verifier=self.verifier,
+            reconciliation_verifier=FakeReconciliationVerifier(),
+            clock=self.clock)
         record = restarted.get(self.snapshot.mission_id)
         self.assertIsNotNone(record.receipt_sha256)
         self.assertIsNotNone(record.dispatch_evidence_sha256)
@@ -437,7 +498,7 @@ class Ledger11Test(unittest.TestCase):
             self.snapshot.mission_id, authorization_digest=self.verifier.digest,
             lease_id=lease.lease_id, target_state=ledger.COMPLETED,
             report=report_value, evidence=evidence(self.snapshot),
-            authority_reference="QA-RESTART", actor="qa")
+            attestation={"authority": "maintainer"}, attestation_signature=b"attestation", actor="qa")
         self.assertEqual(ledger.COMPLETED, record.state)
         self.assertFalse(restarted.is_reserved(self.snapshot.mission_id))
 
@@ -461,7 +522,7 @@ class Ledger11Test(unittest.TestCase):
                     self.snapshot.mission_id, authorization_digest=self.verifier.digest,
                     lease_id=lease.lease_id, target_state=ledger.COMPLETED,
                     report=value, evidence=evidence(self.snapshot),
-                    authority_reference="QA", actor="qa")
+                    attestation={"authority": "maintainer"}, attestation_signature=b"attestation", actor="qa")
         self.assertEqual(ledger.DISPATCHING,
                          self.db.get(self.snapshot.mission_id).state)
         self.assertTrue(self.db.is_reserved(self.snapshot.mission_id))
@@ -519,8 +580,9 @@ class Ledger11Test(unittest.TestCase):
         record = self.db.reconcile_signed(
             self.snapshot.mission_id, authorization_digest=self.verifier.digest,
             lease_id=lease.lease_id, target_state=ledger.FAILED,
-            evidence={"reason": "synthetic failure"}, authority_reference="QA-FAIL",
-            actor="qa")
+            evidence={**evidence(self.snapshot), "reason": "synthetic failure"},
+            attestation={"authority": "maintainer"},
+            attestation_signature=b"attestation", actor="qa")
         self.assertEqual(ledger.FAILED, record.state)
         self.assertFalse(self.db.is_reserved(self.snapshot.mission_id))
         self.assertIsNotNone(self.db.get_authorization(
@@ -571,23 +633,25 @@ class Ledger11Test(unittest.TestCase):
                            project_id=PROJECT, repository_id=REPO,
                            authority_verifier=fake_a, clock=self.clock)
         authorize(db, first, fake_a)
-        db = ledger.Ledger(db.db_path, project_id=PROJECT, repository_id=REPO,
-                           authority_verifier=fake_b, clock=self.clock)
-        authorize(db, second, fake_b)
-        first_lease = reserve(db, first, fake_a)
+        db_b = ledger.Ledger(db.db_path, project_id=PROJECT, repository_id=REPO,
+                             authority_verifier=fake_b, clock=self.clock)
+        authorize(db_b, second, fake_b)
+        db_a = ledger.Ledger(db.db_path, project_id=PROJECT, repository_id=REPO,
+                             authority_verifier=fake_a, clock=self.clock)
+        first_lease = reserve(db_a, first, fake_a)
         with self.assertRaises(ledger.DuplicateReservation):
-            reserve(db, second, fake_b)
-        self.assertTrue(db.is_reserved(first.mission_id))
-        self.assertEqual(ledger.AUTHORIZED, db.get(second.mission_id).state)
+            reserve(db_b, second, fake_b)
+        self.assertTrue(db_a.is_reserved(first.mission_id))
+        self.assertEqual(ledger.AUTHORIZED, db_b.get(second.mission_id).state)
         with self.assertRaises(ledger.DispatchBlocked):
-            db.assert_dispatchable(first.mission_id,
-                                   authorization_digest=fake_a.digest,
-                                   lease_id="wrong", actor="x")
+            db_a.assert_dispatchable(first.mission_id,
+                                     authorization_digest=fake_a.digest,
+                                     lease_id="wrong", actor="x")
         self.assertEqual(first_lease.lease_id,
-                         db.assert_dispatchable(first.mission_id,
-                                                authorization_digest=fake_a.digest,
-                                                lease_id=first_lease.lease_id,
-                                                actor="x").lease_id)
+                         db_a.assert_dispatchable(first.mission_id,
+                                                  authorization_digest=fake_a.digest,
+                                                  lease_id=first_lease.lease_id,
+                                                  actor="x").lease_id)
 
     def test_revocation_before_reservation_blocks_consumption(self):
         self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
@@ -637,7 +701,7 @@ class Ledger11Test(unittest.TestCase):
             self.snapshot.mission_id, authorization_digest=self.verifier.digest,
             lease_id=lease.lease_id, target_state=ledger.COMPLETED,
             report=report_value, evidence=evidence(self.snapshot),
-            authority_reference="QA-UNKNOWN", actor="qa")
+            attestation={"authority": "maintainer"}, attestation_signature=b"attestation", actor="qa")
         self.assertEqual(ledger.COMPLETED, record.state)
         self.assertFalse(self.db.is_reserved(self.snapshot.mission_id))
         with self.assertRaises((ledger.InvalidTransition, ledger.DuplicateReservation)):
@@ -660,7 +724,7 @@ class Ledger11Test(unittest.TestCase):
                 self.snapshot.mission_id, authorization_digest=self.verifier.digest,
                 lease_id=lease.lease_id, target_state=ledger.COMPLETED,
                 report=report(self.snapshot, receipt_value, clock=self.clock),
-                evidence=evidence(self.snapshot), authority_reference="QA", actor="qa")
+                evidence=evidence(self.snapshot), attestation={"authority": "maintainer"}, attestation_signature=b"attestation", actor="qa")
         self.assertEqual(ledger.DISPATCHING, self.db.get(self.snapshot.mission_id).state)
 
     def test_environment_and_signed_api_boundaries(self):
@@ -709,7 +773,7 @@ class Ledger11Test(unittest.TestCase):
                 self.snapshot.mission_id, authorization_digest=self.verifier.digest,
                 lease_id="wrong", target_state=ledger.COMPLETED,
                 report=report(self.snapshot, value, clock=self.clock),
-                evidence=evidence(self.snapshot), authority_reference="QA", actor="qa")
+                evidence=evidence(self.snapshot), attestation={"authority": "maintainer"}, attestation_signature=b"attestation", actor="qa")
         self.assertEqual(ledger.DISPATCHING, self.db.get(self.snapshot.mission_id).state)
         self.assertTrue(self.db.is_reserved(self.snapshot.mission_id))
 
@@ -724,6 +788,325 @@ class Ledger11Test(unittest.TestCase):
             self.db.reconcile(
                 self.snapshot.mission_id, target=ledger.FAILED,
                 evidence="legacy", authority_reference="QA", actor="qa")
+
+    def test_revalidation_rejects_snapshot_mutation_at_assert_and_reconcile(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        self.db.authorize_signed(self.snapshot.mission_id, envelope={},
+                                 signature=self.verifier.signature,
+                                 payload=self.snapshot.payload, actor="human")
+        lease, receipt_value = record_evidence(self.db, self.snapshot, self.verifier)
+        self._mutate_snapshot(model="opencode/premium", scope="OTHER",
+                              acceptance_criteria=("outro",))
+        with self.assertRaises(ledger.EvidenceDivergence):
+            self.db.assert_dispatchable(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, actor="exec")
+        with self.assertRaises(ledger.EvidenceDivergence):
+            self.db.reconcile_signed(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, target_state=ledger.COMPLETED,
+                report=report(self.snapshot, receipt_value, clock=self.clock),
+                evidence=evidence(self.snapshot),
+                attestation={"authority": "maintainer"},
+                attestation_signature=b"attestation", actor="qa")
+        self.assertEqual(ledger.DISPATCHING, self.db.get(self.snapshot.mission_id).state)
+
+    def test_authority_material_binds_criteria_and_payload(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        self.db.authorize_signed(self.snapshot.mission_id, envelope={},
+                                 signature=self.verifier.signature,
+                                 payload=self.snapshot.payload, actor="human")
+        lease = reserve(self.db, self.snapshot, self.verifier)
+        tampered = dataclasses.replace(
+            self.snapshot, acceptance_criteria=("critério-adulterado",))
+        raw = canonical_json(tampered.canonical_material())
+        conn = sqlite3.connect(self.db.db_path)
+        conn.execute(
+            """UPDATE missions SET mission_snapshot_json=?,
+               mission_snapshot_sha256=?, payload_sha256=?
+               WHERE mission_id=?""",
+            (raw, tampered.sha256(), tampered.payload_sha256,
+             self.snapshot.mission_id),
+        )
+        # Atualiza a âncora de snapshot da autorização, mas não o material de autoridade.
+        conn.execute(
+            "UPDATE authorizations SET mission_snapshot_sha256=? WHERE mission_id=?",
+            (tampered.sha256(), self.snapshot.mission_id))
+        conn.commit()
+        conn.close()
+        with self.assertRaises(ledger.EvidenceDivergence):
+            self.db.assert_dispatchable(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, actor="exec")
+
+    def test_revalidation_rejects_signature_and_expiry_db_tamper(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        self.db.authorize_signed(self.snapshot.mission_id, envelope={},
+                                 signature=self.verifier.signature,
+                                 payload=self.snapshot.payload, actor="human")
+        lease = reserve(self.db, self.snapshot, self.verifier)
+        conn = sqlite3.connect(self.db.db_path)
+        conn.execute(
+            "UPDATE authorizations SET signature=?, signature_sha256=? WHERE mission_id=?",
+            ("00", hashlib.sha256(b"\x00").hexdigest(), self.snapshot.mission_id))
+        conn.commit()
+        conn.close()
+        with self.assertRaises((ledger.LedgerError, AuthorityContractError)):
+            self.db.assert_dispatchable(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, actor="exec")
+        with self.assertRaises((ledger.LedgerError, AuthorityContractError)):
+            self.db.reconcile_signed(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, target_state=ledger.FAILED,
+                evidence=evidence(self.snapshot),
+                attestation={"authority": "maintainer"},
+                attestation_signature=b"attestation", actor="qa")
+
+    def test_expiry_database_mutation_rejected_by_revalidation(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        self.db.authorize_signed(self.snapshot.mission_id, envelope={},
+                                 signature=self.verifier.signature,
+                                 payload=self.snapshot.payload, actor="human")
+        lease = reserve(self.db, self.snapshot, self.verifier)
+        conn = sqlite3.connect(self.db.db_path)
+        conn.execute(
+            "UPDATE authorizations SET expires_at='2030-01-01T00:00:00Z' WHERE mission_id=?",
+            (self.snapshot.mission_id,))
+        conn.commit()
+        conn.close()
+        with self.assertRaises(ledger.EvidenceDivergence):
+            self.db.assert_dispatchable(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, actor="exec")
+        with self.assertRaises(ledger.EvidenceDivergence):
+            self.db.reconcile_signed(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, target_state=ledger.FAILED,
+                evidence=evidence(self.snapshot),
+                attestation={"authority": "maintainer"},
+                attestation_signature=b"attestation", actor="qa")
+
+    def test_attestation_is_required_and_self_declared_fields_do_not_authorize(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        self.db.authorize_signed(self.snapshot.mission_id, envelope={},
+                                 signature=self.verifier.signature,
+                                 payload=self.snapshot.payload, actor="human")
+        lease, receipt_value = record_evidence(self.db, self.snapshot, self.verifier)
+        report_value = report(self.snapshot, receipt_value, clock=self.clock)
+        with self.assertRaises(TypeError):
+            self.db.reconcile_signed(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, target_state=ledger.COMPLETED,
+                report=report_value, evidence=evidence(self.snapshot), actor="qa")
+        bad = FakeReconciliationVerifier(mutate={"outcome": "FAILED"})
+        db = ledger.Ledger(self.db.db_path, project_id=PROJECT,
+                           repository_id=REPO, authority_verifier=self.verifier,
+                           reconciliation_verifier=bad, clock=self.clock)
+        with self.assertRaises(ledger.EvidenceDivergence):
+            db.reconcile_signed(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, target_state=ledger.COMPLETED,
+                report=report_value, evidence=evidence(self.snapshot),
+                attestation={"authority": "fabricated"},
+                attestation_signature=b"fabricated", actor="qa")
+        self.assertEqual(ledger.DISPATCHING, self.db.get(self.snapshot.mission_id).state)
+
+    def test_report_requires_payload_and_post_dispatch_completion(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        self.db.authorize_signed(self.snapshot.mission_id, envelope={},
+                                 signature=self.verifier.signature,
+                                 payload=self.snapshot.payload, actor="human")
+        lease, receipt_value = record_evidence(self.db, self.snapshot, self.verifier)
+        base = report(self.snapshot, receipt_value, clock=self.clock)
+        missing = dict(base); missing.pop("payload_sha256")
+        with self.assertRaises(ledger.EvidenceDivergence):
+            self.db.reconcile_signed(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, target_state=ledger.COMPLETED,
+                report=missing, evidence=evidence(self.snapshot),
+                attestation={"authority": "maintainer"},
+                attestation_signature=b"attestation", actor="qa")
+        before_dispatch = dict(
+            base, completed_at=ledger.iso(
+                self.clock.now - timedelta(seconds=1)))
+        with self.assertRaises(ledger.UnsafeReconciliation):
+            self.db.reconcile_signed(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, target_state=ledger.COMPLETED,
+                report=before_dispatch, evidence=evidence(self.snapshot),
+                attestation={"authority": "maintainer"},
+                attestation_signature=b"attestation", actor="qa")
+
+    def test_real_evidence_rejected_for_fixture_reconciliation(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        self.db.authorize_signed(self.snapshot.mission_id, envelope={},
+                                 signature=self.verifier.signature,
+                                 payload=self.snapshot.payload, actor="human")
+        lease, receipt_value = record_evidence(self.db, self.snapshot, self.verifier)
+        real = {"source": "real", "environment": "FIXTURE",
+                "service_contacted": True, "transport_real": True}
+        with self.assertRaises(ledger.DispatchBlocked):
+            self.db.reconcile_signed(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, target_state=ledger.COMPLETED,
+                report=report(self.snapshot, receipt_value, clock=self.clock),
+                evidence=real, attestation={"authority": "maintainer"},
+                attestation_signature=b"attestation", actor="qa")
+        self.assertEqual(ledger.DISPATCHING, self.db.get(self.snapshot.mission_id).state)
+
+    def test_revocation_nonce_is_unique(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        first = FakeVerifier(label="rev1", revocation_nonce="same-nonce")
+        second = FakeVerifier(label="rev2", revocation_nonce="same-nonce",
+                              revocation_digest="e" * 64)
+        db = ledger.Ledger(self.db.db_path, project_id=PROJECT, repository_id=REPO,
+                           authority_verifier=first, clock=self.clock)
+        db.revoke_authorization(statement={}, signature=first.signature, actor="x")
+        db2 = ledger.Ledger(self.db.db_path, project_id=PROJECT, repository_id=REPO,
+                            authority_verifier=second, clock=self.clock)
+        with self.assertRaises(ledger.EvidenceDivergence):
+            db2.revoke_authorization(statement={}, signature=second.signature, actor="x")
+
+    def test_legacy_default_disabled_and_explicit_allow(self):
+        blocked = ledger.Ledger(os.path.join(self._tmp.name, "legacy-default.db"),
+                                project_id=PROJECT, repository_id=REPO, clock=self.clock)
+        record = blocked.register_proposed(
+            mission_id="M-DEFAULT", operation_id="O-DEFAULT", coordinator_id="c",
+            agent="A", session_id="ses-default", instance_id="i", worktree="/tmp/w",
+            authorization_reference="AUTH", payload={"x": 1})
+        self.assertFalse(blocked.can_dispatch(record.mission_id))
+        with self.assertRaises(ledger.LegacyDispatchDisabled):
+            blocked.authorize(record.mission_id, authorization_reference="AUTH",
+                              payload_sha256_value=record.payload_sha256, actor="x")
+        allowed = ledger.Ledger(os.path.join(self._tmp.name, "legacy-allowed.db"),
+                                project_id=PROJECT, repository_id=REPO,
+                                policy={"allow_legacy_dispatch": True}, clock=self.clock)
+        record = allowed.register_proposed(
+            mission_id="M-ALLOW", operation_id="O-ALLOW", coordinator_id="c",
+            agent="A", session_id="ses-allow", instance_id="i", worktree="/tmp/w",
+            authorization_reference="AUTH", payload={"x": 1})
+        allowed.authorize(record.mission_id, authorization_reference="AUTH",
+                          payload_sha256_value=record.payload_sha256, actor="x")
+        self.assertTrue(allowed.can_dispatch(record.mission_id))
+
+    def test_terminate_expired_or_revoked_before_dispatch(self):
+        expiring = FakeVerifier(label="terminate", expires_at=NOW + timedelta(seconds=5))
+        clock = Clock()
+        db = ledger.Ledger(os.path.join(self._tmp.name, "terminate.db"),
+                           project_id=PROJECT, repository_id=REPO,
+                           authority_verifier=expiring, clock=clock)
+        db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        db.authorize_signed(self.snapshot.mission_id, envelope={},
+                            signature=expiring.signature, payload=self.snapshot.payload,
+                            actor="human")
+        clock.now = NOW + timedelta(seconds=10)
+        failed = db.terminate_signed_before_dispatch(
+            self.snapshot.mission_id, authorization_digest=expiring.digest,
+            lease_id=None, evidence={**evidence(self.snapshot), "reason": "expired"},
+            actor="ops")
+        self.assertEqual(ledger.FAILED, failed.state)
+        self.assertIsNone(db.get_authorization(self.snapshot.mission_id).consumed_at)
+        self.assertFalse(db.is_reserved(self.snapshot.mission_id))
+        # Revogação após reserva, antes do POST: terminalização sem reenvio.
+        clock2 = Clock()
+        fake = FakeVerifier(label="revoked")
+        db2 = ledger.Ledger(os.path.join(self._tmp.name, "terminate-rev.db"),
+                            project_id=PROJECT, repository_id=REPO,
+                            authority_verifier=fake, clock=clock2)
+        db2.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        db2.authorize_signed(self.snapshot.mission_id, envelope={},
+                             signature=fake.signature, payload=self.snapshot.payload,
+                             actor="human")
+        lease = reserve(db2, self.snapshot, fake)
+        db2.revoke_authorization(statement={}, signature=fake.signature, actor="human")
+        failed = db2.terminate_signed_before_dispatch(
+            self.snapshot.mission_id, authorization_digest=fake.digest,
+            lease_id=lease.lease_id,
+            evidence={**evidence(self.snapshot), "reason": "revoked"}, actor="ops")
+        self.assertEqual(ledger.FAILED, failed.state)
+        self.assertFalse(db2.is_reserved(self.snapshot.mission_id))
+        self.assertIsNotNone(db2.get_authorization(self.snapshot.mission_id).consumed_at)
+
+    def test_reconcile_allowed_after_expiry_if_dispatch_was_before(self):
+        expiring = FakeVerifier(label="prior", expires_at=NOW + timedelta(seconds=5))
+        clock = Clock()
+        db = ledger.Ledger(
+            os.path.join(self._tmp.name, "prior.db"), project_id=PROJECT,
+            repository_id=REPO, authority_verifier=expiring,
+            reconciliation_verifier=FakeReconciliationVerifier(), clock=clock)
+        db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        db.authorize_signed(self.snapshot.mission_id, envelope={},
+                            signature=expiring.signature, payload=self.snapshot.payload,
+                            actor="human")
+        lease, receipt_value = record_evidence(db, self.snapshot, expiring)
+        clock.now = NOW + timedelta(seconds=10)
+        # O receipt/despacho ocorreu antes da expiração; a reconciliação é permitida.
+        record = db.reconcile_signed(
+            self.snapshot.mission_id, authorization_digest=expiring.digest,
+            lease_id=lease.lease_id, target_state=ledger.COMPLETED,
+            report=report(self.snapshot, receipt_value, clock=Clock(NOW)),
+            evidence=evidence(self.snapshot),
+            attestation={"authority": "maintainer"},
+            attestation_signature=b"attestation", actor="qa")
+        self.assertEqual(ledger.COMPLETED, record.state)
+
+    def test_post_terminal_evidence_and_reconciliation_tamper_rejected(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        self.db.authorize_signed(self.snapshot.mission_id, envelope={},
+                                 signature=self.verifier.signature,
+                                 payload=self.snapshot.payload, actor="human")
+        lease, receipt_value = record_evidence(self.db, self.snapshot, self.verifier)
+        report_value = report(self.snapshot, receipt_value, clock=self.clock)
+        attestation = {"authority": "maintainer"}
+        self.db.reconcile_signed(
+            self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+            lease_id=lease.lease_id, target_state=ledger.COMPLETED,
+            report=report_value, evidence=evidence(self.snapshot),
+            attestation=attestation, attestation_signature=b"attestation", actor="qa")
+        same = self.db.record_dispatch_evidence(
+            self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+            lease_id=lease.lease_id, receipt=receipt_value,
+            evidence=evidence(self.snapshot), actor="exec")
+        self.assertEqual(ledger.COMPLETED, same.state)
+        with self.assertRaises(ledger.EvidenceDivergence):
+            self.db.record_dispatch_evidence(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id,
+                receipt=dict(receipt_value, observed_message_id="other"),
+                evidence=evidence(self.snapshot), actor="exec")
+        conn = sqlite3.connect(self.db.db_path)
+        conn.execute("UPDATE missions SET reconciliation_json='{}' WHERE mission_id=?",
+                     (self.snapshot.mission_id,))
+        conn.commit()
+        conn.close()
+        with self.assertRaises(ledger.LedgerStorageError):
+            self.db.reconcile_signed(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, target_state=ledger.COMPLETED,
+                report=report_value, evidence=evidence(self.snapshot),
+                attestation=attestation, attestation_signature=b"attestation", actor="qa")
+        with self.assertRaises(ledger.LedgerStorageError):
+            self.db.record_dispatch_evidence(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, receipt=receipt_value,
+                evidence=evidence(self.snapshot), actor="exec")
+
+    def test_evidence_hash_and_post_terminal_tamper_rejected(self):
+        self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
+        self.db.authorize_signed(self.snapshot.mission_id, envelope={},
+                                 signature=self.verifier.signature,
+                                 payload=self.snapshot.payload, actor="human")
+        lease, receipt_value = record_evidence(self.db, self.snapshot, self.verifier)
+        conn = sqlite3.connect(self.db.db_path)
+        conn.execute("UPDATE missions SET dispatch_evidence_json='{}' WHERE mission_id=?",
+                     (self.snapshot.mission_id,))
+        conn.commit()
+        conn.close()
+        with self.assertRaises(ledger.LedgerStorageError):
+            self.db.assert_dispatchable(
+                self.snapshot.mission_id, authorization_digest=self.verifier.digest,
+                lease_id=lease.lease_id, actor="exec")
 
     def test_multiprocess_reservation_has_one_winner(self):
         self.db.register_signed_proposed(self.snapshot, authorization_reference=AUTH)
@@ -762,6 +1145,8 @@ class Ledger11Test(unittest.TestCase):
                                     self.verifier.digest))
         process.start()
         process.join(timeout=10)
+        self.assertFalse(process.is_alive(), "child still alive")
+        self.assertEqual(0, process.exitcode, "child failed")
         reopened = ledger.Ledger(self.db.db_path, project_id=PROJECT,
                                  repository_id=REPO, clock=self.clock)
         self.assertEqual(ledger.DISPATCHING, reopened.get(self.snapshot.mission_id).state)
@@ -847,6 +1232,37 @@ class MigrationTests(unittest.TestCase):
             "SELECT state FROM missions WHERE mission_id='M-OLD'").fetchone()[0])
         conn.close()
 
+    def test_incompatible_auxiliary_table_fails_closed(self):
+        path = os.path.join(self._tmp.name, "bad-aux.db")
+        conn = sqlite3.connect(path)
+        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute("INSERT INTO meta VALUES ('schema_version','coord-ledger-1.1')")
+        conn.execute("CREATE TABLE authorizations (authorization_digest TEXT PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+        os.chmod(path, 0o600)
+        with self.assertRaises(ledger.LedgerStorageError):
+            ledger.Ledger(path, project_id=PROJECT, repository_id=REPO, clock=Clock())
+
+    def test_concurrent_migration_is_safe(self):
+        path = os.path.join(self._tmp.name, "concurrent-migration.db")
+        _make_v1(path)
+        ctx = multiprocessing.get_context("fork")
+        barrier = ctx.Barrier(2)
+        queue = ctx.Queue()
+        processes = [
+            ctx.Process(target=_migration_worker, args=(path, barrier, queue))
+            for _ in range(2)
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=15)
+        results = [queue.get(timeout=5) for _ in processes]
+        self.assertEqual(["ok", "ok"], sorted(results))
+        db = ledger.Ledger(path, project_id=PROJECT, repository_id=REPO, clock=Clock())
+        self.assertEqual("UNKNOWN", db.get("M-OLD").state)
+
     def test_unknown_version_rejected_without_change(self):
         conn = sqlite3.connect(self.path)
         conn.execute("UPDATE meta SET value='coord-ledger-9.9' WHERE key='schema_version'")
@@ -874,10 +1290,12 @@ class MigrationTests(unittest.TestCase):
             instance_id="inst", worktree="/tmp/wt", authorization_reference="AUTH",
             payload={"x": 1})
         self.assertFalse(db.can_dispatch(record.mission_id))
-        with self.assertRaises(ledger.SignedAuthorizationRequired):
+        with self.assertRaises((ledger.SignedAuthorizationRequired,
+                                ledger.LegacyDispatchDisabled)):
             db.authorize(record.mission_id, authorization_reference="AUTH",
                          payload_sha256_value=record.payload_sha256, actor="x")
-        with self.assertRaises(ledger.SignedAuthorizationRequired):
+        with self.assertRaises((ledger.SignedAuthorizationRequired,
+                                ledger.LegacyDispatchDisabled)):
             db.reserve_dispatch(record.mission_id, agent="A", session_id="ses-legacy",
                                 instance_id="inst", worktree="/tmp/wt", actor="x")
 
@@ -938,8 +1356,20 @@ def _make_v1(path: str) -> None:
     os.chmod(path, 0o600)
 
 
+def _migration_worker(db_path, barrier, queue):
+    barrier.wait()
+    try:
+        ledger.Ledger(db_path, project_id=PROJECT, repository_id=REPO,
+                      allow_migration=True, clock=Clock())
+        queue.put("ok")
+    except Exception as exc:  # noqa: BLE001
+        queue.put(type(exc).__name__ + ":" + str(exc))
+
+
 def _reserve_worker(db_path, mission_id, digest, barrier, queue):
-    db = ledger.Ledger(db_path, project_id=PROJECT, repository_id=REPO, clock=Clock())
+    db = ledger.Ledger(
+        db_path, project_id=PROJECT, repository_id=REPO,
+        authority_verifier=FakeVerifier(label="auth"), clock=Clock())
     barrier.wait()
     try:
         lease = db.reserve_dispatch_signed(
@@ -952,7 +1382,9 @@ def _reserve_worker(db_path, mission_id, digest, barrier, queue):
 
 
 def _reserve_then_exit(db_path, mission_id, digest):
-    db = ledger.Ledger(db_path, project_id=PROJECT, repository_id=REPO, clock=Clock())
+    db = ledger.Ledger(
+        db_path, project_id=PROJECT, repository_id=REPO,
+        authority_verifier=FakeVerifier(label="auth"), clock=Clock())
     db.reserve_dispatch_signed(
         mission_id, authorization_digest=digest,
         agent="A", session_id="ses-l11", instance_id="inst-1",
