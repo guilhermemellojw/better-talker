@@ -6,6 +6,7 @@ substituído; nenhum manifesto é montado à mão.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import sys
@@ -72,7 +73,7 @@ class RealShapedClient(pilot.HttpClient):
             ("GET", f"/api/session/{SID}/permission"): (200, {"data": []}),
             ("GET", "/api/model"): (200, catalog or CATALOG),
             ("POST", f"/api/session/{SID}{pilot.PROMPT_SUFFIX}"):
-                (prompt_status, {"data": {"id": f"msg-pilot-{SID}"}}),
+                (prompt_status, {"data": {"id": "msg-pilot-OP-COORD04-PILOT-001"}}),
         }
 
     def request(self, method, path, body=None):
@@ -118,6 +119,51 @@ def mission_from_proposal(proposal):
     return cc.MissionEnvelope(**fields)
 
 
+_HELD_LOCKS = []
+
+
+def hold_lock(path):
+    """Mantém um flock real durante o teste (host Linux)."""
+    descriptor = os.open(path, os.O_RDWR)
+    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    _HELD_LOCKS.append(descriptor)
+
+
+def approved_for_proposal(proposal):
+    """Aprovação externa sintética com os campos materiais coerentes.
+
+    O caminho padrão emite proposta não autorizada; este helper representa a
+    decisão humana que promove admissão/exclusividade e reconstrói o manifesto
+    a partir da autorização aprovada. Nenhuma autoridade real é criada.
+    """
+    auth = replace(authorization_from_proposal(proposal), maintainer_id="mantenedor")
+    manifest_data = proposal["manifest"]
+    evidence = {
+        "permission_policy_sha256": manifest_data["permission_policy_sha256"],
+        "admission_basis": manifest_data["admission_basis"],
+        "inbox_evidence": manifest_data["inbox_evidence"],
+        "repository_source": manifest_data["repository_source"],
+        "admission_authorized": True,
+        "exclusive_consumer": True,
+        "exclusive_consumer_evidence_sha256": manifest_data[
+            "exclusive_consumer_evidence_sha256"],
+        "session_cost": manifest_data["session_cost"],
+    }
+    manifest = pilot.build_runtime_manifest(
+        mission_from_proposal(proposal), auth, pilot.sha256_text(pilot.PILOT_PROMPT),
+        ENDPOINT, **evidence)
+    binding = {
+        "approver_id": "mantenedor", "approver_type": "human",
+        "environment": "APPROVED", "approval_reference": auth.approval_reference,
+        "manifest_sha256": manifest.canonical(),
+        "bound_material_sha256": manifest.canonical(),
+    }
+    approval = pilot.PilotApproval(
+        "APP", "mantenedor", "human", "APPROVED", manifest,
+        approval_binding=binding)
+    return auth, manifest, approval, binding
+
+
 class StandardPathTests(unittest.TestCase):
     def _setup(self, td, *, client=None, catalog=None):
         client = client or RealShapedClient()
@@ -126,6 +172,7 @@ class StandardPathTests(unittest.TestCase):
         lock_path = os.path.join(td, "consumer.lock")
         with open(lock_path, "w", encoding="utf-8") as handle:
             handle.write(str(os.getpid()))
+        hold_lock(lock_path)
         consumer_path = os.path.join(td, "consumer.json")
         now = datetime.now(timezone.utc)
         write_json(consumer_path, {
@@ -153,20 +200,12 @@ class StandardPathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             client, catalog_path, _, proposal = self._setup(td)
             self.assertFalse(proposal.get("blocked", False), proposal.get("blockers"))
-            manifest_data = proposal["manifest"]
-            binding = cli.external_approval_binding(
-                manifest_data, approver_id="mantenedor", reference="AUTH-EXTERNAL")
-            self.assertEqual(binding["manifest_sha256"], manifest_data["canonical_sha256"])
-
-            fields = {k: v for k, v in manifest_data.items()
-                      if k not in ("approved", "canonical_sha256")}
-            for key in ("issued_at", "expires_at"):
-                if isinstance(fields.get(key), str):
-                    fields[key] = datetime.fromisoformat(fields[key].replace("Z", "+00:00"))
-            manifest = pilot.PilotManifest(**fields)
-            approval = pilot.PilotApproval("APP", binding["approver_id"], "human", "APPROVED",
-                                           manifest, approval_binding=binding)
-            auth = authorization_from_proposal(proposal)
+            self.assertFalse(proposal["manifest"]["admission_authorized"])
+            self.assertTrue(proposal["manifest"]["exclusive_consumer"])
+            auth, manifest, approval, binding = approved_for_proposal(proposal)
+            self.assertEqual(binding["manifest_sha256"], manifest.canonical())
+            self.assertTrue(manifest.admission_authorized)
+            self.assertTrue(manifest.exclusive_consumer)
             transport = pilot.OpenCodeTransport(
                 client, expected_instance_id=auth.instance_id,
                 registered_targets=(auth.target,), pilot_authorization=auth,
@@ -181,21 +220,14 @@ class StandardPathTests(unittest.TestCase):
             posts = [call for call in client.calls if call[0] == "POST"]
             self.assertEqual(len(posts), 1)
             self.assertTrue(result["executed"])
+            self.assertEqual(result["state"], "DISPATCHING")
+            self.assertTrue(result["receipt_confirmed"])
 
 
 class ContractNegativeTests(unittest.TestCase):
     def _approved(self, td):
         client, catalog_path, _, proposal = StandardPathTests()._setup(td)
-        md = proposal["manifest"]
-        binding = cli.external_approval_binding(md, approver_id="mantenedor",
-                                                reference="AUTH-EXTERNAL")
-        fields = {k: v for k, v in md.items() if k not in ("approved", "canonical_sha256")}
-        for key in ("issued_at", "expires_at"):
-            fields[key] = datetime.fromisoformat(fields[key].replace("Z", "+00:00"))
-        manifest = pilot.PilotManifest(**fields)
-        approval = pilot.PilotApproval("APP", binding["approver_id"], "human", "APPROVED",
-                                       manifest, approval_binding=binding)
-        auth = authorization_from_proposal(proposal)
+        auth, manifest, approval, binding = approved_for_proposal(proposal)
         transport = pilot.OpenCodeTransport(
             client, expected_instance_id=auth.instance_id,
             registered_targets=(auth.target,), pilot_authorization=auth,
@@ -264,16 +296,7 @@ class ContractNegativeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             client, catalog_path, _, proposal = StandardPathTests()._setup(
                 td, client=RealShapedClient(prompt_status=504))
-            md = proposal["manifest"]
-            binding = cli.external_approval_binding(md, approver_id="mantenedor",
-                                                    reference="AUTH-EXTERNAL")
-            fields = {k: v for k, v in md.items() if k not in ("approved", "canonical_sha256")}
-            for key in ("issued_at", "expires_at"):
-                fields[key] = datetime.fromisoformat(fields[key].replace("Z", "+00:00"))
-            manifest = pilot.PilotManifest(**fields)
-            approval = pilot.PilotApproval("APP", "mantenedor", "human", "APPROVED",
-                                           manifest, approval_binding=binding)
-            auth = authorization_from_proposal(proposal)
+            auth, manifest, approval, binding = approved_for_proposal(proposal)
             transport = pilot.OpenCodeTransport(
                 client, expected_instance_id=auth.instance_id,
                 registered_targets=(auth.target,), pilot_authorization=auth,

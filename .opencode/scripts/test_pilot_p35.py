@@ -75,8 +75,9 @@ class RuntimeManifestTests(unittest.TestCase):
                            issued_at=CLOCK, expires_at=CLOCK + timedelta(hours=1))
         binding = {"manifest_sha256": manifest.canonical(),
                    "bound_material_sha256": manifest.canonical(),
-                   "approver_type": "human", "approver_id": "humano"}
-        approval = pilot.PilotApproval("APP", "humano", "human", "APPROVED", manifest,
+                   "approver_type": "human", "approver_id": auth.maintainer_id,
+                   "approval_reference": auth.approval_reference}
+        approval = pilot.PilotApproval("APP", auth.maintainer_id, "human", "APPROVED", manifest,
                                        approval_binding=binding)
         with tempfile.TemporaryDirectory() as td:
             ex = pilot.PilotExecutor(transport, pilot.PilotOperationStore(td), approval,

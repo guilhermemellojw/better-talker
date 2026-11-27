@@ -113,8 +113,9 @@ class PrePostValidationTests(unittest.TestCase):
         manifest = replace(manifest, issued_at=NOW, expires_at=NOW + timedelta(hours=1))
         binding = {"manifest_sha256": manifest.canonical(),
                    "bound_material_sha256": manifest.canonical(),
-                   "approver_type": "human", "approver_id": "mantenedor"}
-        approval = pilot.PilotApproval("APP", "mantenedor", "human", "APPROVED", manifest,
+                   "approver_type": "human", "approver_id": auth.maintainer_id,
+                   "approval_reference": auth.approval_reference}
+        approval = pilot.PilotApproval("APP", auth.maintainer_id, "human", "APPROVED", manifest,
                                        approval_binding=binding)
         transport = pilot.OpenCodeTransport(
             client, expected_instance_id=auth.instance_id, registered_targets=(auth.target,),

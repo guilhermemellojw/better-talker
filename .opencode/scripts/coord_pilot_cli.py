@@ -1031,6 +1031,7 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
         environment="PROPOSED", max_transmissions=1, expected_model=session["model"],
         endpoint=observed["endpoint"])
     inbox = observed.get("inbox_observation") or {}
+    exclusive_evidence = observed.get("exclusive_consumer_evidence") or {}
     manifest = pilot.build_runtime_manifest(
         mission, authorization, prompt_sha256, observed["endpoint"],
         permission_policy_sha256=observed.get("permission_policy_sha256", ""),
@@ -1038,9 +1039,9 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
         inbox_evidence=f"{inbox.get('state', 'unobserved')}:{inbox.get('inbox_count')}",
         repository_source=observed.get("repository_source", "git-local"),
         admission_authorized=False,  # proposta nunca é autorização externa
-        exclusive_consumer=observed.get("exclusive_consumer") is True,
+        exclusive_consumer=exclusive_evidence.get("verified") is True,
         exclusive_consumer_evidence_sha256=pilot.consumer_evidence_sha256(
-            observed.get("exclusive_consumer_evidence")),
+            exclusive_evidence),
         session_cost=(observed.get("cost") if isinstance(observed.get("cost"), (int, float))
                       and not isinstance(observed.get("cost"), bool) else None))
     result.update({
@@ -1212,7 +1213,8 @@ def run(argv: list[str]) -> dict[str, Any]:
                 observed["exclusive_consumer_evidence"] = pilot.verify_consumer_evidence(
                     options["consumer_evidence"],
                     session_id=(session or {}).get("session_id", ""),
-                    endpoint=observed["endpoint"], clock=cc.utc_now())
+                    endpoint=observed["endpoint"], clock=cc.utc_now(),
+                    authorization_reference=(session or {}).get("authorization_reference"))
             refresh_admission(observed, session)
             return _prepare_real(observed, session=session)
         context = _fixture_context(store_dir=options["store_dir"])

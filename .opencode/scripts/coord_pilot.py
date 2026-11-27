@@ -16,6 +16,11 @@ import sys
 import tempfile
 import time
 import urllib.error
+
+try:  # host Linux; ausência de fcntl mantém a evidência como não verificada
+    import fcntl
+except ImportError:  # pragma: no cover - plataforma sem flock
+    fcntl = None
 import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
@@ -58,12 +63,45 @@ def consumer_evidence_sha256(evidence: Any) -> str:
     return canonical_policy_sha256({key: evidence.get(key) for key in fields})
 
 
+def _lock_is_held(path: str) -> bool:
+    """True apenas se um flock exclusivo já está ativo no caminho.
+
+    Um arquivo de lock meramente existente (lock liberado) não conta. A
+    identidade do titular ainda não é provada; isso continua dependendo da
+    autorização centralizada futura.
+    """
+    if fcntl is None:
+        return False
+    try:
+        info = os.lstat(path)
+        if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            return False
+        descriptor = os.open(path, os.O_RDWR)
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        except OSError:
+            return False
+        else:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            return False
+    finally:
+        os.close(descriptor)
+
+
 def verify_consumer_evidence(path: Optional[str], *, session_id: str,
-                             endpoint: str, clock: Optional[datetime] = None) -> dict[str, Any]:
+                             endpoint: str, clock: Optional[datetime] = None,
+                             authorization_reference: Optional[str] = None) -> dict[str, Any]:
     """Fronteira controlável do consumidor: identidade, lock operacional e validade.
 
-    Não prova ausência global de processos; essa integração futura permanece
-    como limitação explícita. Nenhum ledger é criado aqui.
+    P13: o lock precisa estar efetivamente adquirido (flock), não apenas o
+    arquivo existir; a referência de autorização é conferida quando fornecida.
+    A identidade do titular e a ausência global de processos não são provadas
+    aqui; isso depende da autorização centralizada/ledger futuro.
     """
     base = {"verified": False, "source": "operator-evidence-file"}
     if not path or not os.path.isfile(path):
@@ -81,6 +119,8 @@ def verify_consumer_evidence(path: Optional[str], *, session_id: str,
         return {**base, "reason": "evidência incompleta"}
     if value["session_id"] != session_id or value["endpoint"] != canonical_endpoint(endpoint):
         return {**base, "reason": "evidência diverge da sessão/endpoint"}
+    if authorization_reference is not None and value["authorization_reference"] != authorization_reference:
+        return {**base, "reason": "evidência diverge da autorização"}
     try:
         expires = datetime.fromisoformat(str(value["expires_at"]).replace("Z", "+00:00"))
         acquired = datetime.fromisoformat(str(value["acquired_at"]).replace("Z", "+00:00"))
@@ -91,8 +131,15 @@ def verify_consumer_evidence(path: Optional[str], *, session_id: str,
         now = now.replace(tzinfo=timezone.utc)
     if expires <= now or acquired > now:
         return {**base, "reason": "evidência vencida ou futura"}
-    if not os.path.exists(str(value["lock_scope"])):
+    lock_path = str(value["lock_scope"])
+    try:
+        lock_info = os.lstat(lock_path)
+    except OSError:
         return {**base, "reason": "lock operacional ausente"}
+    if not stat.S_ISREG(lock_info.st_mode) or stat.S_ISLNK(lock_info.st_mode):
+        return {**base, "reason": "lock operacional não é arquivo regular"}
+    if not _lock_is_held(lock_path):
+        return {**base, "reason": "lock operacional não adquirido"}
     return {**value, "verified": True, "checked_at": cc.iso(now),
             "source": "operator-evidence-file"}
 
@@ -113,14 +160,45 @@ def verify_model_catalog(models: Any, *, provider_id: str, model_id: str,
         return {"confirmed": False, "reason": "modelo ausente do catálogo", "source": "model-catalog"}
     canonical = canonical_model_ref(provider_id, model_id, variant)
     variants = {item.get("id") for item in (match.get("variants") or []) if isinstance(item, dict)}
-    costs = match.get("cost") or []
-    known_costs = isinstance(costs, list) and all(
-        isinstance(item, dict) and all(item.get(k) is not None
-                                       for k in ("input", "output")) for item in costs)
-    zero_cost = known_costs and all(
-        (item.get("input") or 0) == 0 and (item.get("output") or 0) == 0
-        and all((item.get("cache") or {}).get(k, 0) == 0 for k in ("read", "write"))
-        for item in costs)
+    # P13: lista vazia/ausente não é prova de custo zero. Cada preço precisa
+    # ser numérico, não booleano, e explicitamente zero; cache, quando
+    # presente, também precisa ser numérico e zero. `active` ausente/inválido
+    # não é disponibilidade confirmada.
+    costs = match.get("cost")
+    known_costs = isinstance(costs, list) and len(costs) > 0
+    zero_cost = known_costs
+    if known_costs:
+        for item in costs:
+            if not isinstance(item, dict):
+                known_costs = zero_cost = False
+                break
+            for key in ("input", "output"):
+                amount = item.get(key)
+                if (not isinstance(amount, (int, float))
+                        or isinstance(amount, bool)):
+                    known_costs = zero_cost = False
+                    break
+                if amount != 0:
+                    zero_cost = False
+            if not known_costs:
+                break
+            cache = item.get("cache")
+            if cache is not None:
+                if not isinstance(cache, dict):
+                    known_costs = zero_cost = False
+                    break
+                for key in ("read", "write"):
+                    if key not in cache:
+                        continue
+                    amount = cache.get(key)
+                    if (not isinstance(amount, (int, float))
+                            or isinstance(amount, bool)):
+                        known_costs = zero_cost = False
+                        break
+                    if amount != 0:
+                        zero_cost = False
+                if not known_costs:
+                    break
     reasons = []
     if canonical != authorized_model:
         reasons.append("modelo canônico divergente do autorizado")
@@ -128,7 +206,7 @@ def verify_model_catalog(models: Any, *, provider_id: str, model_id: str,
         reasons.append("variante autorizada ausente do catálogo")
     if not known_costs or not zero_cost:
         reasons.append("custo desconhecido ou divergente da gratuidade autorizada")
-    if not match.get("active", True) or match.get("enabled") is False:
+    if match.get("active") is not True or match.get("enabled") is False:
         reasons.append("modelo indisponível no catálogo")
     return {"confirmed": not reasons, "reasons": tuple(dict.fromkeys(reasons)),
             "provider_id": provider_id, "model_id": model_id, "variant": variant,
@@ -804,15 +882,24 @@ class PilotApproval:
             raise cc.AuthorizationError("ambiente de aprovação inválido")
         if require_real and self.environment != "APPROVED":
             raise cc.AuthorizationError("HTTP real exige aprovação APPROVED")
+        manifest = self.manifest
         if require_real:
             binding = self.approval_binding or {}
-            digest = self.manifest.canonical()
+            digest = manifest.canonical()
             if (binding.get("manifest_sha256") != digest
                     or binding.get("bound_material_sha256") != digest
                     or binding.get("approver_type") != "human"):
                 raise cc.AuthorizationError(
                     "aprovação externa não vinculada ao digest emitido pelo prepare")
-        manifest = self.manifest
+            # P13: o vínculo cobre a identidade e a referência aprovadas; não
+            # basta um digest que ignore quem aprovou e qual decisão foi citada.
+            if (binding.get("approver_id") != self.approver_id
+                    or self.approver_id != manifest.maintainer_id):
+                raise cc.AuthorizationError(
+                    "aprovador não vinculado ao mantenedor do manifesto")
+            if binding.get("approval_reference") != manifest.approval_reference:
+                raise cc.AuthorizationError(
+                    "referência de aprovação não vinculada ao manifesto")
         if not re.fullmatch(r"[0-9a-f]{40}", manifest.reviewed_head_sha):
             raise cc.ContractError("HEAD revisado inválido")
         if manifest.reviewed_head_sha != executed_head_sha():
@@ -1213,22 +1300,28 @@ class OpenCodeTransport(cc.Transport):
         self.last_receipt = receipt
         return receipt
 
-    def operation_status(self, operation_id: str) -> cc.OperationObservation:
+    def operation_status(self, operation_id: str, *,
+                         prompt_ids: Optional[tuple[str, ...]] = None) -> cc.OperationObservation:
         if operation_id != self.pilot.operation_id:
             raise cc.ContractError("operação não autorizada")
         target = self.pilot.target
         active = (self._get(ACTIVE_PATH) or {}).get("data") or {}
         inbox = (self._get(f"/api/session/{target.session_id}{INBOX_SUFFIX}") or {}).get("data") or []
         prompt_id = f"msg-pilot-{operation_id}"
+        candidates = tuple(dict.fromkeys(
+            value for value in (prompt_ids or (prompt_id,)) if isinstance(value, str) and value
+        )) or (prompt_id,)
         messages = (self._get(f"/api/session/{target.session_id}{MESSAGE_SUFFIX}?limit=20&order=desc") or {}).get("data") or []
         reports, report_links, recorded, queued = [], [], False, False
+        recorded_id: Optional[str] = None
         for item in messages:
             item_id = item.get("id")
             text = "\n".join(p.get("text", "") for p in item.get("content", [])
                              if isinstance(p, dict) and p.get("type") == "text")
-            if (item.get("type") == "user" and item_id == prompt_id
+            if (item.get("type") == "user" and item_id in candidates
                     and sha256_text(text) == self.pilot.prompt_sha256):
                 recorded = True
+                recorded_id = item_id
             if item.get("type") == "assistant" and item_id:
                 parsed = parse_pilot_report(text, operation_id, observed_message_id=item_id)
                 if parsed:
@@ -1254,11 +1347,13 @@ class OpenCodeTransport(cc.Transport):
         for item in inbox:
             item_id = item.get("id")
             inbox_text = str(item.get("text") or "")
-            if item_id == prompt_id and (not inbox_text or sha256_text(inbox_text) == self.pilot.prompt_sha256):
+            if item_id in candidates and (not inbox_text or sha256_text(inbox_text) == self.pilot.prompt_sha256):
                 queued = True
         evidence = {"source": "opencode-api", "active_observed": target.session_id in active,
                     "queue_observed": bool(inbox), "availability_claimed": False,
                     "prompt_content_confirmed": recorded, "prompt_id_expected": prompt_id,
+                    "prompt_id_candidates": list(candidates),
+                    "prompt_id_observed": recorded_id,
                     "report_links": tuple(report_links)}
         if reports:
             level, state, evidence["report_available"] = "report_received", "completed", True
@@ -1270,7 +1365,8 @@ class OpenCodeTransport(cc.Transport):
             level, state = "queued_in_inbox", "queued"
         else:
             level, state = "not_observed", "not_observed"
-        return cc.OperationObservation(operation_id, state, prompt_id if recorded or queued else None,
+        observed_id = recorded_id if recorded else (prompt_id if queued else None)
+        return cc.OperationObservation(operation_id, state, observed_id,
                                        tuple(reports), evidence, target, level, operation_id, None)
 
     def reports(self, operation_id: str) -> tuple[cc.MissionReport, ...]:
@@ -1503,7 +1599,8 @@ class PilotExecutor:
                                                  catalog=self.catalog)
         evidence["exclusive_consumer_evidence"] = verify_consumer_evidence(
             self.consumer_evidence_path, session_id=self.transport.pilot.target.session_id,
-            endpoint=self.endpoint, clock=self.clock())
+            endpoint=self.endpoint, clock=self.clock(),
+            authorization_reference=self.transport.pilot.approval_reference)
         return evidence
 
     def _validate(self, mission: cc.MissionEnvelope, authorization: cc.Authorization,
@@ -1544,6 +1641,12 @@ class PilotExecutor:
                 missing.append("inbox observado vazio")
             if evidence["repository_source"] != "git-local":
                 missing.append("fonte do repositório")
+            # P13: um hash de evidência não substitui a decisão externa de
+            # admissão nem o compromisso de consumidor exclusivo.
+            if evidence["admission_authorized"] is not True:
+                missing.append("admissão externa autorizada")
+            if evidence["exclusive_consumer"] is not True:
+                missing.append("consumidor exclusivo declarado")
             if not cc.SHA256_PATTERN.fullmatch(evidence["exclusive_consumer_evidence_sha256"]):
                 missing.append("evidência verificável de exclusividade")
             if not (isinstance(evidence["session_cost"], (int, float))
@@ -1699,18 +1802,24 @@ class PilotExecutor:
         except (cc.TransportError, cc.ContractError) as e:
             return {"state": record.state, "changed": False,
                     "reason": f"instância/destino divergente: {e}"}
-        observation = self.transport.operation_status(record.operation_id)
+        expected_prompt_id = f"msg-pilot-{record.operation_id}"
+        receipt = record.evidence.get("receipt") or {}
+        observed_receipt_id = receipt.get("observed_message_id")
+        # P13: se o serviço devolveu outro id no receipt, a reconciliação
+        # ainda pode usar a evidência textual do prompt; o id esperado e o id
+        # observado são candidatos, nunca um atalho para reenviar.
+        candidates = tuple(dict.fromkeys(
+            value for value in (expected_prompt_id, observed_receipt_id)
+            if isinstance(value, str) and value
+        ))
+        observation = self.transport.operation_status(record.operation_id, prompt_ids=candidates)
         if (observation.operation_id != record.operation_id
                 or observation.target != target
                 or observation.payload_sha256 not in (None, snapshot.get("payload_sha256"))):
             return {"state": record.state, "changed": False, "reason": "observação divergente"}
-        prompt_id = f"msg-pilot-{record.operation_id}"
-        receipt = record.evidence.get("receipt") or {}
-        observed_receipt_id = receipt.get("observed_message_id")
-        if observed_receipt_id is not None and observed_receipt_id != prompt_id:
-            return {"state": record.state, "changed": False, "reason": "receipt divergente"}
+        prompt_id = observation.message_id
         if (observation.evidence.get("prompt_content_confirmed") is not True
-                or observation.message_id != prompt_id):
+                or not prompt_id):
             return {"state": record.state, "changed": False,
                     "reason": "prompt efetivamente observado ausente"}
         links = {link["envelope_message_id"]: link
