@@ -1,0 +1,183 @@
+name: Coordenação — suíte Python host-only
+
+# Certificação automatizada dos componentes Python da coordenação.
+# A preparação de dependências é online e separada; as duas suítes executam
+# dentro de um network namespace sem rede, com o guard Python como defesa
+# adicional. Nenhum segredo, token, `gh`, push, serviço real, sessão OpenCode,
+# LLM, Gradle, Android, ADB ou transporte é utilizado.
+on:
+  push:
+    paths:
+      - '.opencode/scripts/**'
+      - '.opencode/agents/**'
+      - '.opencode/*.md'
+      - 'docs/**'
+      - '.github/workflows/coord-python.yml'
+      - '.github/requirements-ci.txt'
+  pull_request:
+    paths:
+      - '.opencode/scripts/**'
+      - '.opencode/agents/**'
+      - '.opencode/*.md'
+      - 'docs/**'
+      - '.github/workflows/coord-python.yml'
+      - '.github/requirements-ci.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coord-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout (somente leitura)
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Preparar dependências online (fora do namespace)
+        run: |
+          set -euo pipefail
+          python3 -m pip install --no-cache-dir --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r .github/requirements-ci.txt
+          python3 -c 'import yaml; print("PY-YAML-READY", yaml.__version__)'
+
+      - name: Preparar caminhos experimentais esperados
+        # O runner é efêmero e passwordless sudo é usado apenas para criar
+        # symlinks canônicos e abrir o network namespace; os testes rodam como
+        # o usuário runner via setpriv, sem root.
+        run: |
+          set -euo pipefail
+          sudo -n mkdir -p /home/guilherme/Documentos
+          sudo -n ln -sfn "$GITHUB_WORKSPACE" /home/guilherme/Documentos/better-talker
+          sudo -n ln -sfn "$GITHUB_WORKSPACE" /home/guilherme/Documentos/better-talker-coord-supervisor-shadow
+          readlink -f /home/guilherme/Documentos/better-talker-coord-supervisor-shadow
+          echo "EXPECTED-WORKTREE-READY"
+
+      - name: Isolar HOME/TMPDIR/armazenamento
+        run: |
+          set -euo pipefail
+          COORD_HOME="$RUNNER_TEMP/coord-home"
+          COORD_TMP="$RUNNER_TEMP/coord-tmp"
+          COORD_STATE="$RUNNER_TEMP/coord-state"
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
+          mkdir -p "$COORD_HOME" "$COORD_TMP" "$COORD_STATE" "$COORD_LOGS"
+          sudo -n mkdir -p /repo
+          sudo -n ln -sfn "$GITHUB_WORKSPACE" /repo/wt
+          echo "ISOLATION-READY"
+
+      - name: Provar TCP/UDP/DNS/subprocesso no namespace sem rede
+        run: |
+          set -euo pipefail
+          sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+            /usr/bin/env -i PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_network_probe.py" --mode os
+
+      - name: Provar guarda Python como defesa adicional
+        run: |
+          set -euo pipefail
+          env -i PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
+            PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_network_probe.py" --mode guard
+
+      - name: unittest discover dentro do namespace (baseline 381)
+        run: |
+          set -euo pipefail
+          COORD_HOME="$RUNNER_TEMP/coord-home"
+          COORD_TMP="$RUNNER_TEMP/coord-tmp"
+          COORD_STATE="$RUNNER_TEMP/coord-state"
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
+          sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+            /usr/bin/env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+            XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
+            PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_discover.py" \
+              "$GITHUB_WORKSPACE/.opencode/scripts" 2>&1 | tee "$COORD_LOGS/discover.log"
+          count=$(grep -Eo 'Ran [0-9]+ tests' "$COORD_LOGS/discover.log" | awk '{print $2}')
+          echo "DISCOVER_TESTS=$count"
+          [ "$count" = "381" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }
+
+      - name: Provar detecção de regressão intencional dentro do namespace
+        run: |
+          set -euo pipefail
+          COORD_HOME="$RUNNER_TEMP/coord-home"
+          COORD_TMP="$RUNNER_TEMP/coord-tmp"
+          COORD_STATE="$RUNNER_TEMP/coord-state"
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
+          PROBE="$COORD_LOGS/regression-probe"
+          mkdir -p "$PROBE"
+          printf '%s\n' \
+            'import unittest' \
+            'class Intencional(unittest.TestCase):' \
+            '    def test_regressao(self):' \
+            '        self.assertTrue(False, "REGRESSAO-INTENCIONAL-DETECTADA")' \
+            > "$PROBE/test_intencional.py"
+          set +e
+          sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+            /usr/bin/env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+            XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
+            PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_discover.py" "$PROBE" \
+            > "$COORD_LOGS/regression-probe.log" 2>&1
+          rc=$?
+          set -e
+          [ "$rc" -ne 0 ] || { echo "CI-NAO-DETECTA-REGRESSAO"; exit 1; }
+          grep -q "REGRESSAO-INTENCIONAL-DETECTADA" "$COORD_LOGS/regression-probe.log"
+          echo "REGRESSION-DETECTION-OK rc=$rc"
+
+      - name: Suíte do supervisor dentro do namespace (baseline 167)
+        if: always()
+        run: |
+          set -euo pipefail
+          COORD_HOME="$RUNNER_TEMP/coord-home"
+          COORD_TMP="$RUNNER_TEMP/coord-tmp"
+          COORD_STATE="$RUNNER_TEMP/coord-state"
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
+          sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+            /usr/bin/env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+            XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
+            PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard:$GITHUB_WORKSPACE/.opencode/scripts" \
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/test_supervisor.py" 2>&1 | tee "$COORD_LOGS/supervisor.log"
+          count=$(grep -Eo '[0-9]+ passed, 0 failed' "$COORD_LOGS/supervisor.log" | awk '{print $1}')
+          echo "SUPERVISOR_TESTS=$count"
+          [ "$count" = "167" ] || { echo "BASELINE-SUPERVISOR-DIVERGENT"; exit 1; }
+          total=$((count + 381))
+          echo "TOTAL_TESTS=$total"
+          [ "$total" = "548" ] || { echo "BASELINE-TOTAL-DIVERGENT"; exit 1; }
+
+      - name: Sanitizar logs e publicar resultado
+        if: always()
+        run: |
+          set -euo pipefail
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
+          python3 - "$RUNNER_TEMP" "$GITHUB_WORKSPACE" "$COORD_LOGS" <<'PY'
+          import os
+          import sys
+          runner_temp, workspace, logs = sys.argv[1:4]
+          for name in ("discover.log", "supervisor.log", "regression-probe.log"):
+              path = os.path.join(logs, name)
+              if not os.path.isfile(path):
+                  continue
+              with open(path, encoding="utf-8", errors="replace") as handle:
+                  text = handle.read()
+              for secret_path in (runner_temp, workspace):
+                  text = text.replace(secret_path, "<path>")
+              with open(path + ".sanitized", "w", encoding="utf-8") as handle:
+                  handle.write(text)
+          print("LOGS-SANITIZED")
+          PY
+          echo "RESULTADO: discover=381 supervisor=167 total=548 (namespace sem rede; guard adicional)"
+
+      - name: Publicar logs sanitizados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coord-python-logs
+          path: ${{ runner.temp }}/coord-logs/*.sanitized
+          if-no-files-found: ignore

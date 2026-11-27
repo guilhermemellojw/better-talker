@@ -1,0 +1,6 @@
+# Dependência online preparada antes da execução offline do CI Python.
+# PyYAML 6.0.2 — wheel CPython 3.12 x86_64 (manylinux/musllinux) com hashes
+# verificáveis. O job usa --require-hashes --only-binary=:all:.
+PyYAML==6.0.2 \
+    --hash=sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476 \
+    --hash=sha256:8b9c7197f7cb2738065c481a0461e50ad02f18c78cd75775628afb4d7137fb3b
