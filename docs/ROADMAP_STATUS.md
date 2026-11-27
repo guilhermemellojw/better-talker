@@ -24,9 +24,9 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `5881e7312441` | Não verificado |
+| [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `5881e7312441` | Pendente |
 | [#80 — COORD-05A-EXT: ledger 1.1 com autorizacao assinada e reconciliacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/80) | Outros | `27506ea379fb` | Verde |
-| [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Pendente |
+| [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
 | [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `f6205e02fc55` | Verde |
 | [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `cfc498e0b6f2` | Verde |
@@ -77,7 +77,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=70.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.6 dias (referência fixa: 2026-11-27).
-- Estados de check dos PRs abertos: Não verificado=1, Pendente=1, Verde=6.
+- Estados de check dos PRs abertos: Pendente=1, Verde=7.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
