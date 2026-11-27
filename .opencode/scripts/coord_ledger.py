@@ -1926,8 +1926,15 @@ class Ledger:
                 raise UnsafeReconciliation("atestação terminal expirada")
             if verified_reconciliation.issued_at.astimezone(timezone.utc) < dispatched:
                 raise UnsafeReconciliation("atestação anterior ao despacho")
-            if report is not None:
-                completed_at = parse_iso(str(report.get("completed_at")))
+            if report is not None and report.get("completed_at") is not None:
+                try:
+                    completed_at = parse_iso(str(report["completed_at"]))
+                except ValueError as exc:
+                    raise EvidenceDivergence("completed_at inválido") from exc
+                if completed_at.tzinfo is None:
+                    raise EvidenceDivergence("completed_at sem fuso")
+                if completed_at < dispatched:
+                    raise UnsafeReconciliation("relatório anterior ao despacho")
                 if completed_at > verified_reconciliation.issued_at.astimezone(timezone.utc):
                     raise UnsafeReconciliation("relatório posterior à atestação")
             attestation_sha = hashlib.sha256(

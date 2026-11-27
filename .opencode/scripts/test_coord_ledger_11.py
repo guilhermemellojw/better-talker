@@ -576,10 +576,14 @@ class Ledger11Test(unittest.TestCase):
         self.db.authorize_signed(self.snapshot.mission_id, envelope={},
                                  signature=self.verifier.signature,
                                  payload=self.snapshot.payload, actor="human")
-        lease, _ = record_evidence(self.db, self.snapshot, self.verifier)
+        lease, receipt_value = record_evidence(self.db, self.snapshot, self.verifier)
+        failed_report = report(self.snapshot, receipt_value, clock=self.clock)
+        failed_report.update(status="FAILED")
+        failed_report.pop("completed_at")
         record = self.db.reconcile_signed(
             self.snapshot.mission_id, authorization_digest=self.verifier.digest,
             lease_id=lease.lease_id, target_state=ledger.FAILED,
+            report=failed_report,
             evidence={**evidence(self.snapshot), "reason": "synthetic failure"},
             attestation={"authority": "maintainer"},
             attestation_signature=b"attestation", actor="qa")

@@ -44,8 +44,8 @@ Host-only, `unshare -rn`, `HOME`/`TMPDIR`/`XDG_STATE_HOME` isolados:
 
 | Comando | Resultado | SHA-256 do log |
 |---|---|---|
-| `unittest test_coord_ledger test_coord_ledger_11` | **98/98 OK** (49 antigos + 49 novos) | `c5b322c5a4a08fbf27680af0a248610c58f3b09c2d251987df307cdd9ea62543` |
-| `unittest discover` | **168/168 OK** (repetido 5x sem flake) | `9eee38c000437c992d76da78093dba2fda59bdd989e084e7f8a4dc695e7ea183` |
+| `unittest test_coord_ledger test_coord_ledger_11` | **98/98 OK** (49 antigos + 49 novos) | `cc05dbd107c6dc2b36d43b83482030ef44ae2aca3a8169a4bc73707f4d61e318` |
+| `unittest discover` | **168/168 OK** (repetido 5x sem flake) | `9376f837c82de3a4e82d4423d15eb3183cd45c68c1f45dbb6cbb805876f7e505` |
 | `test_supervisor.py` | **167/167 passed** | `92f3f934f682b8c48a854d41c2f6fd30b5173d7a7ff70987edeed1b18e8e79c4` |
 
 O CI atual só executa `propose`; a suíte é host-only. Fail-first: no HEAD anterior `2f5c855f` os 49 testes novos falham/erram por ausência/API antiga; as sondas de auditoria do parecer `7221498417` reproduzem os ataques e estão codificadas nas regressões acima.
