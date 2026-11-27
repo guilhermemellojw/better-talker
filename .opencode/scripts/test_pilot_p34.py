@@ -167,7 +167,9 @@ class ManifestBindingTests(unittest.TestCase):
     def test_no_fallback_to_fixture(self):
         with tempfile.TemporaryDirectory() as td:
             out = cli.run(["--store-dir", td, "preflight", "--real", "--endpoint", OTHER])
-        self.assertEqual(out["source"], "real")
+        # P14A: --real sem contato efetivo é apenas declaração de modo, não
+        # evidência de transporte real.
+        self.assertEqual(out["source"], "declared-real")
         self.assertEqual(out["fallback"], "none")
         self.assertFalse(out["service_contacted"])
         self.assertNotIn("agent_id", out["observed"])

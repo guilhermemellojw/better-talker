@@ -459,3 +459,15 @@ exato (`opencode/hy4-flash-free`).
 O núcleo permanece genérico: política, identidade, missão e transporte são injetados.
 HealthAgentForms não foi acessado; qualquer reutilização futura exigirá nova política de
 projeto, autorização e adaptação de destino, sem escolha pelo modelo.
+
+## COORD-04/P14A — integração offline do ledger (#70) e da política de modelos (#71)
+
+Main `cc90091a` incorporada à branch por **merge convencional** (`ee89f039`; pais `1707cdb9` e `cc90091a`); HEAD do PR #64 não foi mergeado na main. Baseline integrada antes das alterações: **345 testes `unittest discover` + 167 `test_supervisor.py` = 512/512**, rede bloqueada.
+
+**Arquitetura integrada:** `coord_p14_adapter.py` é a única ponte nova. `LedgerOperationStore` implementa a interface de store do piloto com `coord_ledger.Ledger` como autoridade de estado e reserva: `register_proposed → authorize → reserve_dispatch` (atômico por agente/sessão) → `mark_delivered/RUNNING/COMPLETED/FAILED/UNKNOWN` → `reconcile`. O `PilotOperationStore` JSON deixa de ser autoridade no caminho integrado; nenhum lock de arquivo é usado como exclusividade. `select_with_policy()` delega a escolha a `coord_model_policy.recommend`, preservando Free First, 1M preferido, `#variant`, disponibilidade/custo e autorização financeira. `authorization_interface_p14b()` apenas descreve o contrato do gate #72 — **nenhuma autoridade é concedida**.
+
+**Complementos diretamente ligados à integração:** `executed` agora é falso em `UNKNOWN/FAILED`, com `attempted`/`completed` separados e histórico preservado; `source` só vira `real` após contato efetivo — sem contato é `declared-real`, coerente com `service_contacted=false`.
+
+**Testes:** 10 novos testes host-only (`test_p14a.py`) cobrem reserva atômica, duas missões concorrentes do mesmo agente, duas reservas da mesma sessão, interrupção/recuperação sem reenvio, relatório duplicado, evidência divergente, dois consumidores declarados com o mesmo `flock`, seleção canônica, modelo gratuito indisponível, modelo pago sem autorização e transporte sintético. Fail-first funcional: no store JSON baseline, duas reservas independentes para a mesma sessão foram ambas aceitas.
+
+**Limitações/P14B:** identidade global do consumidor ainda não é provada (`flock` apenas liveness); autoridade externa ainda não é autenticada; #72 segue em recertificação, SHADOW e sem enforcement. Transporte permanece sintético; nenhuma sessão/POST real, LLM, credencial, Android/ADB ou merge. CI disponível: apenas `propose`; proposta de CI Python host-only (rede bloqueada) executando `unittest discover`, `test_supervisor.py` e `test_p14a.py` no mesmo SHA.

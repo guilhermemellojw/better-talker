@@ -154,7 +154,8 @@ class FixtureRealSeparationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as isolated_store:
             out = cli.run(["--store-dir", isolated_store, "preflight", "--real",
                            "--endpoint", "http://127.0.0.1:51111"])
-        self.assertEqual(out["source"], "real")
+        # P14A: falha de conexão não é evidência de transporte real.
+        self.assertEqual(out["source"], "declared-real")
         self.assertEqual(out["mode"], "real")
         self.assertFalse(out["service_contacted"])
         self.assertEqual(out["fallback"], "none")
@@ -166,7 +167,8 @@ class FixtureRealSeparationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as isolated_store:
             out = cli.run(["--store-dir", isolated_store, "prepare", "--real",
                            "--endpoint", "http://127.0.0.1:51111"])
-        self.assertEqual(out["source"], "real")
+        # P14A: modo real declarado sem contato não é evidência de serviço real.
+        self.assertEqual(out["source"], "declared-real")
         self.assertTrue(out["blocked"])
         self.assertNotIn("manifest", out)
         self.assertFalse(out["approved"])

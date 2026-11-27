@@ -457,7 +457,7 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
     canonical = pilot.canonical_endpoint(endpoint)
     seen: list[str] = []
     observed: dict[str, Any] = {
-        "endpoint": canonical, "source": "real", "read_only": True,
+        "endpoint": canonical, "source": "declared-real", "read_only": True,
         "observed_at": cc.iso(cc.utc_now()), "expired": False,
         "connection_attempted": False, "service_contacted": False,
         "authentication_succeeded": False, "http_response_valid": False,
@@ -497,6 +497,8 @@ def _real_observe(endpoint: str, *, auth_env: Optional[str] = None,
             return None
         observed["http_status"] = status
         observed["service_contacted"] = True
+        # P14A: `source=real` só após contato efetivo com o serviço.
+        observed["source"] = "real"
         if status in {401, 403}:
             observed["authentication_succeeded"] = False
             observed["http_response_valid"] = False
@@ -956,12 +958,14 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
         if session is not None:
             session = _validate_registry(session)
     except ValueError as e:
-        return {"command": "prepare", "mode": "real", "source": "real",
+        return {"command": "prepare", "mode": "real",
+                "source": observed.get("source", "declared-real"),
                 "approved": False, "environment": "PROPOSED", "blocked": True,
                 "blockers": [f"cadastro inválido: {e}"],
                 "reason": "manifesto não emitido"}
     result: dict[str, Any] = {
-        "command": "prepare", "mode": "real", "source": "real",
+        "command": "prepare", "mode": "real",
+        "source": observed.get("source", "declared-real"),
         "service_contacted": observed["service_contacted"], "read_only": True,
         "real_calls": observed["real_calls"], "observed": observed,
         "approved": False, "environment": "PROPOSED",
@@ -1079,7 +1083,7 @@ def run(argv: list[str]) -> dict[str, Any]:
     try:
         session = _resolve_session(options["store_dir"], options["session"]) if needs_session else None
     except ValueError as e:
-        return {"command": command, "mode": "real", "source": "real",
+        return {"command": command, "mode": "real", "source": "declared-real",
                 "service_contacted": False, "recipient_authorized": False,
                 "status_kind": "registry_invalid", "blocked": True,
                 "blockers": [f"cadastro inválido: {e}"], "real_calls": 0}
@@ -1166,7 +1170,8 @@ def run(argv: list[str]) -> dict[str, Any]:
                                      session=session)
             apply_catalog_evidence(observed, options["catalog"])
             refresh_admission(observed, session)
-            return {"command": command, "mode": "real", "source": "real",
+            return {"command": command, "mode": "real",
+                    "source": observed.get("source", "declared-real"),
                     "read_only": True, "service_contacted": observed["service_contacted"],
                     "connection_attempted": observed["connection_attempted"],
                     "authentication_succeeded": observed["authentication_succeeded"],

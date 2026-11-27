@@ -1782,7 +1782,12 @@ class PilotExecutor:
             else:
                 state = "DISPATCHING"
             self.store.update(state, evidence)
-            return {"executed": True, "state": state,
+            # P14A: tentativa ≠ conclusão. UNKNOWN/FAILED não são execução
+            # efetiva, mas o histórico da tentativa é preservado no store.
+            return {"attempted": True,
+                    "executed": state not in {"UNKNOWN", "FAILED"},
+                    "completed": state in {"DELIVERED", "RUNNING", "COMPLETED"},
+                    "state": state,
                     "receipt_confirmed": engine_record.message_id is not None,
                     "engine_events": len(engine.events.events)}
 

@@ -138,7 +138,11 @@ class PrePostValidationTests(unittest.TestCase):
              patch.object(cc.CommunicationEngine, "_validate_prepared_request",
                           return_value=None):
             out = ex.execute(m, replace(hx.core_auth(m), issued_at=NOW, expires_at=NOW + timedelta(hours=1)), pilot.PILOT_PROMPT)
-        self.assertTrue(out["executed"])
+        # P14A: uma tentativa com receipt não confirmado permanece UNKNOWN;
+        # `attempted` registra a tentativa sem fingir conclusão.
+        self.assertTrue(out["attempted"])
+        self.assertFalse(out["executed"])
+        self.assertEqual("UNKNOWN", out["state"])
         self.assertEqual(transmit.call_count, 1)
 
     def test_p0_mutations_produce_zero_post(self):
