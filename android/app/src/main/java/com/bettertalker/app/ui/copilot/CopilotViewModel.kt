@@ -71,6 +71,8 @@ import com.bettertalker.app.data.copilot.TurnPhase
 import com.bettertalker.app.data.copilot.TurnUiState
 import com.bettertalker.app.data.copilot.SourceFidelityGate
 import com.bettertalker.app.data.copilot.ContentEligibilityGate
+import com.bettertalker.app.data.copilot.DeliveryProvenance
+import com.bettertalker.app.data.copilot.provenanceForMessage
 import com.bettertalker.app.data.copilot.cancelledPayload
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
@@ -1547,7 +1549,12 @@ class CopilotViewModel(
         val newMap = map.toMutableMap().apply {
             put("text", updated)
             put("cardSummary", capCardSummary(clean))
+            // Conteúdo alterado invalida a aprovação anterior; o gate rejeita
+            // até haver nova proveniência verificável.
+            remove(DeliveryProvenance.KEY)
+            remove(DeliveryProvenance.KEY_SHA256)
         }
+        deliveryProvenance.remove(messageId)
         db.chatDao().updateMessagePayload(messageId, ChatCodec.escMap(newMap))
     }
 
@@ -1555,24 +1562,67 @@ class CopilotViewModel(
      * BETA-TRUST/P1 — texto liberado para histórico/cópia/editor. Nenhuma rota
      * deve copiar o payload cru: a decisão é central e always-on.
      */
-    fun eligibleTextForUse(text: String): String =
-        ContentEligibilityGate.forResponseCopy(
-            text, activeDeliveryCorpus, activeQuestionRefs,
+    /**
+     * BETA-TRUST/P2 — histórico/cópia usam a proveniência do próprio turno.
+     * Sem vínculo vigente (restart, troca de nota/seção), falha fechada: o
+     * texto permanece no registro, mas não é copiado nem reinserido.
+     */
+    fun eligibleTextForUse(
+        messageId: String,
+        text: String,
+        fromMe: Boolean = false,
+    ): String {
+        if (fromMe) return text
+        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
+            ?: return ""
+        if (!bound.authorizesMessage(noteId, text)) return ""
+        return ContentEligibilityGate.forHistory(
+            text, bound.corpus, bound.questionRefs,
         ).text
+    }
+
+    /** BETA-TRUST/P2 — cópia usa o vínculo persistido, não o turno vivo. */
+    fun eligibleCopyText(
+        messageId: String,
+        text: String,
+        fromMe: Boolean = false,
+    ): String {
+        if (fromMe) return text
+        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
+            ?: return ""
+        if (!bound.authorizesMessage(noteId, text)) return ""
+        return ContentEligibilityGate.forResponseCopy(
+            text, bound.corpus, bound.questionRefs,
+        ).text
+    }
+
+    /** BETA-TRUST/P2 — cópia de card usa a entrada específica da rota. */
+    fun eligibleCardCopyText(messageId: String, text: String): String {
+        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
+            ?: return ""
+        if (!bound.authorizesMessage(noteId, text)) return ""
+        return ContentEligibilityGate.forCardCopy(text, bound.corpus, bound.questionRefs).text
+    }
+
+    /** BETA-TRUST/P2 — inserção usa o vínculo do card original, nunca o estado vivo. */
+    fun cardEligible(messageId: String, text: String): Boolean {
+        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
+            ?: return false
+        if (!bound.authorizesMessage(noteId, text)) return false
+        return ContentEligibilityGate.forTopicInsert(
+            text, bound.corpus, bound.questionRefs,
+        ).allowed
+    }
 
     /**
-     * BETA-TRUST/P1 — proveniência do card ANTES da inserção. Registros antigos
-     * só são preservados quando já possuem verificação local sem pendências;
-     * nunca por status AVAILABLE ou aviso visual.
+     * BETA-TRUST/P2 — contrato de handoff para C/AI-09: lê a proveniência
+     * persistida da mensagem/card original. O chamador deve usar
+     * [DeliveryProvenance.rewriteFrom] e passar `provenanceSource` ao `post`;
+     * o texto revisado nunca é usado como corpus.
      */
-    fun cardEligible(text: String, messageId: String? = null): Boolean {
-        val decision = ContentEligibilityGate.forCardInsert(
-            text, activeDeliveryCorpus, activeQuestionRefs,
-        )
-        if (decision.allowed) return true
-        if (activeDeliveryCorpus.isNotEmpty()) return false
-        val legacy = messageId?.let { _cardVerifications.value[it] } ?: return false
-        return legacy.summary.insufficient == 0 && legacy.summary.partial == 0
+    suspend fun deliveryProvenanceFor(messageId: String): DeliveryProvenance? {
+        val entity = db.chatDao().get(messageId) ?: return null
+        return DeliveryProvenance.fromPayload(ChatCodec.unescMap(entity.payload))
     }
 
     /** Verificação warn-only: informa, nunca remove texto nem bloqueia insert. */
@@ -1618,7 +1668,13 @@ class CopilotViewModel(
             contentHtml = section.contentHtml,
             now = System.currentTimeMillis(),
         )
-        updateCardPayload(messageId, map, picked)
+        val rebased = map.toMutableMap()
+        DeliveryProvenance.fromPayload(map)?.let { bound ->
+            val updated = bound.withTargetKey(cardTargetKey(picked))
+            rebased.putAll(updated.toPayload())
+            deliveryProvenance[messageId] = updated
+        }
+        updateCardPayload(messageId, rebased, picked)
         logCard(messageId, "USER_PICK", picked, 0)
         CardMetrics.target(
             kind = "NO_TARGET",
@@ -1714,10 +1770,22 @@ class CopilotViewModel(
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return
         val rawText = extractCardText(map["text"].orEmpty()) ?: return
+        val bound = DeliveryProvenance.fromPayload(map)
+        if (bound == null ||
+            !bound.authorizesCard(entity.noteId, cardTargetKey(card), rawText)
+        ) {
+            _cardEvents.tryEmit(
+                CardUiEvent("Card sem proveniência verificável; não foi inserido."),
+            )
+            return
+        }
         val eligible = ContentEligibilityGate.forCardInsert(
-            rawText, activeDeliveryCorpus, activeQuestionRefs,
+            rawText, bound.corpus, bound.questionRefs,
         )
-        if (!eligible.allowed) {
+        val topicEligible = ContentEligibilityGate.forTopicInsert(
+            rawText, bound.corpus, bound.questionRefs,
+        )
+        if (!eligible.allowed || !topicEligible.allowed) {
             _cardEvents.tryEmit(
                 CardUiEvent("Card sem proveniência verificável; não foi inserido."),
             )
@@ -2004,6 +2072,18 @@ class CopilotViewModel(
     /** BETA-TRUST/P1 — corpus do turno para sanear parcial e cancelamento. */
     private var activeDeliveryCorpus: List<String> = emptyList()
     private var activeQuestionRefs: List<String> = emptyList()
+    /** P2: cache hidratado do payload persistido; nunca autoridade própria. */
+    private val deliveryProvenance = mutableMapOf<String, DeliveryProvenance>()
+
+    /** Fonte de verdade é o payload; o mapa só evita I/O nos call sites de UI. */
+    private fun hydrateDeliveryProvenance(entities: List<com.bettertalker.app.data.db.ChatEntity>) {
+        val ids = entities.map { it.id }.toSet()
+        deliveryProvenance.keys.retainAll(ids)
+        entities.forEach { entity ->
+            DeliveryProvenance.fromPayload(ChatCodec.unescMap(entity.payload))
+                ?.let { deliveryProvenance[entity.id] = it }
+        }
+    }
     private var currentTurnId: String? = null
     /** Card-first: alvo capturado no início da geração, nunca no clique. */
     private var activeCardTarget: CardTarget? = null
@@ -3749,7 +3829,10 @@ class CopilotViewModel(
         // muda apenas o prompt/alvo; trocar de tópico nunca troca a lista.
         db.chatDao().observe(noteId)
             .onStart { _scopeLoading.value = true }
-            .onEach { _scopeLoading.value = false }
+            .onEach { list ->
+                _scopeLoading.value = false
+                hydrateDeliveryProvenance(list)
+            }
             .combine(targetChanges) { list, _ -> list }
             .map { list ->
             val items = list.map { e ->
@@ -3972,8 +4055,21 @@ class CopilotViewModel(
                 ),
             )
         }
-        val payload = safeTurn.cancelledPayload()
+        val payload = safeTurn.cancelledPayload().toMutableMap()
         val messageId = newId("msg")
+        val provenance = DeliveryProvenance.newForMessage(
+            messageId = messageId,
+            turnId = safeTurn.turnId,
+            noteId = noteId,
+            scopeId = scope,
+            targetKey = null,
+            corpus = activeDeliveryCorpus,
+            questionRefs = activeQuestionRefs,
+            content = safeTurn.partialText,
+            boundAt = System.currentTimeMillis(),
+        )
+        payload.putAll(provenance.toPayload())
+        deliveryProvenance[messageId] = provenance
         db.chatDao().put(
             ChatEntity(
                 messageId,
@@ -4008,6 +4104,12 @@ class CopilotViewModel(
         cardSuggestedAction: CardSuggestedAction = CardSuggestedAction.APPEND,
         /** Fase 4: false = resposta explicativa não vira card. */
         allowCard: Boolean = true,
+        /**
+         * BETA-TRUST/P2 — proveniência da mensagem-fonte para AI-09/revisão.
+         * O texto revisado recebe novo hash; o corpus/refs são os originais.
+         */
+        provenanceSource: DeliveryProvenance? = null,
+        provenanceSourceText: String? = null,
     ): String? {
         val nid = noteId ?: return null
         // Origem embutida no JSON do payload (sem migration; histórico
@@ -4039,10 +4141,50 @@ class CopilotViewModel(
             withOrigin["reasoningSeconds"] = reasoningSeconds.toString()
         }
         val messageId = newId("msg")
+        val cardText = if (!fromMe && allowCard) {
+            extractCardText(withOrigin["text"].orEmpty())
+        } else {
+            null
+        }
+        val now = System.currentTimeMillis()
+        val targetKey = activeCardTarget?.let { "${it.kind.name}:${it.id}" }
+        val generated = !fromMe && (durationMs != null || cardText != null)
+        val storedProvenance = when {
+            fromMe -> null
+            provenanceSource != null && provenanceSourceText != null ->
+                DeliveryProvenance.rewriteFrom(
+                    source = provenanceSource,
+                    sourceText = provenanceSourceText,
+                    revisedText = cardText ?: withOrigin["text"].orEmpty(),
+                    messageId = messageId,
+                    turnId = effectiveTurnId,
+                    noteId = nid,
+                    scopeId = targetScope,
+                    targetKey = targetKey,
+                    boundAt = now,
+                )
+            generated -> DeliveryProvenance.newForMessage(
+                messageId = messageId,
+                turnId = effectiveTurnId,
+                noteId = nid,
+                scopeId = targetScope,
+                targetKey = targetKey,
+                corpus = activeDeliveryCorpus,
+                questionRefs = activeQuestionRefs,
+                content = cardText ?: withOrigin["text"].orEmpty(),
+                boundAt = now,
+            )
+            else -> null
+        }
+        // BETA-TRUST/P2: a proveniência é persistida no payload; o mapa é só
+        // cache hidratado do banco (copiar/inserir usa o payload após restart).
+        if (storedProvenance != null) {
+            withOrigin.putAll(storedProvenance.toPayload())
+            deliveryProvenance[messageId] = storedProvenance
+        }
         // Card-first: se a resposta tem <texto-do-card>, o alvo capturado na
         // geração vira payload do card. O gate aponta para esta mensagem.
         if (!fromMe && allowCard) {
-            val cardText = extractCardText(withOrigin["text"].orEmpty())
             if (cardText != null) {
                 val target = activeCardTarget
                 val card = CardPayload(

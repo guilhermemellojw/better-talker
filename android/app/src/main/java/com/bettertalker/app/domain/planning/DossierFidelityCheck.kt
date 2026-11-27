@@ -1,6 +1,7 @@
 package com.bettertalker.app.domain.planning
 
 import com.bettertalker.app.data.copilot.SourceFidelityGate
+import com.bettertalker.app.data.copilot.ContentEligibilityGate
 
 /**
  * Verifica se um draft (textHtml + usedSources) é fiel ao dossiê.
@@ -69,9 +70,12 @@ object DossierFidelityCheck {
         } + dossier.publicationTexts.mapNotNull { entry ->
             entry.text?.let { body -> "${entry.ref.symbol} — $body" }
         }
-        val unsupportedQuotes = SourceFidelityGate.unsupportedLiteralQuotes(
-            stripHtml(textHtml), recoveredTexts,
-        )
+        val plain = stripHtml(textHtml)
+        val unsupportedQuotes = (SourceFidelityGate.unsupportedLiteralQuotes(
+            plain, recoveredTexts,
+        ) + ContentEligibilityGate.forDraftReview(
+            plain, recoveredTexts, emptyList(),
+        ).removed).distinct()
 
         return DossierFidelityReport(
             inventedBibleRefs = inventedBible,

@@ -2542,7 +2542,7 @@ private fun CardFirstActions(
                         enabled = cardText.isNotBlank(),
                         onClick = {
                             showMenu = false
-                            copy(vm.eligibleTextForUse(cardText))
+                            copy(vm.eligibleCardCopyText(item.id, cardText))
                         },
                     )
                     if (status == CardStatus.APPLIED) {
@@ -2748,7 +2748,7 @@ private fun MessageActions(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         QuickAction(Icons.Default.ContentCopy, "Copiar texto") {
-            copy(vm.eligibleTextForUse(item.text))
+            copy(vm.eligibleCopyText(item.id, item.text, item.fromMe))
         }
         QuickAction(Icons.Default.Refresh, "Regenerar resposta") {
             vm.regenerateLastResponse()

@@ -61,9 +61,28 @@ object SourceFidelityGate {
     private val PARAPHRASE = Regex(
         "(?i)\\b(par[áa]frase|em outras palavras|sugest[aã]o|ilustra[çc][aã]o)\\b",
     )
+    /** Atribuição explícita à TNM torna aspas curtas uma afirmação bíblica. */
+    private val EXPLICIT_TNM = Regex(
+        "(?i)(tradu[çc][aã]o do novo mundo|\\btnm\\b)",
+    )
+    /** Referência truncada: nunca é evidência e nunca é texto copiável. */
+    private val INCOMPLETE_REF = Regex(
+        """\b((?:[1-3]\s*)?[A-Za-zÀ-ÿ]+\.?)\s+\d{1,3}\s*:\s*$""",
+    )
 
     private fun body(match: MatchResult): String =
         match.groupValues[1].ifBlank { match.groupValues[2] }
+
+    /** Casa chave canônica sem confundir v. 1 com v. 10/11 (fronteira de dígito). */
+    private fun canonContains(canonical: String, key: String): Boolean {
+        var index = canonical.indexOf(key)
+        while (index >= 0) {
+            val end = index + key.length
+            if (end == canonical.length || !canonical[end].isDigit()) return true
+            index = canonical.indexOf(key, index + 1)
+        }
+        return false
+    }
 
     /** Aspas só são afirmação bíblica quando o contexto as apresenta como tal. */
     private fun isClaimContext(text: String, start: Int, end: Int): Boolean {
@@ -100,15 +119,28 @@ object SourceFidelityGate {
         QUOTE.findAll(text).toList().forEach { match ->
             val quote = body(match)
             val norm = normalizeText(quote)
-            if (norm.length < MIN_CLAIM_QUOTE) {
+            val before = text.substring((match.range.first - 180).coerceAtLeast(0), match.range.first)
+            val after = text.substring((match.range.last + 1).coerceAtMost(text.length),
+                (match.range.last + 91).coerceAtMost(text.length))
+            val explicit = EXPLICIT_TNM.containsMatchIn(before) || EXPLICIT_TNM.containsMatchIn(after)
+            if (norm.length < MIN_CLAIM_QUOTE && !explicit) {
                 findings += FidelityFinding.TERM_QUOTE
                 return@forEach
             }
-            if (corpusFlat.contains(norm)) {
+            // Proveniência é por trecho e por referência: um texto recuperado
+            // de outra passagem não autoriza atribuição divergente, e a
+            // concatenação de fragmentos não é citação contínua.
+            val nearbyRef = VERSE.find(before)?.value ?: VERSE.find(after)?.value
+            val supporting = corpus.firstOrNull { normalizeText(it).contains(norm) }
+            val supported = supporting != null && (nearbyRef == null ||
+                RefCanonicalizer.canonicalize(supporting).any { key ->
+                    canonContains(key, RefCanonicalizer.canonicalBook(nearbyRef))
+                })
+            if (supported) {
                 findings += FidelityFinding.LITERAL_SUPPORTED
                 return@forEach
             }
-            val claim = norm.length >= LONG_CLAIM_QUOTE ||
+            val claim = explicit || norm.length >= LONG_CLAIM_QUOTE ||
                 isClaimContext(text, match.range.first, match.range.last + 1)
             if (claim) {
                 findings += FidelityFinding.LITERAL_UNSUPPORTED
@@ -127,20 +159,32 @@ object SourceFidelityGate {
             val book = match.groupValues[1].trim()
             val chapter = match.groupValues[2].toIntOrNull() ?: return@forEach
             val firstVerse = match.groupValues[3].toIntOrNull() ?: return@forEach
-            val tail = Regex("""\d{1,3}\s*[-–,]\s*(\d{1,3})""")
-                .find(match.value.substringAfter(":"))
-            val lastVerse = tail?.groupValues?.get(1)?.toIntOrNull() ?: firstVerse
-            if (lastVerse < firstVerse || lastVerse - firstVerse > 50) {
-                findings += FidelityFinding.REFERENCE_UNSUPPORTED
-                out = out.replace(match.value, "")
-                removed += match.value
-                return@forEach
+            // O range/lista vem DEPOIS do casamento da regex (ex.: "17:1-11"),
+            // não dentro dele; ler só `match.value` provava apenas o v. 1.
+            val rest = text.substring((match.range.last + 1).coerceAtMost(text.length),
+                (match.range.last + 41).coerceAtMost(text.length))
+            val rangeTail = Regex("""^\s*[-–]\s*(\d{1,3})""").find(rest)
+            val listTail = Regex("""^\s*,\s*(\d{1,3}(?:\s*,\s*\d{1,3})*)""").find(rest)
+            val verses = mutableSetOf(firstVerse)
+            if (rangeTail != null) {
+                val last = rangeTail.groupValues[1].toIntOrNull()
+                if (last == null || last < firstVerse || last - firstVerse > 50) {
+                    findings += FidelityFinding.REFERENCE_UNSUPPORTED
+                    out = out.replace(match.value + rangeTail.value, "")
+                    removed += match.value + rangeTail.value
+                    return@forEach
+                }
+                verses += (firstVerse..last).toSet()
+            } else if (listTail != null) {
+                Regex("""\d{1,3}""").findAll(listTail.groupValues[1]).forEach { item ->
+                    item.value.toIntOrNull()?.let { verses += it }
+                }
             }
-            val keys = (firstVerse..lastVerse).map { v ->
+            val keys = verses.map { v ->
                 RefCanonicalizer.canonicalBook("$book $chapter:$v")
             }
             when {
-                keys.all { key -> canonCorpus.any { it.contains(key) } } ->
+                keys.all { key -> canonCorpus.any { canonContains(it, key) } } ->
                     findings += FidelityFinding.REFERENCE_SUPPORTED
                 keys.any { key -> key in questionKeys } ->
                     findings += FidelityFinding.REFERENCE_FROM_QUESTION
@@ -161,7 +205,7 @@ object SourceFidelityGate {
 
         // 3) Publicações citadas sem trecho indexado não são fonte.
         RefDetector.detect(text).forEach { ref ->
-            if (ref.pubKey.equals("be", true) || ref.pubKey.equals("th", true)) return@forEach
+            // Nenhuma sigla é exceção: publicação citada exige trecho indexado.
             val labelKey = normalizeText(ref.label)
             val editionKey = normalizeText(ref.editionKey)
             val known = corpusFlat.contains(labelKey) || canonCorpus.any { it.contains(editionKey) }
@@ -209,7 +253,22 @@ object SourceFidelityGate {
         partial: String,
         corpus: List<String>,
         questionRefs: List<String> = emptyList(),
-    ): String = enforce(partial, corpus, questionRefs).text
+    ): String = redactUnfinished(
+        ContentEligibilityGate.forCancelledPartial(partial, corpus, questionRefs).text,
+    )
+
+    /** Aspas abertas e referência truncada não são texto copiável/persistível. */
+    private fun redactUnfinished(text: String): String {
+        var out = text
+        val openQuote = out.count { it == '"' } % 2 == 1 ||
+            out.count { it == '“' } != out.count { it == '”' }
+        if (openQuote) {
+            val lastQuote = maxOf(out.lastIndexOf('“'), out.lastIndexOf('"'))
+            if (lastQuote >= 0) out = out.substring(0, lastQuote)
+        }
+        INCOMPLETE_REF.find(out)?.let { out = out.substring(0, it.range.first) }
+        return out.trim()
+    }
 
     private fun blocked(findings: List<FidelityFinding>): Boolean = findings.any {
         it == FidelityFinding.LITERAL_UNSUPPORTED ||
