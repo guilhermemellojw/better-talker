@@ -24,8 +24,8 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `beb1d62ee5cc` | Falhou |
-| [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | `fa89ebb23cf1` | Pendente |
+| [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `9c77894f7d4f` | Pendente |
+| [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | `fa89ebb23cf1` | Verde |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
@@ -76,7 +76,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=74.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.3 dias (referência fixa: 2026-11-27).
-- Estados de check dos PRs abertos: Falhou=1, Pendente=1, Verde=5.
+- Estados de check dos PRs abertos: Pendente=1, Verde=6.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
