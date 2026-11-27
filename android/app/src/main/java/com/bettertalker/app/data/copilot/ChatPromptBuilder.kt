@@ -472,6 +472,11 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         // T2 (expert em publicações): mesma regra para trechos de publicação.
         "\nAo citar um trecho de TRECHOS DE PUBLICAÇÕES, use aspas palavra-por-palavra, " +
         "como para versículos." +
+        // BETA-TRUST/P1 — o gate remove o que o modelo inventa; a instrução
+        // reduz o erro na origem sem afrouxar a checagem posterior.
+        "\nNUNCA escreva referência bíblica ou de publicação que não esteja com " +
+        "texto literal recuperado nos blocos autorizados. Sem texto, use apenas " +
+        "paráfrase marcada como paráfrase, SEM aspas e SEM atribuir o texto à fonte." +
         // 1C.2.0: uma tag do modelo não é aceite do usuário. A decisão só
         // existe quando o usuário a confirma explicitamente; propostas usam
         // o marcador de sugestão.

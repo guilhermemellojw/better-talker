@@ -31,10 +31,19 @@ data class DossierFidelityReport(
     val usedSourcesOutsideDossier: List<String>,
     /** Refs do unresolvedRefs que aparecem no texto. */
     val unresolvedRefsCited: List<String>,
+    /** Citações literais que não conferem com nenhum texto recuperado. */
+    val unsupportedLiteralQuotes: List<String> = emptyList(),
 ) {
     val ok: Boolean
         get() = inventedBibleRefs.isEmpty() &&
             inventedPublicationRefs.isEmpty() &&
             usedSourcesOutsideDossier.isEmpty() &&
-            unresolvedRefsCited.isEmpty()
+            unresolvedRefsCited.isEmpty() &&
+            unsupportedLiteralQuotes.isEmpty()
 }
+
+/**
+ * BETA-TRUST/P1 — aceite de rascunho é bloqueado enquanto houver qualquer
+ * afirmação bíblica sem suporte verificável. Antes este era apenas informativo.
+ */
+fun draftAcceptAllowed(report: DossierFidelityReport): Boolean = report.ok

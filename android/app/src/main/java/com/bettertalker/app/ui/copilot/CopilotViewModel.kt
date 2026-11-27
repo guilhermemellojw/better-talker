@@ -69,6 +69,8 @@ import com.bettertalker.app.data.copilot.isNewChatEntrySession
 import com.bettertalker.app.data.copilot.resolveChatEntryFocus
 import com.bettertalker.app.data.copilot.TurnPhase
 import com.bettertalker.app.data.copilot.TurnUiState
+import com.bettertalker.app.data.copilot.SourceFidelityGate
+import com.bettertalker.app.data.copilot.ContentEligibilityGate
 import com.bettertalker.app.data.copilot.cancelledPayload
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
@@ -653,6 +655,40 @@ fun verifyChatText(text: String, corpus: List<String>): ChatVerificationOutcome 
     )
 }
 
+/**
+ * BETA-TRUST/P1 — versão de ENTREGA. Diferente do modo aviso, o texto que
+ * chega ao histórico, ao rascunho ou à área de transferência nunca contém
+ * afirmação bíblica sem fonte local verificável.
+ *
+ * `questionRefs` são as refs citadas na pergunta: explicam a referência, mas
+ * NÃO autorizam citação literal sem o texto TNM/publicação recuperado.
+ */
+fun verifyChatTextForDelivery(
+    text: String,
+    corpus: List<String>,
+    questionRefs: List<String> = emptyList(),
+): ChatVerificationOutcome {
+    val gated = ContentEligibilityGate.forFinalAnswer(text, corpus, questionRefs)
+    val strict = GroundednessVerifier.verify(gated.text, corpus, warnOnly = false)
+    val clean = strict.text
+        .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE)
+        .trimEnd()
+    val reasons = buildList {
+        gated.notice?.removePrefix("⚠️ ")?.let { add(it) }
+        if (strict.hasRemovals) add("trechos sem apoio no acervo removidos")
+    }
+    val notice = reasons.takeIf { it.isNotEmpty() }
+        ?.joinToString("; ")
+        ?.let { "⚠️ Revise: $it." }
+    return ChatVerificationOutcome(
+        VerificationResult(
+            text = clean,
+            removed = gated.removed + strict.removed,
+            metrics = strict.metrics,
+        ),
+        notice,
+    )
+}
 
 /**
  * #11-fix: orçamento de saída do chat — maior quando a pergunta cita refs do
@@ -1515,6 +1551,34 @@ class CopilotViewModel(
         db.chatDao().updateMessagePayload(messageId, ChatCodec.escMap(newMap))
     }
 
+    /**
+     * BETA-TRUST/P1 — texto liberado para histórico/cópia/editor. Nenhuma rota
+     * deve copiar o payload cru: a decisão é central e always-on.
+     */
+    fun eligibleTextForUse(text: String): String =
+        ContentEligibilityGate.forResponseCopy(
+            text, activeDeliveryCorpus, activeQuestionRefs,
+        ).text
+
+    /**
+     * BETA-TRUST/P1 — proveniência do card ANTES da inserção. Registros antigos
+     * só são preservados quando já possuem verificação local sem pendências;
+     * nunca por status AVAILABLE ou aviso visual.
+     */
+    fun cardEligible(messageId: String): Boolean {
+        val nid = noteId ?: return false
+        val map = db.chatDao().all(nid).firstOrNull { it.id == messageId }
+            ?.let { ChatCodec.unescMap(it.payload) } ?: return false
+        val text = extractCardText(map["text"].orEmpty()) ?: return false
+        val decision = ContentEligibilityGate.forCardInsert(
+            text, activeDeliveryCorpus, activeQuestionRefs,
+        )
+        if (decision.allowed) return true
+        if (activeDeliveryCorpus.isNotEmpty()) return false
+        val legacy = _cardVerifications.value[messageId] ?: return false
+        return legacy.summary.insufficient == 0 && legacy.summary.partial == 0
+    }
+
     /** Verificação warn-only: informa, nunca remove texto nem bloqueia insert. */
     fun verifyCard(messageId: String) = viewModelScope.launch {
         if (messageId in _cardVerifying.value) return@launch
@@ -1653,7 +1717,17 @@ class CopilotViewModel(
         val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return
-        val text = extractCardText(map["text"].orEmpty()) ?: return
+        val rawText = extractCardText(map["text"].orEmpty()) ?: return
+        val eligible = ContentEligibilityGate.forCardInsert(
+            rawText, activeDeliveryCorpus, activeQuestionRefs,
+        )
+        if (!eligible.allowed) {
+            _cardEvents.tryEmit(
+                CardUiEvent("Card sem proveniência verificável; não foi inserido."),
+            )
+            return
+        }
+        val text = eligible.text
         val now = System.currentTimeMillis()
         try {
             // HTML final do editor: markdown/HTML do card deixa de aparecer cru.
@@ -1931,6 +2005,9 @@ class CopilotViewModel(
     fun setSimpleMode(v: Boolean) = viewModelScope.launch { settings.setSimpleMode(v) }
     private var activeTurnProgressJob: Job? = null
     private var cancelledPersistJob: Job? = null
+    /** BETA-TRUST/P1 — corpus do turno para sanear parcial e cancelamento. */
+    private var activeDeliveryCorpus: List<String> = emptyList()
+    private var activeQuestionRefs: List<String> = emptyList()
     private var currentTurnId: String? = null
     /** Card-first: alvo capturado no início da geração, nunca no clique. */
     private var activeCardTarget: CardTarget? = null
@@ -2296,7 +2373,9 @@ class CopilotViewModel(
                 val safePartial = if (looksLikeOutlineJson(progress.partial)) {
                     ""
                 } else {
-                    progress.partial
+                    SourceFidelityGate.sanitizePartialForDisplay(
+                        progress.partial, activeDeliveryCorpus, activeQuestionRefs,
+                    )
                 }
                 val next = current.withProgress(
                     partial = safePartial,
@@ -3891,7 +3970,11 @@ class CopilotViewModel(
         val safeTurn = if (looksLikeOutlineJson(turn.partialText)) {
             turn.copy(partialText = OUTLINE_JSON_CHAT_FALLBACK)
         } else {
-            turn
+            turn.copy(
+                partialText = SourceFidelityGate.sanitizePartialForDisplay(
+                    turn.partialText, activeDeliveryCorpus, activeQuestionRefs,
+                ),
+            )
         }
         val payload = safeTurn.cancelledPayload()
         val messageId = newId("msg")
@@ -5049,9 +5132,13 @@ class CopilotViewModel(
                 turnScope = null
                 currentTurnId = null
                 activeCardTarget = null
+                activeDeliveryCorpus = emptyList()
+                activeQuestionRefs = emptyList()
                 currentGenerationJob = null
                 _chatBusy.value = false
                 activeWaivedRefs = emptyList()
+                activeDeliveryCorpus = emptyList()
+                activeQuestionRefs = emptyList()
                 if (_runState.value is ChatRunState.Generating || _runState.value is ChatRunState.Sending) {
                     _runState.value = ChatRunState.Success
                 }
@@ -5593,10 +5680,15 @@ class CopilotViewModel(
             // (userContextBlock/structural), nunca como evidência.
             // turnContext do foco (A) permanece null: evidência exclusiva
             // de A não valida afirmações de B.
+            // BETA-TRUST/P1: o mesmo corpus tipado alimenta o gate central de
+            // elegibilidade usado depois por cópia e inserção do card.
+            val cardSources = OratoryGeneration.oruaryDocumentarySources(resolvedDossier, ready, section.id)
+            activeDeliveryCorpus = cardSources.map { it.text }
+            activeQuestionRefs = emptyList()
             val verified = verifyGeneratedText(
                 cleanedCardText,
                 turnContext = null,
-                documentarySources = OratoryGeneration.oruaryDocumentarySources(resolvedDossier, ready, section.id),
+                documentarySources = cardSources,
             )
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text
@@ -5741,7 +5833,9 @@ class CopilotViewModel(
         // Gate em modo aviso: o esboço colado É a fonte — nada é removido,
         // só avisado. Corpus = texto íntegro (o modelo citou o esboço).
         val corpus = listOf(pasted)
-        val outcome = verifyChatText(outText, corpus)
+        activeDeliveryCorpus = corpus
+        activeQuestionRefs = questionVerseAliases(pasted)
+        val outcome = verifyChatTextForDelivery(outText, corpus, activeQuestionRefs)
         val verified = outcome.result
         // Nível 0: o strict shadow mede o “antes” (o que seria removido) sem
         // alterar o texto entregue. Só métricas, nunca conteúdo.
@@ -6171,7 +6265,9 @@ class CopilotViewModel(
                     listOfNotNull(effectiveContextBlock),
             )
         }
-        val outcome = verifyChatText(text, corpus)
+        activeDeliveryCorpus = corpus
+        activeQuestionRefs = questionVerseAliases(text)
+        val outcome = verifyChatTextForDelivery(text, corpus, activeQuestionRefs)
         val verified = outcome.result
         // Nível 0: mede o “antes” (strict) e o “depois” (warn-only) no mesmo
         // turno. O strict shadow NÃO é usado como resposta — só métricas.

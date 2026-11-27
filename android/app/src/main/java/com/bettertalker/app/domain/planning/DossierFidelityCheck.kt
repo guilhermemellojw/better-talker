@@ -1,5 +1,7 @@
 package com.bettertalker.app.domain.planning
 
+import com.bettertalker.app.data.copilot.SourceFidelityGate
+
 /**
  * Verifica se um draft (textHtml + usedSources) é fiel ao dossiê.
  *
@@ -60,13 +62,29 @@ object DossierFidelityCheck {
             }
             .distinct()
 
+        // BETA-TRUST/P1: referência existir no dossiê não basta — a citação
+        // literal precisa conferir com o texto efetivamente recuperado.
+        val recoveredTexts = dossier.bibleTexts.mapNotNull { entry ->
+            entry.text?.let { body -> "${entry.ref} — $body" }
+        } + dossier.publicationTexts.mapNotNull { entry ->
+            entry.text?.let { body -> "${entry.ref.symbol} — $body" }
+        }
+        val unsupportedQuotes = SourceFidelityGate.unsupportedLiteralQuotes(
+            stripHtml(textHtml), recoveredTexts,
+        )
+
         return DossierFidelityReport(
             inventedBibleRefs = inventedBible,
             inventedPublicationRefs = inventedPub,
             usedSourcesOutsideDossier = usedOutside,
             unresolvedRefsCited = unresolvedCited,
+            unsupportedLiteralQuotes = unsupportedQuotes,
         )
     }
+
+    private fun stripHtml(html: String): String = html
+        .replace(Regex("<[^>]+>"), " ")
+        .replace("&nbsp;", " ")
 
     /** Normaliza ref para comparação: lowercase + collapse de espaços. */
     private fun normalizeRef(raw: String): String =

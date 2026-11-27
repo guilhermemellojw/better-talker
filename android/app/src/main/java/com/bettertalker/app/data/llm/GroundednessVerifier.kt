@@ -249,9 +249,13 @@ object GroundednessVerifier {
             VERSE.findAll(slice).forEach { m ->
                 val g = (span.first + m.range.first)..(span.first + m.range.last)
                 verseRanges += g
-                // #16-fix-f: canonicaliza o livro ("1 Coríntios" → "1co") e
-                // aceita versículo individual dentro de range autorizado.
-                if (canonCorpus.none { it.contains(RefCanonicalizer.canonicalBook(m.value)) }) {
+                // BETA-TRUST/P1: comparar SÓ o livro deixava passar qualquer
+                // versículo inventado desde que o livro existisse no corpus.
+                // Agora exige livro + capítulo + versículo (ou range integral).
+                val keys = RefCanonicalizer.canonicalize(m.value)
+                if (keys.isEmpty() || keys.none { key ->
+                        canonCorpus.any { it.contains(key) }
+                    }) {
                     hits += VerificationHit(
                         sentenceAround(text, g),
                         VerificationCategory.VERSE,
