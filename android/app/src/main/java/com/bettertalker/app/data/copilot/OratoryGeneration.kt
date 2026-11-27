@@ -83,7 +83,10 @@ object OratoryGeneration {
      * Puro/testável.
      */
     internal fun authorizedRefTexts(spec: Spec): List<String> =
-        (spec.current?.references.orEmpty() + spec.next?.references.orEmpty())
+        (spec.current?.references.orEmpty() +
+            spec.previous?.references.orEmpty() +
+            spec.next?.references.orEmpty() +
+            spec.related?.references.orEmpty())
             .mapNotNull { it.text?.takeIf { t -> t.isNotBlank() } }
             .distinct()
 
@@ -98,10 +101,10 @@ object OratoryGeneration {
      * - textos recuperados dos refs do SPEC do S-34 (os textos que o
      *   modelo vê no `buildCardPrompt`), identificados pela rótulo do
      *   S-34 (`recoveredDocumentFromPassage`), conforme o escopo por
-     *   modo (P7.1): DEVELOPMENT, INTRODUCTION e CONCLUSION levam refs
-     *   de `spec.current`; TRANSITION leva `spec.current` +
-     *   `spec.next` (o único modo onde o prompt apresenta refs de outro
-     *   tópico).
+     *   modo (P7.1): o corpus leva as refs de `spec.current` e do ponto
+     *   `spec.related` (relação explícita AI-03/AI-04); TRANSITION leva
+     *   também `spec.next` (o único modo onde o prompt apresenta o
+     *   ponto seguinte).
      *
      * Explicitamente NÃO é evidência factual: o dossiê inteiro como
      * texto (`contextBlock` — contém estrutura, nota editorial, memória
@@ -121,9 +124,12 @@ object OratoryGeneration {
         // refs do tópico SEGUINTE somente no TRANSITION (`buildCardPrompt`);
         // em outros modos, refs de outro tópico NÃO podem validar citações
         // no atual — o corpus é do tópico efetivo (`spec.current`).
-        val specRefs = when (spec.mode) {
-            Mode.TRANSITION -> spec.current?.references.orEmpty() + spec.next?.references.orEmpty()
-            else -> spec.current?.references.orEmpty()
+        // O ponto RELACIONADO (AI-03/AI-04) também está no prompt; as refs
+        // dele precisam entrar no corpus documental pelo mesmo motivo.
+        val specRefs = buildList {
+            addAll(spec.current?.references.orEmpty())
+            addAll(spec.related?.references.orEmpty())
+            if (spec.mode == Mode.TRANSITION) addAll(spec.next?.references.orEmpty())
         }
         // P4-FIX — identidade documental = seção RESOLVIDA, explicitada
         // pelo call site; NÃO `spec.current` (em INTRO/CONCLUSION ele é o
@@ -224,6 +230,18 @@ object OratoryGeneration {
         val nextSectionId: String?,
         /** Ponto SEGUINTE detalhado — a transição conecta duas ideias reais. */
         val next: CurrentSection? = null,
+        /**
+         * Ponto ANTERIOR detalhado. Só entra no prompt quando o pedido
+         * pede relação explícita com ele (AI-03), para não transformar
+         * toda transição em recapitulação.
+         */
+        val previous: CurrentSection? = null,
+        /**
+         * Outro ponto citado pelo pedido (ex.: "relacione o ponto 1 com o
+         * ponto 3"). O conteúdo real entra no prompt; IDs sozinhos não
+         * permitem ao modelo cumprir a relação.
+         */
+        val related: CurrentSection? = null,
         val training: List<TrainingCategory>,
         val contentSources: List<ContentSource>,
         val target: Target
@@ -295,7 +313,9 @@ object OratoryGeneration {
         view: S34StructuralRetrieval.ScopedView?,
         action: Action,
         /** Texto autorizado das referências, por rótulo (opcional). */
-        referenceTexts: Map<String, String> = emptyMap()
+        referenceTexts: Map<String, String> = emptyMap(),
+        /** Outro ponto citado pelo pedido, para relação explícita. */
+        relatedSectionId: String? = null
     ): Result {
         if (document.sections.isEmpty()) return Result.CannotGenerate(Blocked.NoStructure)
         val ordered = document.sections.sortedBy { it.order }
@@ -316,14 +336,20 @@ object OratoryGeneration {
             )
             val prevSec = ordered.getOrNull(idx - 1)
             return Result.Ready(
-                buildSpec(mode, action, document, ordered, currentId, current, prevSec, nextSec, referenceTexts)
+                buildSpec(
+                    mode, action, document, ordered, currentId, current, prevSec, nextSec,
+                    referenceTexts, relatedSectionId,
+                )
             )
         }
 
         val prev = if (idx > 0) ordered[idx - 1] else null
         val next = if (idx >= 0 && idx < ordered.size - 1) ordered[idx + 1] else null
         return Result.Ready(
-            buildSpec(mode, action, document, ordered, currentId, current, prev, next, referenceTexts)
+            buildSpec(
+                mode, action, document, ordered, currentId, current, prev, next,
+                referenceTexts, relatedSectionId,
+            )
         )
     }
 
@@ -344,7 +370,8 @@ object OratoryGeneration {
         current: com.bettertalker.app.data.s34.S34Section?,
         prev: com.bettertalker.app.data.s34.S34Section?,
         next: com.bettertalker.app.data.s34.S34Section?,
-        referenceTexts: Map<String, String>
+        referenceTexts: Map<String, String>,
+        relatedSectionId: String?,
     ): Spec {
         fun refs(section: com.bettertalker.app.data.s34.S34Section) =
             (section.references + section.subsections.flatMap { it.references }).map { r ->
@@ -356,6 +383,15 @@ object OratoryGeneration {
                     text = textFor(referenceTexts, r.rawText)
                 )
             }
+
+        fun detailed(section: com.bettertalker.app.data.s34.S34Section) = CurrentSection(
+            sectionId = section.id,
+            order = section.order,
+            title = section.title,
+            content = section.content,
+            subsections = section.subsections.sortedBy { it.order }.map { it.content },
+            references = refs(section),
+        )
 
         val effective = when (mode) {
             // Abertura usa o PRIMEIRO ponto; fechamento, o ÚLTIMO (§§5/13).
@@ -389,26 +425,20 @@ object OratoryGeneration {
             orderedSections = ordered.map { s ->
                 SectionLine(s.id, s.order, s.title, s.id == currentId)
             },
-            current = effective?.let { s ->
-                CurrentSection(
-                    sectionId = s.id,
-                    order = s.order,
-                    title = s.title,
-                    content = s.content,
-                    subsections = s.subsections.sortedBy { it.order }.map { it.content },
-                    references = refs(s)
-                )
-            },
+            current = effective?.let(::detailed),
             previousSectionId = prev?.id,
             nextSectionId = next?.id,
-            next = next?.let { s ->
-                CurrentSection(
-                    sectionId = s.id, order = s.order, title = s.title,
-                    content = s.content,
-                    subsections = s.subsections.sortedBy { it.order }.map { it.content },
-                    references = refs(s)
-                )
-            },
+            next = next?.let(::detailed),
+            // Só detalha o anterior quando ELE foi citado para relação
+            // (AI-03); assim a transição comum não vira recapitulação.
+            previous = prev
+                ?.takeIf { relatedSectionId == it.id }
+                ?.let(::detailed),
+            related = ordered
+                .firstOrNull { it.id == relatedSectionId }
+                ?.takeIf { it.id != effective?.id }
+                ?.takeIf { mode != Mode.TRANSITION || it.id != next?.id }
+                ?.let(::detailed),
             training = mode.trainingCategories,
             contentSources = emptyList(),
             target = target
@@ -466,10 +496,14 @@ Para substituir conteúdo existente, use {"type": "replace", "content": "<p>...<
         Mode.DEVELOPMENT ->
             "MODO: DESENVOLVIMENTO DO PONTO. Desenvolva SOMENTE o ponto atual, respeitando " +
                 "seus subpontos na ordem. Você pode explicar, ilustrar, aplicar e usar perguntas " +
-                "quando houver apoio. NÃO traga o ponto seguinte para dentro deste ponto."
+                "quando houver apoio. NÃO traga o ponto seguinte para dentro deste ponto. " +
+                "Se o prompt trouxer um Ponto RELACIONADO, conecte-o ao foco sem desenvolvê-lo " +
+                "no lugar do ponto atual."
         Mode.TRANSITION ->
             "MODO: TRANSIÇÃO. Conecte o ponto atual ao ponto SEGUINTE usando as duas ideias " +
-                "reais do esboço. Não crie argumento novo, não altere a ordem."
+                "reais do esboço. Se o prompt trouxer um Ponto ANTERIOR, use o conteúdo dele " +
+                "para cumprir a relação pedida, sem recapitular o ponto inteiro. Não crie " +
+                "argumento novo, não altere a ordem."
         Mode.CONCLUSION ->
             "MODO: CONCLUSÃO. Retome a ideia central, reforce a aplicação e conecte ao " +
                 "objetivo usando o ÚLTIMO ponto. Não introduza ponto novo nem doutrina nova."
@@ -500,34 +534,38 @@ Para substituir conteúdo existente, use {"type": "replace", "content": "<p>...<
             sb.append("[S34] Foco: anterior=${spec.previousSectionId ?: "—"}; " +
                 "próximo=${spec.nextSectionId ?: "—"}\n")
         }
-        spec.current?.let { c ->
-            sb.append("[S34] Ponto em foco (${c.order}) \"${c.title}\" (${c.sectionId})\n")
+        fun appendDetailed(label: String, c: CurrentSection) {
+            sb.append("[S34] $label (${c.order}) \"${c.title}\" (${c.sectionId})\n")
             if (c.content.isNotBlank()) sb.append("[S34]   Corpo: ${c.content}\n")
             c.subsections.forEachIndexed { i, sub ->
                 sb.append("[S34]   Subponto ${i + 1}: $sub\n")
             }
             c.references.forEach { r ->
-                val label = if (r.type == S34RefType.BIBLE) "[BIBLE]" else "[PUBLICATION]"
+                val kind = if (r.type == S34RefType.BIBLE) "[BIBLE]" else "[PUBLICATION]"
                 if (r.text != null) {
-                    sb.append("$label ${r.label} (texto autorizado): ${r.text}\n")
+                    sb.append("$kind ${r.label} (texto autorizado): ${r.text}\n")
                 } else {
                     // §10-11: referência sem texto NÃO pode virar invenção.
-                    sb.append("$label ${r.label} — ATENÇÃO: o texto desta referência NÃO está " +
+                    sb.append("$kind ${r.label} — ATENÇÃO: o texto desta referência NÃO está " +
                         "disponível. Não invente o conteúdo dela.\n")
                 }
             }
         }
+
+        spec.current?.let { appendDetailed("Ponto em foco", it) }
+        // AI-03 — quando o pedido cita o ponto anterior, ele entra com
+        // conteúdo real; sem essa citação, a transição comum não recapitula.
+        spec.previous
+            ?.takeIf { it.sectionId == spec.related?.sectionId }
+            ?.let { appendDetailed("Ponto ANTERIOR", it) }
+        // AI-04 — relação com outro ponto: conteúdo real, não só ID.
+        spec.related
+            ?.takeIf { it.sectionId != spec.previous?.sectionId }
+            ?.let { appendDetailed("Ponto RELACIONADO", it) }
         // Só a TRANSIÇÃO recebe o ponto seguinte: nos demais modos isso
         // vazaria referências de outro ponto para dentro deste (§8).
-        if (spec.mode == Mode.TRANSITION) spec.next?.let { n ->
-            sb.append("[S34] Ponto SEGUINTE (${n.order}) \"${n.title}\" (${n.sectionId})\n")
-            if (n.content.isNotBlank()) sb.append("[S34]   Corpo: ${n.content}\n")
-            n.subsections.forEachIndexed { i, sub -> sb.append("[S34]   Subponto ${i + 1}: $sub\n") }
-            n.references.forEach { r ->
-                val label = if (r.type == S34RefType.BIBLE) "[BIBLE]" else "[PUBLICATION]"
-                if (r.text != null) sb.append("$label ${r.label} (texto autorizado): ${r.text}\n")
-                else sb.append("$label ${r.label} — texto NÃO disponível; não invente.\n")
-            }
+        if (spec.mode == Mode.TRANSITION) {
+            spec.next?.let { appendDetailed("Ponto SEGUINTE", it) }
         }
         if (spec.contentSources.isNotEmpty()) {
             sb.append("--- FONTES DE CONTEÚDO AUTORIZADAS ---\n")

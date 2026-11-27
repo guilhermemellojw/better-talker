@@ -37,7 +37,9 @@ object ChatRouter {
             val sectionId: String?,
             val action: OratoryGeneration.Action,
             val inherited: Boolean,
-            val reason: String
+            val reason: String,
+            /** Ponto citado para relação explícita (conteúdo real no prompt). */
+            val relatedSectionId: String? = null,
         ) : Route
 
         data class StructuralQuery(
@@ -927,7 +929,8 @@ object ChatRouter {
                 sectionId = decision.sectionId,
                 action = decision.action,
                 inherited = decision.inherited,
-                reason = if (decision.inherited) "iteração da sessão oratória" else "pedido oratório explícito"
+                reason = if (decision.inherited) "iteração da sessão oratória" else "pedido oratório explícito",
+                relatedSectionId = decision.relatedSectionId,
             )
             is OratorySession.Decision.OutOfStructuralScope -> return Route.OutOfScope(
                 decision.requestedPoint, decision.message, "pedido de estrutura fora do S-34"
@@ -981,7 +984,8 @@ object ChatRouter {
     /** Diagnóstico para teste/log: nunca inclui texto do documento nem chave. */
     fun describe(route: Route): String = when (route) {
         is Route.Oratory -> "route=ORATORY mode=${route.mode} section=${route.sectionId ?: "—"} " +
-            "action=${route.action} inherited=${route.inherited} reason=${route.reason}"
+            "action=${route.action} inherited=${route.inherited} " +
+            "related=${route.relatedSectionId ?: "—"} reason=${route.reason}"
         is Route.StructuralQuery -> "route=STRUCTURAL_QUERY topic=${route.topic} " +
             "section=${route.sectionNumber ?: "—"} reason=${route.reason}"
         is Route.Mentor -> "route=MENTOR intent=${route.intent} reason=${route.reason}"

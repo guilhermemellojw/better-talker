@@ -107,17 +107,30 @@ import com.bettertalker.app.data.copilot.pointCoachingFromPayload
 import com.bettertalker.app.data.copilot.PointReviewAnalyzer
 import com.bettertalker.app.data.copilot.PointReviewCodec
 import com.bettertalker.app.data.copilot.PointReviewInput
+import com.bettertalker.app.data.copilot.PointReviewNextStep
 import com.bettertalker.app.data.copilot.PointReviewReport
 import com.bettertalker.app.data.copilot.PointReviewQualityContext
 import com.bettertalker.app.data.copilot.PointReviewQualityParser
+import com.bettertalker.app.data.copilot.PointRewriteTargetDecision
+import com.bettertalker.app.data.copilot.PointRewriteTargetScope
 import com.bettertalker.app.data.copilot.NoteSectionSnapshot
 import com.bettertalker.app.data.copilot.PointQualityStatus
 import com.bettertalker.app.data.copilot.POINT_REVIEW_QUALITY_SCHEMA
 import com.bettertalker.app.data.copilot.buildPointReviewQualityPrompts
+import com.bettertalker.app.data.copilot.buildPointReviewRewritePrompts
+import com.bettertalker.app.data.copilot.decidePointRewriteTarget
+import com.bettertalker.app.data.copilot.extractPointRewriteText
+import com.bettertalker.app.data.copilot.isPointRewriteRequest
 import com.bettertalker.app.data.copilot.matchS34SectionForPoint
 import com.bettertalker.app.data.copilot.pointQualitySkipReason
+import com.bettertalker.app.data.copilot.pointReviewDraftText
+import com.bettertalker.app.data.copilot.pointReviewDraftWordCount
 import com.bettertalker.app.data.copilot.pointReviewTextHash
 import com.bettertalker.app.data.copilot.pointReviewWordCount
+import com.bettertalker.app.data.copilot.refersToPreviousDraft
+import com.bettertalker.app.data.copilot.requestedReductionPercent
+import com.bettertalker.app.data.copilot.shouldClarifySubPointRewrite
+import com.bettertalker.app.data.copilot.validatePointRewrite
 import com.bettertalker.app.data.copilot.shouldApplyPointQuality
 import com.bettertalker.app.data.copilot.shouldRequestPointQuality
 import com.bettertalker.app.data.copilot.pointReviewFromPayload
@@ -3056,13 +3069,14 @@ class CopilotViewModel(
             }
             return
         }
-        reviewPoint(nid, target, body)
+        reviewPoint(nid, target, body, text)
     }
 
     private suspend fun reviewPoint(
         nid: String,
         target: SpeechSection,
         body: List<SpeechSection>,
+        request: String?,
     ) {
         if (target.role != SectionRole.BODY) {
             postText("O Mentor revisa os pontos de desenvolvimento. Abra um ponto e peça de novo.")
@@ -3102,12 +3116,25 @@ class CopilotViewModel(
         val words = pointReviewWordCount(snapshot)
         val hasKey = remote.apiKey.isNotBlank()
         val canQuality = shouldRequestPointQuality(words, hasKey)
+        val rewriteRequested = request?.let(::isPointRewriteRequest) == true
+        val reductionPercent = request?.let(::requestedReductionPercent)
+        val hasDraft = pointReviewDraftText(snapshot).isNotBlank()
+        val canRewrite = rewriteRequested && hasKey && hasDraft
         val textHash = pointReviewTextHash(snapshot)
         val reportWithQuality = report.copy(
-            qualityStatus = if (canQuality) PointQualityStatus.PENDING else PointQualityStatus.SKIPPED,
-            qualityError = pointQualitySkipReason(words, hasKey),
+            qualityStatus = when {
+                rewriteRequested -> PointQualityStatus.SKIPPED
+                canQuality -> PointQualityStatus.PENDING
+                else -> PointQualityStatus.SKIPPED
+            },
+            qualityError = when {
+                rewriteRequested && !hasKey ->
+                    "Reescrita pedida, mas falta configurar a chave de IA."
+                rewriteRequested -> "Pedido de reescrita: o texto revisado segue no card."
+                else -> pointQualitySkipReason(words, hasKey)
+            },
             qualityTextHash = textHash,
-            qualityStartedAt = if (canQuality) started else null,
+            qualityStartedAt = if (!rewriteRequested && canQuality) started else null,
         )
         db.chatDao().all(nid)
             .let(::reviewMessageIdsToDeactivate)
@@ -3133,7 +3160,27 @@ class CopilotViewModel(
                 "s34=${if (s34Section != null) "matched" else "unavailable"}|" +
                 "words=$words|ms=${System.currentTimeMillis() - started}",
         )
-        if (canQuality && messageId != null) {
+        if (canRewrite && messageId != null) {
+            launchPointRewrite(
+                target = target,
+                section = snapshot,
+                s34 = s34,
+                s34Section = s34Section,
+                deterministic = reportWithQuality,
+                sourceCounts = sourceCounts,
+                remote = remote,
+                reductionPercent = reductionPercent,
+                nextPointTitle = body.getOrNull(pointNumber)?.title,
+            )
+        } else if (rewriteRequested && !canRewrite) {
+            postText(
+                if (!hasKey) {
+                    "Configure a chave de IA na tela Modelo IA para eu entregar o texto revisado."
+                } else {
+                    "Este ponto ainda não tem texto desenvolvido para eu revisar."
+                }
+            )
+        } else if (canQuality && messageId != null) {
             launchQualityReview(
                 nid = nid,
                 target = target,
@@ -3156,7 +3203,336 @@ class CopilotViewModel(
         val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
         val body = sections.filter { it.role == SectionRole.BODY }.sortedBy { it.order }
         val target = body.firstOrNull { it.id == sectionId } ?: return@launch
-        reviewPoint(nid, target, body)
+        reviewPoint(nid, target, body, null)
+    }
+
+    private data class RecoveredPointDraft(
+        val text: String,
+        /** Rótulo do alvo do card anterior; "· Para:" indica foco em subponto. */
+        val targetLabel: String?,
+    )
+
+    /**
+     * Recupera o texto e o rótulo do alvo do card anterior pelo contrato
+     * central de referência (`ConversationalReferentRecovery`): identidade,
+     * escopo, supersessão e alvo comprovado. Sem candidato elegível, devolve
+     * null (fail-closed); nunca cai em card antigo por omissão.
+     */
+    private suspend fun recoverPreviousPointDraft(
+        nid: String,
+        sectionId: String?,
+    ): RecoveredPointDraft? {
+        val messages = db.chatDao().all(nid).map { e ->
+            ConversationalReferentRecovery.Message(
+                id = e.id,
+                noteId = e.noteId,
+                sectionId = e.sectionId,
+                payload = ChatCodec.unescMap(e.payload),
+                createdAt = e.createdAt,
+                active = e.isActive,
+            )
+        }
+        val targets = buildMap {
+            db.speechSectionDao().forNote(nid).forEach { s ->
+                put(
+                    "${CardTargetKind.SECTION.name}:${s.id}",
+                    ConversationalReferentRecovery.TargetState(
+                        exists = true,
+                        currentHash = hashText(s.contentHtml),
+                    ),
+                )
+            }
+            db.noteDao().get(nid)?.let { n ->
+                put(
+                    "${CardTargetKind.NOTE.name}:${n.id}",
+                    ConversationalReferentRecovery.TargetState(
+                        exists = true,
+                        currentHash = hashText(n.richHtml),
+                    ),
+                )
+            }
+        }
+        val outcome = ConversationalReferentRecovery.recover(
+            messages = messages,
+            context = ConversationalReferentRecovery.Context(
+                noteId = nid,
+                sectionId = sectionId,
+                targets = targets,
+            ),
+        )
+        val found = outcome as? ConversationalReferentRecovery.Outcome.Found
+            ?: return null
+        val text = found.text?.takeIf { it.isNotBlank() } ?: return null
+        return RecoveredPointDraft(text = text, targetLabel = found.card.targetLabel)
+    }
+
+    /**
+     * AI-09 (pedido real "Revise o rascunho acima"): usa o card/rascunho
+     * anterior do histórico como texto-fonte. O destino é o ponto em foco,
+     * quando existe; sem foco, o texto é oferecido sem aplicação automática.
+     */
+    private suspend fun runDraftRewrite(
+        draft: String,
+        request: String,
+        hasSubPointContext: Boolean,
+        previousTargetLabel: String?,
+    ) {
+        val nid = noteId ?: run {
+            postText("Abra uma nota para receber o texto revisado.")
+            return
+        }
+        val remote = ProviderFactory.resolveRemote(settings, app)
+        if (!ProviderFactory.useRemoteRoute(remote)) {
+            postText("Configure a chave de IA na tela Modelo IA para eu entregar o texto revisado.")
+            return
+        }
+        val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        val body = sections.filter { it.role == SectionRole.BODY }.sortedBy { it.order }
+        val targetId = _chatScope.value ?: _pushedContext?.sectionId
+        val target = targetId?.let { id -> sections.firstOrNull { it.id == id } }
+        val pointNumber = target
+            ?.let { t -> body.indexOfFirst { it.id == t.id } + 1 }
+            ?.takeIf { it > 0 }
+            ?: 1
+        val draftPlain = htmlToPlainText(draft).trim()
+        if (draftPlain.isBlank()) {
+            postText("O rascunho anterior está vazio; não há texto para revisar.")
+            return
+        }
+        val s34 = loadDiagnosisS34(nid)
+        val s34Section = target?.let { matchS34SectionForPoint(it.title, s34?.sections) }
+        val snapshot = NoteSectionSnapshot(
+            id = target?.id ?: "draft",
+            order = target?.order ?: pointNumber,
+            role = target?.role ?: SectionRole.BODY,
+            title = target?.title ?: "Rascunho anterior",
+            minutes = target?.minutes ?: 5,
+            bodyText = draftPlain,
+            objective = target?.objective,
+        )
+        val words = pointReviewDraftWordCount(snapshot)
+        val targetDecision = decidePointRewriteTarget(
+            hasSectionContext = target != null,
+            hasSubPointContext = hasSubPointContext,
+            request = request,
+            previousTargetLabel = previousTargetLabel,
+        )
+        val report = PointReviewReport(
+            sectionId = snapshot.id,
+            pointNumber = pointNumber,
+            title = snapshot.title,
+            minutes = snapshot.minutes,
+            overall = DiagnosisLevel.OK,
+            reading = "Rascunho anterior · $words palavra(s)",
+            strengths = emptyList(),
+            improvements = emptyList(),
+            nextStep = PointReviewNextStep.OpenEditor(
+                sectionId = snapshot.id,
+                title = snapshot.title,
+                sectionNumber = pointNumber,
+            ),
+            generatedAt = System.currentTimeMillis(),
+        )
+        launchPointRewrite(
+            target = target,
+            section = snapshot,
+            s34 = s34,
+            s34Section = s34Section,
+            deterministic = report,
+            sourceCounts = DiagnosisSourceCounts.NONE,
+            remote = remote,
+            reductionPercent = requestedReductionPercent(request),
+            nextPointTitle = target?.let { body.getOrNull(pointNumber)?.title },
+            targetDecision = targetDecision,
+        )
+    }
+
+    /**
+     * AI-09 — entrega o TEXTO revisado como card de substituição.
+     *
+     * A validação (redução pedida + referências preservadas) é
+     * determinística e acontece ANTES de oferecer o card; texto que não
+     * cumpre o pedido não vira proposta aplicável. Quando o alvo é subponto
+     * ou ambíguo, o texto é oferecido sem aplicação automática.
+     */
+    private suspend fun launchPointRewrite(
+        target: SpeechSection?,
+        section: NoteSectionSnapshot,
+        s34: S34Document?,
+        s34Section: S34Section?,
+        deterministic: PointReviewReport,
+        sourceCounts: DiagnosisSourceCounts,
+        remote: ProviderFactory.RemoteConfig,
+        reductionPercent: Int?,
+        nextPointTitle: String?,
+        targetDecision: PointRewriteTargetDecision = PointRewriteTargetDecision(
+            scope = PointRewriteTargetScope.BODY,
+            autoApply = true,
+            notice = "",
+        ),
+    ) {
+        // Mantém o card no MESMO turno do pedido (e cancela junto com ele):
+        // um card que chega depois do turno encerrado perderia o vínculo de
+        // consentimento e de escopo.
+        kotlinx.coroutines.coroutineScope {
+            val started = System.currentTimeMillis()
+            val noteIdForPost = noteId
+            val context = PointReviewQualityContext(
+                pointNumber = deterministic.pointNumber,
+                title = deterministic.title,
+                minutes = deterministic.minutes,
+                noteTitle = noteIdForPost?.let { db.noteDao().get(it)?.title }
+                    ?: _noteTitle.value,
+                s34Objective = s34?.objective,
+                s34Section = s34Section,
+                section = section,
+                deterministic = deterministic,
+                sourceCounts = sourceCounts,
+                nextPointTitle = nextPointTitle,
+            )
+            val prompts = buildPointReviewRewritePrompts(context, reductionPercent)
+            val targetId = target?.id ?: "draft"
+            // O alvo é capturado ANTES do LLM: o texto revisado corresponde
+            // ao snapshot que entrou no prompt, não a uma edição posterior.
+            // Sem seção em foco (rascunho vindo do histórico), o card nasce
+            // NO_TARGET e o usuário escolhe o destino.
+            val cardTarget = target?.let { t ->
+                cardTargetForSection(
+                    sectionId = t.id,
+                    label = t.title,
+                    contentHtml = t.contentHtml,
+                    capturedFrom = CardCapturedFrom.ACTIVE_BLOCK,
+                    capturedAt = System.currentTimeMillis(),
+                )
+            }
+            try {
+                val provider = ProviderFactory.createFor(
+                    remote.copy(model = DeepSeekProvider.MODEL_FLASH),
+                    app,
+                )
+                val maxTokens = ((prompts.maxWords * 2) + 400).coerceIn(600, 3_000)
+                val res = provider.generate(
+                    LlmRequest(
+                        text = "",
+                        action = LlmAction.CHAT,
+                        message = "",
+                        responseFormat = ResponseFormat.TEXT,
+                        maxOutputTokens = maxTokens,
+                        maxOutputTokensCap = 3_500,
+                        timeoutMs = 20_000,
+                        maxAttempts = 1,
+                        customSystemPrompt = prompts.system,
+                        customUserPrompt = prompts.user,
+                        silentProgress = true,
+                    )
+                )
+                val revised = extractPointRewriteText(res.text)
+                if (revised == null) {
+                    postText(
+                        "O modelo devolveu análise em vez do texto revisado. " +
+                            "Tente de novo; não ofereci nenhum card."
+                    )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=NO_CARD|chars=${res.text.length}|" +
+                            "ms=${res.meta.durationMs}",
+                    )
+                    return@coroutineScope
+                }
+                val validation = validatePointRewrite(prompts, revised)
+                if (!validation.ok) {
+                    postText(
+                        "Não entreguei o card: ${validation.reason} " +
+                            "O texto original continua intacto."
+                    )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=INVALID|words=${validation.wordCount}|" +
+                            "min=${validation.minWords}|max=${validation.maxWords}|" +
+                            "missing=${validation.missingRefs.size}|new=${validation.newRefs.size}|" +
+                            "ms=${res.meta.durationMs}|reason=${validation.reason}",
+                    )
+                    return@coroutineScope
+                }
+                val hasDevelopedSubpoints = target?.let { t ->
+                    db.subPointDao().forSection(t.id).any { it.developedHtml.isNotBlank() }
+                } ?: section.subPoints.any { it.hasDevelopment }
+                if (!targetDecision.autoApply) {
+                    val prefix = targetDecision.notice.ifBlank {
+                        "Versão revisada (não aplicada automaticamente):"
+                    }
+                    post(
+                        fromMe = false,
+                        kind = "text",
+                        payload = ChatCodec.escMap(
+                            mapOf("text" to "$prefix\n$revised"),
+                        ),
+                        allowCard = false,
+                    )
+                    android.util.Log.i(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=COMPLETED_TEXT_ONLY|scope=${targetDecision.scope}|" +
+                            "reduction=${reductionPercent ?: "—"}|" +
+                            "words=${validation.wordCount}|target=${prompts.targetWords}|" +
+                            "model=${res.meta.model}|ms=${res.meta.durationMs}|" +
+                            "totalMs=${System.currentTimeMillis() - started}",
+                    )
+                    return@coroutineScope
+                }
+                val label = buildString {
+                    append("Versão revisada")
+                    if (reductionPercent != null) append(" (−$reductionPercent%)")
+                    if (hasDevelopedSubpoints) {
+                        append(" do corpo (subpontos preservados)")
+                    }
+                    append(":")
+                }
+                // BETA-PEDAGOGY/P3 (B): a proveniência original do card
+                // (corpus/refs/gateMessageId) ainda depende do contrato de A.
+                // Até lá, o card revisado não liga o gate central e o texto
+                // revisado NÃO é usado como fonte documental.
+                val previous = activeCardTarget
+                activeCardTarget = cardTarget
+                try {
+                    post(
+                        fromMe = false,
+                        kind = "text",
+                        payload = ChatCodec.escMap(
+                            mapOf(
+                                "text" to "$label\n" +
+                                    "<texto-do-card>$revised</texto-do-card>",
+                            )
+                        ),
+                        cardOrigin = CardOrigin.TRANSFORM,
+                        cardSuggestedAction = CardSuggestedAction.REPLACE,
+                    )
+                } finally {
+                    activeCardTarget = previous
+                }
+                android.util.Log.i(
+                    "Mentor",
+                    "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                        "status=COMPLETED|reduction=${reductionPercent ?: "—"}|" +
+                        "words=${validation.wordCount}|target=${prompts.targetWords}|" +
+                        "model=${res.meta.model}|ms=${res.meta.durationMs}|" +
+                        "in=${res.meta.usage?.inputTokens}|out=${res.meta.usage?.outputTokens}|" +
+                        "totalMs=${System.currentTimeMillis() - started}",
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val code = (e as? ProviderError)?.code?.name ?: e.javaClass.simpleName
+                android.util.Log.w(
+                    "Mentor",
+                    "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                        "status=FAILED|code=$code|ms=${System.currentTimeMillis() - started}",
+                )
+                postText(friendlyChatError(e))
+            }
+        }
     }
 
     // ---------- 1B: revisão qualitativa (DeepSeek Flash) ----------
@@ -4746,6 +5122,47 @@ class CopilotViewModel(
                 runPointCoaching(text)
                 return@launch
             }
+            // AI-09 (pedido real): "Revise o rascunho acima" não cita ponto.
+            // A fonte é o card/rascunho anterior do histórico; a saída é um
+            // card revisado, não uma análise com oferta de reescrever.
+            if (isPointRewriteRequest(text) && refersToPreviousDraft(text)) {
+                val nid = noteId
+                if (nid == null) {
+                    postText("Abra uma nota para receber o texto revisado.")
+                    return@launch
+                }
+                val focusWhole = _focusMode.value == FocusMode.WHOLE
+                val recoveryScope = if (focusWhole) null
+                else (_chatScope.value ?: _pushedContext?.sectionId)
+                val draft = recoverPreviousPointDraft(nid, recoveryScope)
+                if (draft == null) {
+                    postText(
+                        "Não recuperei com segurança o rascunho anterior. " +
+                            "Gere o rascunho e peça a revisão em seguida, ou abra o ponto."
+                    )
+                } else {
+                    runDraftRewrite(
+                        draft = draft.text,
+                        request = text,
+                        hasSubPointContext = _pushedContext?.subPointId != null,
+                        previousTargetLabel = draft.targetLabel,
+                    )
+                }
+                return@launch
+            }
+            // Subponto não é alvo de card neste contrato. Um pedido explícito
+            // de revisão de subponto (ou foco ativo nele) não pode reescrever
+            // o corpo do ponto; pede esclarecimento antes de qualquer card.
+            val subPointFocus = _pushedContext?.subPointId != null
+            val explicitPoint =
+                com.bettertalker.app.data.copilot.OratorySession.requestedPoint(text) != null
+            if (shouldClarifySubPointRewrite(text, subPointFocus, explicitPoint)) {
+                postText(
+                    "A revisão automática de subponto ainda não substitui o corpo do ponto. " +
+                        "Abra o corpo do ponto ou peça a revisão do ponto inteiro."
+                )
+                return@launch
+            }
             if (com.bettertalker.app.data.copilot.ChatRouter.isPointReviewCommand(text)) {
                 runPointReview(text)
                 return@launch
@@ -5100,7 +5517,7 @@ class CopilotViewModel(
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.Oratory -> {
                     lastOratory = com.bettertalker.app.data.copilot.OratorySession.LastGeneration(
-                        route.mode, route.sectionId
+                        route.mode, route.sectionId, route.relatedSectionId
                     )
                     // Provider remoto (DeepSeek) + sua chave.
                     val remote = ProviderFactory.resolveRemote(settings, app)
@@ -5553,6 +5970,9 @@ class CopilotViewModel(
             com.bettertalker.app.data.copilot.OratoryGeneration.referenceTextsFor(
                 doc.sections,
             ) { raw -> repo.biblePassages(raw).map { it.passage.text } },
+            // AI-03/AI-04: o ponto citado para relação leva conteúdo real
+            // ao prompt (não apenas o ID).
+            relatedSectionId = route.relatedSectionId,
         )
         if (spec is com.bettertalker.app.data.copilot.OratoryGeneration.Result.CannotGenerate) {
             postText(spec.blocked.message)
@@ -5643,6 +6063,13 @@ class CopilotViewModel(
             promptBuilder = dossierPromptBuilder,
         )
         val resolvedExtraAuthorizedRefs = oratoryResolution.authorizedRefs
+        // AI-03/AI-04: o ponto relacionado está no prompt e suas refs são
+        // autorizadas pelo MESMO ponto de extensão do gate central
+        // (`extraAuthorizedRefs`); nenhuma regra de proveniência nova.
+        val fidelityRefs = (resolvedExtraAuthorizedRefs +
+            ready.previous?.references.orEmpty().map { it.label } +
+            ready.related?.references.orEmpty().map { it.label })
+            .distinct()
         val oratoryContextBlock = oratoryResolution.contextBlock
         val block = oratoryFocusBlock(
             sectionTitle = section.title,
@@ -5775,7 +6202,7 @@ class CopilotViewModel(
             // audita o texto do card, e remoções do verificador entram no
             // texto final (não no payload de conversa).
             val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                .check(cardText, ready, resolvedExtraAuthorizedRefs)
+                .check(cardText, ready, fidelityRefs)
             // Fidelidade bloqueante para o card: se o verificador achou ref/
             // número sem apoio, remove as sentenças ofensoras ANTES de
             // publicar. Se sobrar vazio ou ainda houver ofensa, não entrega o
@@ -5790,7 +6217,7 @@ class CopilotViewModel(
                 fidelity
             } else {
                 com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                    .check(cleanedCardText, ready, resolvedExtraAuthorizedRefs)
+                    .check(cleanedCardText, ready, fidelityRefs)
             }
             if (cleanedCardText.isBlank() || !cleanedFidelity.ok) {
                 postText(
