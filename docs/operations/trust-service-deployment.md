@@ -261,7 +261,7 @@ Cobertura obrigatória do job:
 Comando previsto (não executado nesta rodada):
 
 ```bash
-sudo -n setsid unshare -n -- /usr/bin/env -i \
+sudo -n setsid --wait unshare -n -- /usr/bin/env -i \
   HOME="$RUNNER_TEMP/crossuid-home" TMPDIR="$RUNNER_TEMP/crossuid-tmp" \
   PATH="$pythonLocation/bin:/usr/local/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
   PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts" \

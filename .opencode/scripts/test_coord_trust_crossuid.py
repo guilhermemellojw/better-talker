@@ -121,7 +121,7 @@ class CrossUidHarnessTest(unittest.TestCase):
         self.assertNotIn("pkill", cleanup["run"])
         self.assertNotIn("killall", cleanup["run"])
         self.assertIn(".opencode/scripts/coord_trust_crossuid_harness.py", raw)
-        self.assertIn("sudo -n setsid unshare -n", raw)
+        self.assertIn("sudo -n setsid --wait unshare -n", raw)
         self.assertIn("command -v setsid", raw)
         self.assertIn("actions/upload-artifact@v4", raw)
 
