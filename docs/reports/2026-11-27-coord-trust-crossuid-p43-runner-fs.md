@@ -1,16 +1,21 @@
 # COORD-TRUST-BOUNDARY/P4.3 — fechamento de filesystem do runner
 
-**Estado:** Draft; correção do bloqueio de acesso aos scripts, **sem novo
-dispatch**. Nenhum merge, deploy, piloto, usuário persistente, secret de
+**Estado:** Draft; P4.4 é reconciliação exclusivamente documental. O dispatch
+único do candidato histórico `31a150330d2b9c8af420cdfac322fde73132dda8` falhou
+no run `46081657455`; a autorização foi consumida e **nenhuma nova execução**
+está autorizada. Nenhum merge, deploy, piloto, usuário persistente, secret de
 produção, transporte real, POST, LLM ou Android foi executado.
 
-**Baseline:** `31a150330d2b9c8af420cdfac322fde73132dda8` (P4.2).
+**Baseline do candidato histórico:** `31a150330d2b9c8af420cdfac322fde73132dda8` (P4.2).
 **Dispatch que falhou:** run `46081657455`, attempt 1; causa observada:
 `python3: can't open file '<path>/.opencode/scripts/coord_trust_service_cli.py':
 [Errno 13] Permission denied` sob `setpriv --reuid=65533`.
 **Branch:** `feat/coord-trust-crossuid-cert`.
-**HEAD do código:** `17cd7d37138407a7602d4848fe994e4f9de9f53d`.
-**HEAD final do PR:** publicado no corpo/comentário do PR.
+**SHA de implementação P4.3:** `17cd7d37138407a7602d4848fe994e4f9de9f53d`.
+**SHA da baseline documental P4.4:** `0ced987a0c1e15686c2710d697abde9053112496`.
+**SHA final certificado:** definido no comentário externo de certificação em
+https://github.com/guilhermemellojw/better-talker/pull/87; não é
+auto-referenciado neste documento.
 
 ## 1. Causa e correção
 
@@ -26,7 +31,9 @@ harness agora prepara, antes de qualquer serviço/cliente:
 5. probes sob os UIDs efetivos de serviço e consumidor, antes do G1.
 
 O checkout não é chmodado, o HOME não é ampliado e state/trust/âncora/chaves
-não são copiados nem expostos.
+não são copiados nem expostos. Somente a etapa de certificação roda em
+`unshare -n`; checkout, setup, sanitização e limpeza permanecem no runner
+normal.
 
 ### Fecho mínimo copiado
 
@@ -50,7 +57,8 @@ por importação real sob o bundle, não apenas por cópia.
 | ancestrais do bundle atravessáveis | obrigatório | obrigatório |
 | `state/` | legível | negado |
 | trust store/consumer registry | legíveis | negados |
-| âncora (diretório) | legível | negada |
+| ledger (path/parent) | parent legível; arquivo após start | negado |
+| âncora (diretório/path) | legível; arquivo após start | negada |
 | chaves sintéticas | negadas | negadas |
 
 As verificações são registradas em G0; falha interrompe o harness antes de
@@ -65,20 +73,24 @@ G8 depois que existem.
 - O harness falha com código não zero se qualquer probe de UID, script, import,
   ancestral ou negação de estado não corresponder ao esperado.
 - G6 estrito, `certified_sha`, `run_attempt=1`, timeout de 10 min, limpeza
-  `always()` por manifest/`RUN_ID` e sanitização permanecem inalterados.
+  `always()` por manifest/`RUN_ID` e sanitização permanecem inalterados. A
+  limpeza remove explicitamente `crossuid-out`, `crossuid-home`,
+  `crossuid-tmp` e o `WORK_ROOT` exato, sem wildcard; `setsid --wait` fica na
+  etapa de certificação, não na limpeza.
 
 ## 4. Validação local
 
 | Suíte | Resultado |
 |---|---|
-| `test_coord_trust_service.py` (P3) | **40/40 OK** |
-| `test_coord_trust_crossuid.py` (P4.3) | **12/12 OK** |
-| `unittest discover` | **558/558 OK** |
+| `unittest discover` (inclui os 40 do serviço e os 12 P4) | **558/558 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **725** |
+| Total | **725 = 558 + 167** |
 
-Também passaram `py_compile`, parser YAML e `git diff --check`. Os logs locais
-não são versionados. Nenhum dispatch foi autorizado/executado nesta rodada.
+`test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
+(**12/12**) são subconjuntos do discover; não entram novamente na soma. Também
+passaram `py_compile`, parser YAML e `git diff --check`. Os logs locais não são
+versionados. O dispatch do candidato histórico falhou; nenhuma nova execução foi
+autorizada/executada nesta rodada.
 
 ## 5. Limites
 

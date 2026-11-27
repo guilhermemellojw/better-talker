@@ -135,10 +135,12 @@ Evidência local (`unshare -rn`):
 
 | Suíte | Resultado |
 |---|---|
-| `test_coord_trust_service.py` | **40/40 OK** |
-| `unittest discover` (inclui 12 testes P4) | **558/558 OK** |
+| `unittest discover` (inclui os 40 do serviço e os 12 P4) | **558/558 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **725/725** |
+| Total | **725/725 = 558 + 167** |
+
+`test_coord_trust_service.py` (**40/40**) é subconjunto do discover; não entra
+novamente na soma.
 
 A certificação cross-UID real é um job **opt-in** no workflow
 `.github/workflows/coord-python.yml` (`workflow_dispatch`, inputs
@@ -151,10 +153,11 @@ A suíte ordinária é omitida quando `crossuid_full=true`. O harness
 descartável, com dois UIDs numéricos efêmeros, sem criar usuários. Antes de G1
 ele copia um runtime bundle mínimo (`0555`/`0444`) para fora do checkout e
 verifica, sob os UIDs efetivos, interpretador, scripts, imports, ancestrais e
-negação de state/trust/âncora/chaves. Ele **não foi
-disparado** nesta rodada e não substitui a autorização/janela do mantenedor.
-O teste local com dois UIDs reais continua **BLOCKED** neste host (sem
-privilégio para criar/menorizar UID; usuários reais não são criados).
+negação de state/trust/âncora/chaves. O dispatch único do candidato
+`31a150330d2b9c8af420cdfac322fde73132dda8` falhou no run `46081657455`; a
+autorização foi consumida e nenhuma nova execução está autorizada. O teste
+local com dois UIDs reais continua **BLOCKED** neste host (sem privilégio para
+criar/menorizar UID; usuários reais não são criados).
 
 ## 6. Limitações
 

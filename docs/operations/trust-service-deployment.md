@@ -185,7 +185,9 @@ trust store, chave privada ou âncora.
 
 **Estado local: BLOCKED** — o host desta rodada não permite criar/menorizar um
 segundo UID sem privilégio; usuários reais não foram criados. O teste com dois
-UIDs reais só roda em runner/VM descartável.
+UIDs reais só roda em runner/VM descartável. O dispatch único do candidato
+`31a150330d2b9c8af420cdfac322fde73132dda8` falhou no run `46081657455`; a
+autorização foi consumida e nenhuma nova execução está autorizada.
 
 A certificação P4 é um job **exclusivamente opt-in** no workflow
 `.github/workflows/coord-python.yml`:
@@ -197,16 +199,19 @@ A certificação P4 é um job **exclusivamente opt-in** no workflow
 - `certified_sha` é recebido por `env`, sem interpolação direta no shell;
   formato 40-hex, `GITHUB_SHA` e `git rev-parse HEAD` precisam coincidir;
 - checkout exato de `certified_sha`, com `persist-credentials: false`;
-- etapa `if: always()` de limpeza remove apenas `$RUNNER_TEMP/crossuid-*` e o
-  `WORK_ROOT` da execução; process groups vêm do manifesto e são validados
-  pelo marcador `COORD_TRUST_RUN_ID`, nunca por nome de processo;
+- etapa `if: always()` de limpeza remove explicitamente
+  `$RUNNER_TEMP/crossuid-out`, `$RUNNER_TEMP/crossuid-home`,
+  `$RUNNER_TEMP/crossuid-tmp` e o `WORK_ROOT` exato, sem wildcard; process
+  groups vêm do manifesto e são validados pelo marcador `COORD_TRUST_RUN_ID`,
+  nunca por nome de processo;
 - `permissions: contents: read`, sem secrets de produção;
 - `runs-on: ubuntu-latest`, `timeout-minutes: 10`;
 - o harness roda como root **apenas** para preparar arquivos, spawnar UIDs
   numéricos e matar/reiniciar o serviço; serviço e consumidores rodam sem root,
   sem capabilities e com `no_new_privs`;
-- todo o job roda em `unshare -n` (sem rede), com guarda Python AF_UNIX
-  adicional quando aplicável;
+- somente a etapa de certificação cross-UID roda em `unshare -n` (sem rede),
+  com guarda Python AF_UNIX adicional quando aplicável; checkout, setup,
+  sanitização e limpeza permanecem no runner normal;
 - chaves, ledger, trust store, relatórios e evidências são sintéticos;
 - `real_transport=false` durante toda a execução; `transmit` deve retornar
   `TRANSPORT_DISABLED`.
@@ -265,6 +270,9 @@ Cobertura obrigatória do job:
    `AF_INET`/`create_connection` no serviço/crash service; no cliente,
    `create_connection` só é aceito como probe negativa com rede comprovadamente
    bloqueada no netns.
+
+`setsid --wait` pertence somente à etapa de certificação abaixo; a etapa de
+limpeza não usa `setsid`.
 
 Comando previsto (não executado nesta rodada):
 
