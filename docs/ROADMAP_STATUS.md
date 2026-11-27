@@ -5,7 +5,7 @@
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `05176ada16bce1e6bd162e494e290b0bd02b0bb4`
 - Checks da `main` consultada: **Pendente**
-- PRs encontrados na janela de consulta: **75** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-27.
+- PRs encontrados na janela de consulta: **76** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-27.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
 
@@ -16,7 +16,7 @@
 | Mentor | 0 | 22 | 0 |
 | Referências e UX | 0 | 12 | 0 |
 | TRUST | 0 | 11 | 0 |
-| Beta e infraestrutura | 0 | 9 | 0 |
+| Beta e infraestrutura | 1 | 9 | 0 |
 | Documentação | 1 | 9 | 0 |
 | Outros | 4 | 7 | 0 |
 
@@ -24,6 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
+| [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `5126ce931d8e` | Pendente |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
 | [#73 — feat(coord05): politica de retencao e inventario read-only de worktrees (Draft)](https://github.com/guilhermemellojw/better-talker/pull/73) | Outros | `f6205e02fc55` | Verde |
 | [#72 — COORD-06A: fundação offline de autorização e revogação (Draft)](https://github.com/guilhermemellojw/better-talker/pull/72) | Outros | `cfc498e0b6f2` | Verde |
@@ -70,11 +71,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-27 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **5**; desses, Drafts: **5**.
+- PRs abertos: **6**; desses, Drafts: **6**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=70.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 1.0 dias (referência fixa: 2026-11-27).
-- Estados de check dos PRs abertos: Verde=5.
+- Estados de check dos PRs abertos: Pendente=1, Verde=5.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
