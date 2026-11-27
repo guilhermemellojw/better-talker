@@ -1,0 +1,122 @@
+name: Coordenação — suíte Python host-only
+
+# Certificação automatizada dos componentes Python da coordenação.
+# Nenhum segredo, token, `gh`, push, serviço real, sessão OpenCode, LLM,
+# Gradle, Android, ADB ou transporte é utilizado. A rede é bloqueada antes
+# de qualquer teste e o bloqueio é verificado no próprio job.
+on:
+  push:
+    paths:
+      - '.opencode/scripts/**'
+      - '.github/workflows/coord-python.yml'
+  pull_request:
+    paths:
+      - '.opencode/scripts/**'
+      - '.github/workflows/coord-python.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coord-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COORD_HOME: ${{ runner.temp }}/coord-home
+      COORD_TMP: ${{ runner.temp }}/coord-tmp
+      COORD_STATE: ${{ runner.temp }}/coord-state
+      COORD_LOGS: ${{ runner.temp }}/coord-logs
+    steps:
+      - name: Checkout (somente leitura)
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Isolar HOME/TMPDIR/armazenamento e validar YAML
+        run: |
+          set -euo pipefail
+          mkdir -p "$COORD_HOME" "$COORD_TMP" "$COORD_STATE" "$COORD_LOGS"
+          python3 - <<'PY'
+          import sys
+          try:
+              import yaml
+          except ImportError:
+              print("PY-YAML-UNAVAILABLE")
+              sys.exit(1)
+          with open('.github/workflows/coord-python.yml', encoding='utf-8') as handle:
+              yaml.safe_load(handle)
+          print('YAML-OK')
+          PY
+
+      - name: Provar bloqueio de rede
+        run: |
+          set -euo pipefail
+          unshare -rn env -i PATH=/usr/bin:/bin LANG=C LC_ALL=C python3 - <<'PY'
+          import socket
+          try:
+              socket.create_connection(("1.1.1.1", 443), timeout=3)
+          except OSError as exc:
+              print(f"NETWORK-BLOCKED {type(exc).__name__}")
+          else:
+              raise SystemExit("FALHA: rede disponível durante a suíte")
+          PY
+
+      - name: unittest discover (baseline 368)
+        run: |
+          set -euo pipefail
+          unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+            XDG_STATE_HOME="$COORD_STATE" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
+            python3 -m unittest discover -s .opencode/scripts -p 'test_*.py' -v \
+            2>&1 | tee "$COORD_LOGS/discover.log"
+          count=$(grep -Eo 'Ran [0-9]+ tests' "$COORD_LOGS/discover.log" | awk '{print $2}')
+          echo "DISCOVER_TESTS=$count"
+          [ "$count" = "368" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }
+
+      - name: Suíte do supervisor (baseline 167)
+        run: |
+          set -euo pipefail
+          cd .opencode/scripts
+          unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+            XDG_STATE_HOME="$COORD_STATE" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
+            python3 test_supervisor.py 2>&1 | tee "$COORD_LOGS/supervisor.log"
+          count=$(grep -Eo '[0-9]+ passed, 0 failed' "$COORD_LOGS/supervisor.log" | awk '{print $1}')
+          echo "SUPERVISOR_TESTS=$count"
+          [ "$count" = "167" ] || { echo "BASELINE-SUPERVISOR-DIVERGENT"; exit 1; }
+          total=$((count + 368))
+          echo "TOTAL_TESTS=$total"
+          [ "$total" = "535" ] || { echo "BASELINE-TOTAL-DIVERGENT"; exit 1; }
+
+      - name: Sanitizar logs e publicar resultado
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP" "$GITHUB_WORKSPACE" "$COORD_LOGS" <<'PY'
+          import os
+          import sys
+          runner_temp, workspace, logs = sys.argv[1:4]
+          for name in ("discover.log", "supervisor.log"):
+              path = os.path.join(logs, name)
+              if not os.path.isfile(path):
+                  continue
+              with open(path, encoding="utf-8", errors="replace") as handle:
+                  text = handle.read()
+              for secret_path in (runner_temp, workspace):
+                  text = text.replace(secret_path, "<path>")
+              with open(path + ".sanitized", "w", encoding="utf-8") as handle:
+                  handle.write(text)
+          print("LOGS-SANITIZED")
+          PY
+          echo "RESULTADO: discover=368 supervisor=167 total=535 (somente host-only, rede bloqueada)"
+        # O upload abaixo é o único artefato; nenhum conteúdo de credencial é coletado.
+
+      - name: Publicar logs sanitizados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coord-python-logs
+          path: ${{ env.COORD_LOGS }}/*.sanitized
+          if-no-files-found: ignore
