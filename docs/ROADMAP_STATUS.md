@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#87 — COORD-TRUST-BOUNDARY/P4 — certificação cross-UID descartável (Draft)](https://github.com/guilhermemellojw/better-talker/pull/87) | TRUST | `b275f3b6c7ab` | Pendente |
+| [#87 — COORD-TRUST-BOUNDARY/P4 — certificação cross-UID descartável (Draft)](https://github.com/guilhermemellojw/better-talker/pull/87) | TRUST | `5ccb5ef18cc7` | Pendente |
 | [#86 — feat(pedagogy): BETA-PEDAGOGY/P4 — candidato combinado A+C (Draft) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/86) | Beta e infraestrutura | `2c26d0107707` | Pendente |
 | [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | `fe0ca1b37089` | Verde |
 | [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `2b476eeb7967` | Verde |
