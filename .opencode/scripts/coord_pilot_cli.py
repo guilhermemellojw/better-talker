@@ -192,30 +192,15 @@ def _fixture_context(*, store_dir: str, endpoint: Optional[str] = None,
     transport = pilot.OpenCodeTransport(
         client, expected_instance_id=client.instance, registered_targets=(auth.target,),
         pilot_authorization=auth, allow_write=True, clock=lambda: NOW, mode="fixture")
-    # P14A.3: a CLI não usa mais PilotOperationStore como autoridade. O ledger
-    # #70 é a única fonte operacional; JSON é apenas cache de evidências.
-    db = ledger.Ledger(
-        os.path.join(store_dir, "ledger.db"),
-        project_id=mission.project_id, repository_id=mission.repository_id,
-    )
-    synthetic = adapter.SyntheticAuthorization(
-        approval_reference=mission.authorization_reference,
-        authorization_digest=hashlib.sha256(cc.canonical_json({
-            "mission_id": mission.mission_id,
-            "authorization_id": auth.authorization_id,
-            "reference": mission.authorization_reference,
-        }).encode("utf-8")).hexdigest(),
-        consumer_id="cli-fixture-executor",
-        environment="FIXTURE",
-    )
-    store = adapter.LedgerOperationStore(
-        db, mission_id=mission.mission_id, operation_id=mission.operation_id,
-        authorization_reference=mission.authorization_reference, payload=mission.payload,
-        target=auth.target, clock=lambda: NOW,
-        authorization_canonical=auth.canonical(),
-        mission_snapshot=pilot.PilotExecutor._snapshot(mission),
-        synthetic_authorization=synthetic, cache_dir=store_dir,
-    )
+    # P14B: a CLI usa exclusivamente o ledger 1.1 com autoridade assinada #77.
+    # Nenhum caminho legado é habilitado; JSON continua sendo apenas cache.
+    from coord_p14b import SignedOperationStore
+    store = SignedOperationStore(
+        mission=mission, store_dir=store_dir, model=selected_model, now=NOW,
+        target=auth.target, authorization_reference=mission.authorization_reference,
+        authorization_canonical=auth.canonical(), clock=lambda: NOW,
+        cache_dir=store_dir)
+    db = store.db
     manifest = pilot.build_runtime_manifest(mission, auth, prompt_sha256, endpoint)
     approval = pilot.PilotApproval("APPROVAL-FIXTURE-001", "operador-fixture", "human",
                                    "FIXTURE", manifest)

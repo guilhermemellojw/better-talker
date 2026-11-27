@@ -86,7 +86,7 @@ jobs:
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_network_probe.py" --mode guard
 
-      - name: unittest discover dentro do namespace (baseline 378)
+      - name: unittest discover dentro do namespace (baseline 492)
         run: |
           set -euo pipefail
           COORD_HOME="$RUNNER_TEMP/coord-home"
@@ -101,7 +101,7 @@ jobs:
               "$GITHUB_WORKSPACE/.opencode/scripts" 2>&1 | tee "$COORD_LOGS/discover.log"
           count=$(grep -Eo 'Ran [0-9]+ tests' "$COORD_LOGS/discover.log" | awk '{print $2}')
           echo "DISCOVER_TESTS=$count"
-          [ "$count" = "378" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }
+          [ "$count" = "492" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }
 
       - name: Provar detecção de regressão intencional dentro do namespace
         run: |
@@ -147,9 +147,9 @@ jobs:
           count=$(grep -Eo '[0-9]+ passed, 0 failed' "$COORD_LOGS/supervisor.log" | awk '{print $1}')
           echo "SUPERVISOR_TESTS=$count"
           [ "$count" = "167" ] || { echo "BASELINE-SUPERVISOR-DIVERGENT"; exit 1; }
-          total=$((count + 378))
+          total=$((count + 492))
           echo "TOTAL_TESTS=$total"
-          [ "$total" = "545" ] || { echo "BASELINE-TOTAL-DIVERGENT"; exit 1; }
+          [ "$total" = "659" ] || { echo "BASELINE-TOTAL-DIVERGENT"; exit 1; }
 
       - name: Sanitizar logs e publicar resultado
         if: always()
@@ -172,7 +172,7 @@ jobs:
                   handle.write(text)
           print("LOGS-SANITIZED")
           PY
-          echo "RESULTADO: discover=378 supervisor=167 total=545 (namespace sem rede; guard adicional)"
+          echo "RESULTADO: discover=492 supervisor=167 total=659 (namespace sem rede; guard adicional)"
 
       - name: Publicar logs sanitizados
         if: always()

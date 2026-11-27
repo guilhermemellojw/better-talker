@@ -10,8 +10,10 @@ import coord_communication as cc
 import coord_ledger as ledger
 import coord_p14_adapter as adapter
 import coord_pilot as pilot
+import coord_pilot_cli as cli
 
 import test_pilot_executor as fx
+from coord_p14b import SignedOperationStore
 
 
 def integrated(directory: str, *, client=None, mission=None):
@@ -23,18 +25,14 @@ def integrated(directory: str, *, client=None, mission=None):
         client, expected_instance_id=instance, registered_targets=(fx.TARGET,),
         pilot_authorization=pilot_authorization,
         allow_write=True, clock=lambda: fx.NOW, mode="fixture")
-    db = ledger.Ledger(
-        os.path.join(directory, "ledger.db"),
-        project_id=mission.project_id, repository_id=mission.repository_id,
-    )
-    store = adapter.LedgerOperationStore(
-        db, mission_id=mission.mission_id, operation_id=mission.operation_id,
-        authorization_reference=mission.authorization_reference, payload=mission.payload,
-        target=fx.TARGET, clock=lambda: fx.NOW,
+    store = SignedOperationStore(
+        mission=mission, store_dir=directory,
+        model=cli.selected_model_for_dispatch(cli.fixture_model_recommendation()),
+        now=fx.NOW, target=fx.TARGET,
+        authorization_reference=mission.authorization_reference,
         authorization_canonical=pilot_authorization.canonical(),
-        mission_snapshot=pilot.PilotExecutor._snapshot(mission),
-        synthetic_authorization=adapter.synthetic_fixture_authorization(
-            mission.authorization_reference))
+        clock=lambda: fx.NOW)
+    db = store.db
     executor = pilot.PilotExecutor(
         transport, store, fx.approval(), endpoint=pilot.DEFAULT_ENDPOINT,
         allow_real=False, clock=lambda: fx.NOW)
@@ -118,10 +116,9 @@ class P14A2ExecutorTests(unittest.TestCase):
             mission, _, db, store, executor = integrated(td)
             executor.execute(mission, fx.core_auth(mission), pilot.PILOT_PROMPT)
             store.update(ledger.UNKNOWN, {"interruption": "simulada"})
-            # Saída de UNKNOWN exige reconciliação explícita com autoridade.
-            db.reconcile(mission.mission_id, target=ledger.RUNNING,
-                         evidence="observação parcial", authority_reference="AUTH-QA",
-                         actor="qa")
+            # Saída de UNKNOWN exige reconciliação autenticada; marcos
+            # intermediários são apenas evidência, não transições de estado.
+            store.update(ledger.RUNNING, {"observation": "parcial"})
             failed = store.update(ledger.FAILED, {"reason": "simulada"})
             self.assertEqual(ledger.FAILED, failed.state)
             self.assertEqual(ledger.FAILED, store.load().state)

@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import coord_communication as cc
@@ -13,7 +14,10 @@ import coord_ledger as ledger
 import coord_p14_adapter as adapter
 import coord_pilot as pilot
 
+import coord_pilot_cli as cli
 import test_coord_model_policy as mp
+import test_pilot_executor as fx
+from coord_p14b import SignedOperationStore
 
 NOW = datetime(2026, 11, 27, 12, 0, tzinfo=timezone.utc)
 PROJECT = "better-talker"
@@ -35,18 +39,24 @@ def record(mission_id: str, operation_id: str, tgt: cc.TargetIdentity) -> pilot.
 
 
 def build_store(directory: str, *, mission_id: str = "MISS-P14A-1",
-                operation_id: str = "OP-P14A-1", session: str = SESSION):
-    db = ledger.Ledger(
-        os.path.join(directory, "ledger.db"), project_id=PROJECT, repository_id=REPO,
-    )
+                operation_id: str = "OP-P14A-1", session: str = SESSION,
+                payload: dict | None = None):
+    """Store assinado P14B: ledger 1.1 + #77, sem opt-in legado."""
+    payload = payload if payload is not None else {"text": "p14a"}
     tgt = target(session)
-    store = adapter.LedgerOperationStore(
-        db, mission_id=mission_id, operation_id=operation_id,
-        authorization_reference=AUTH, payload={"text": "p14a"}, target=tgt,
-        synthetic_authorization=adapter.synthetic_fixture_authorization(AUTH),
-    )
+    mission = replace(fx.mission(), mission_id=mission_id, operation_id=operation_id,
+                      payload=dict(payload), payload_sha256=cc.payload_sha256(payload),
+                      target_agent=tgt.agent_id, target_session_id=session,
+                      target_instance_id=tgt.instance_id, target_location=tgt.location,
+                      authorization_reference=AUTH, created_at=NOW, expires_at=NOW)
+    recommendation = cli.fixture_model_recommendation()
+    store = SignedOperationStore(
+        mission=mission, store_dir=directory,
+        model=cli.selected_model_for_dispatch(recommendation), now=NOW,
+        target=tgt, authorization_reference=AUTH, authorization_canonical="canonical",
+        clock=lambda: NOW)
     store.create(record(mission_id, operation_id, tgt))
-    return db, store, tgt
+    return store.db, store, tgt
 
 
 class P14AIntegrationTests(unittest.TestCase):
@@ -66,14 +76,9 @@ class P14AIntegrationTests(unittest.TestCase):
     def test_two_concurrent_missions_same_agent_are_blocked(self):
         with tempfile.TemporaryDirectory() as td:
             _, first, _ = build_store(td)
-            db2 = ledger.Ledger(os.path.join(td, "ledger.db"),
-                                project_id=PROJECT, repository_id=REPO)
-            second = adapter.LedgerOperationStore(
-                db2, mission_id="MISS-P14A-2", operation_id="OP-P14A-2",
-                authorization_reference=AUTH, payload={"text": "p14a-2"}, target=target(),
-                synthetic_authorization=adapter.synthetic_fixture_authorization(AUTH),
-            )
-            second.create(record("MISS-P14A-2", "OP-P14A-2", target()))
+            _, second, _ = build_store(
+                td, mission_id="MISS-P14A-2", operation_id="OP-P14A-2",
+                payload={"text": "p14a-2"})
             with first.reserve():
                 with self.assertRaises(cc.AuthorizationError):
                     with second.reserve():
@@ -82,14 +87,8 @@ class P14AIntegrationTests(unittest.TestCase):
     def test_two_reservations_same_session_are_blocked(self):
         with tempfile.TemporaryDirectory() as td:
             _, first, _ = build_store(td, mission_id="MISS-A", operation_id="OP-A")
-            db2 = ledger.Ledger(os.path.join(td, "ledger.db"),
-                                project_id=PROJECT, repository_id=REPO)
-            second = adapter.LedgerOperationStore(
-                db2, mission_id="MISS-B", operation_id="OP-B",
-                authorization_reference=AUTH, payload={"text": "b"}, target=target(),
-                synthetic_authorization=adapter.synthetic_fixture_authorization(AUTH),
-            )
-            second.create(record("MISS-B", "OP-B", target()))
+            _, second, _ = build_store(
+                td, mission_id="MISS-B", operation_id="OP-B", payload={"text": "b"})
             with first.reserve():
                 with self.assertRaises(cc.AuthorizationError):
                     with second.reserve():
@@ -100,10 +99,21 @@ class P14AIntegrationTests(unittest.TestCase):
             _, store, _ = build_store(td)
             with store.reserve():
                 pass
-            restarted = adapter.LedgerOperationStore(
-                store.db, mission_id="MISS-P14A-1", operation_id="OP-P14A-1",
-                authorization_reference=AUTH, payload={"text": "p14a"}, target=target(),
-            )
+            mission = replace(fx.mission(), mission_id="MISS-P14A-1",
+                              operation_id="OP-P14A-1", payload={"text": "p14a"},
+                              payload_sha256=cc.payload_sha256({"text": "p14a"}),
+                              target_agent=target().agent_id,
+                              target_session_id=SESSION,
+                              target_instance_id=target().instance_id,
+                              target_location=target().location,
+                              authorization_reference=AUTH, created_at=NOW,
+                              expires_at=NOW)
+            restarted = SignedOperationStore(
+                mission=mission, store_dir=td,
+                model=cli.selected_model_for_dispatch(
+                    cli.fixture_model_recommendation()), now=NOW,
+                target=target(), authorization_reference=AUTH,
+                authorization_canonical="canonical", clock=lambda: NOW)
             recovered = restarted.recover()
             self.assertEqual(ledger.UNKNOWN, recovered.state)
             self.assertIn("automatic_resend", recovered.evidence)
@@ -116,18 +126,23 @@ class P14AIntegrationTests(unittest.TestCase):
             _, store, _ = build_store(td)
             with store.reserve():
                 pass
-            store.update(ledger.DELIVERED, {"receipt": "msg-1"})
+            store.update(ledger.DISPATCHING, {
+                "receipt": {"observed_message_id": "msg-1"}})
+            store.update(ledger.DELIVERED, {"observed": "ok"})
             store.update(ledger.RUNNING, {"observed": "ok"})
-            store.update(ledger.COMPLETED, {"report": "ok"})
+            first = store.update(ledger.COMPLETED, {"report": "ok"})
+            self.assertEqual(ledger.COMPLETED, first.state)
             with self.assertRaises((ledger.InvalidTransition, cc.ContractError)):
                 store.update(ledger.COMPLETED, {"report": "duplicado"})
 
     def test_divergent_evidence_is_rejected(self):
         with tempfile.TemporaryDirectory() as td:
-            db, _, _ = build_store(td)
-            with self.assertRaises(ledger.DuplicateMission):
-                db.authorize("MISS-P14A-1", authorization_reference=AUTH,
-                             payload_sha256_value="0" * 64, actor="test")
+            _, store, _ = build_store(td)
+            with self.assertRaises(ledger.LedgerError):
+                store.db.authorize_signed(
+                    "MISS-P14A-1", envelope=store._envelope_mapping,
+                    signature=store._signature, payload={"text": "divergente"},
+                    actor="test")
 
     def test_same_lock_two_declared_consumers_is_not_identity_proof(self):
         interface = adapter.authorization_interface_p14b()
