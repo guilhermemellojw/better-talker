@@ -74,7 +74,7 @@
 - PRs abertos: **6**; desses, Drafts: **6**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=67.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.4 dias (referência fixa: 2026-11-27).
+- Mediana de idade dos PRs abertos: 0.5 dias (referência fixa: 2026-11-27).
 - Estados de check dos PRs abertos: Pendente=1, Verde=5.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
