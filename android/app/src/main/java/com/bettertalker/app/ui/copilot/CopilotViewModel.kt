@@ -3130,7 +3130,9 @@ class CopilotViewModel(
             qualityError = when {
                 rewriteRequested && !hasKey ->
                     "Reescrita pedida, mas falta configurar a chave de IA."
-                rewriteRequested -> "Pedido de reescrita: o texto revisado segue no card."
+                rewriteRequested ->
+                    "Reescrita solicitada: a revisão do corpo exige proveniência de um " +
+                        "card/rascunho anterior; use \"Revise o rascunho acima\"."
                 else -> pointQualitySkipReason(words, hasKey)
             },
             qualityTextHash = textHash,
@@ -3207,9 +3209,13 @@ class CopilotViewModel(
     }
 
     private data class RecoveredPointDraft(
+        /** Identidade persistida da mensagem-fonte (proveniência). */
+        val messageId: String,
         val text: String,
         /** Rótulo do alvo do card anterior; "· Para:" indica foco em subponto. */
         val targetLabel: String?,
+        /** Alvo persistido do card-fonte; `null` = NO_TARGET. */
+        val targetKey: String?,
     )
 
     /**
@@ -3263,7 +3269,12 @@ class CopilotViewModel(
         val found = outcome as? ConversationalReferentRecovery.Outcome.Found
             ?: return null
         val text = found.text?.takeIf { it.isNotBlank() } ?: return null
-        return RecoveredPointDraft(text = text, targetLabel = found.card.targetLabel)
+        return RecoveredPointDraft(
+            messageId = found.messageId,
+            text = text,
+            targetLabel = found.card.targetLabel,
+            targetKey = cardTargetKey(found.card),
+        )
     }
 
     /**
@@ -3276,6 +3287,9 @@ class CopilotViewModel(
         request: String,
         hasSubPointContext: Boolean,
         previousTargetLabel: String?,
+        sourceMessageId: String,
+        sourceTargetKey: String?,
+        recoveryScope: String?,
     ) {
         val nid = noteId ?: run {
             postText("Abra uma nota para receber o texto revisado.")
@@ -3284,6 +3298,34 @@ class CopilotViewModel(
         val remote = ProviderFactory.resolveRemote(settings, app)
         if (!ProviderFactory.useRemoteRoute(remote)) {
             postText("Configure a chave de IA na tela Modelo IA para eu entregar o texto revisado.")
+            return
+        }
+        // BETA-PEDAGOGY/P4 — a revisão só existe com a proveniência
+        // persistida do card original. Sem vínculo íntegro, não gastamos LLM
+        // nem oferecemos card: falha fechada, nunca corpus vivo como fallback.
+        val sourceProvenance = deliveryProvenanceFor(sourceMessageId)
+        val sourceTargetMismatch = sourceTargetKey != null &&
+            sourceProvenance?.targetKey != null &&
+            sourceProvenance.targetKey != sourceTargetKey
+        if (sourceProvenance == null ||
+            sourceProvenance.messageId != sourceMessageId ||
+            sourceProvenance.noteId != nid ||
+            sourceProvenance.scopeId != recoveryScope ||
+            !sourceProvenance.binds(draft) ||
+            sourceTargetMismatch
+        ) {
+            postText(
+                "Não consegui validar a proveniência do rascunho anterior. " +
+                    "Gere o rascunho novamente e peça a revisão; nenhum card foi criado."
+            )
+            android.util.Log.w(
+                "Mentor",
+                "rewrite|status=PROVENANCE_INVALID|source=$sourceMessageId|" +
+                    "noteOk=${sourceProvenance?.noteId == nid}|" +
+                    "scopeOk=${sourceProvenance?.scopeId == recoveryScope}|" +
+                    "hashOk=${sourceProvenance?.binds(draft) == true}|" +
+                    "targetOk=${!sourceTargetMismatch}",
+            )
             return
         }
         val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
@@ -3344,7 +3386,29 @@ class CopilotViewModel(
             reductionPercent = requestedReductionPercent(request),
             nextPointTitle = target?.let { body.getOrNull(pointNumber)?.title },
             targetDecision = targetDecision,
+            sourceProvenance = sourceProvenance,
+            sourceText = draft,
+            sourceTargetKey = sourceTargetKey,
         )
+    }
+
+    /** Confere o vínculo persistido recém-criado pelo `post` da revisão. */
+    private suspend fun rewriteProvenanceStored(
+        messageId: String,
+        expectedText: String,
+        expectedTargetKey: String?,
+        expectedScope: String?,
+        source: DeliveryProvenance,
+    ): Boolean {
+        val stored = deliveryProvenanceFor(messageId) ?: return false
+        return stored.messageId == messageId &&
+            stored.noteId == source.noteId &&
+            stored.scopeId == expectedScope &&
+            stored.targetKey == expectedTargetKey &&
+            stored.binds(expectedText) &&
+            stored.corpus == source.corpus &&
+            stored.questionRefs == source.questionRefs &&
+            stored.sourceMessageId == (source.sourceMessageId ?: source.messageId)
     }
 
     /**
@@ -3353,7 +3417,8 @@ class CopilotViewModel(
      * A validação (redução pedida + referências preservadas) é
      * determinística e acontece ANTES de oferecer o card; texto que não
      * cumpre o pedido não vira proposta aplicável. Quando o alvo é subponto
-     * ou ambíguo, o texto é oferecido sem aplicação automática.
+     * ou ambíguo, o texto é oferecido sem aplicação automática. A revisão
+     * herda a proveniência persistida do card-fonte; sem ela, falha fechada.
      */
     private suspend fun launchPointRewrite(
         target: SpeechSection?,
@@ -3370,6 +3435,12 @@ class CopilotViewModel(
             autoApply = true,
             notice = "",
         ),
+        /** Proveniência persistida da mensagem/card-fonte; obrigatória. */
+        sourceProvenance: DeliveryProvenance? = null,
+        /** Texto original efetivamente revisado (hash conferido na fonte). */
+        sourceText: String? = null,
+        /** Alvo persistido do card-fonte (identidade conferida). */
+        sourceTargetKey: String? = null,
     ) {
         // Mantém o card no MESMO turno do pedido (e cancela junto com ele):
         // um card que chega depois do turno encerrado perderia o vínculo de
@@ -3377,6 +3448,41 @@ class CopilotViewModel(
         kotlinx.coroutines.coroutineScope {
             val started = System.currentTimeMillis()
             val noteIdForPost = noteId
+            val currentScope = turnScope ?: _chatScope.value ?: _pushedContext?.sectionId
+            val source = sourceProvenance
+            val sourceBody = sourceText
+            val scopeMismatch = source?.scopeId != null && source.scopeId != currentScope
+            val missingSource = source == null || sourceBody == null
+            val invalidSource = source == null || sourceBody == null || noteIdForPost == null ||
+                source.messageId.isBlank() ||
+                source.noteId != noteIdForPost ||
+                scopeMismatch ||
+                !source.binds(sourceBody) ||
+                source.targetKey != sourceTargetKey
+            if (invalidSource) {
+                postText(
+                    if (missingSource) {
+                        "A revisão com card exige um rascunho/card anterior com " +
+                            "proveniência verificável. Gere o rascunho e peça " +
+                            "\"Revise o rascunho acima\"."
+                    } else {
+                        "Não consegui validar a proveniência do rascunho original. " +
+                            "Gere o rascunho novamente e peça a revisão; nenhum card foi criado."
+                    }
+                )
+                android.util.Log.w(
+                    "Mentor",
+                    "rewrite|status=PROVENANCE_INVALID|source=${source?.messageId ?: "—"}|" +
+                        "noteOk=${source?.noteId == noteIdForPost}|" +
+                        "scopeOk=${!scopeMismatch}|" +
+                        "hashOk=${source?.binds(sourceBody ?: "") == true}|" +
+                        "targetOk=${source?.targetKey == sourceTargetKey}",
+                )
+                return@coroutineScope
+            }
+            // O escopo persistido da fonte é a autoridade; o escopo vivo só
+            // completa quando a fonte era global.
+            val scopeForPost = source.scopeId ?: currentScope
             val context = PointReviewQualityContext(
                 pointNumber = deterministic.pointNumber,
                 title = deterministic.title,
@@ -3404,6 +3510,23 @@ class CopilotViewModel(
                     capturedFrom = CardCapturedFrom.ACTIVE_BLOCK,
                     capturedAt = System.currentTimeMillis(),
                 )
+            }
+            val currentTargetKey = cardTarget?.let { "${it.kind.name}:${it.id}" }
+            if (targetDecision.autoApply &&
+                (cardTarget == null ||
+                    (source.targetKey != null && source.targetKey != currentTargetKey))
+            ) {
+                postText(
+                    "O alvo do rascunho não corresponde ao ponto em foco. " +
+                        "Abra o ponto correto e peça a revisão novamente; nenhum card foi criado."
+                )
+                android.util.Log.w(
+                    "Mentor",
+                    "rewrite|status=TARGET_MISMATCH|source=${source.messageId}|" +
+                        "sourceTarget=${source.targetKey ?: "—"}|" +
+                        "currentTarget=${currentTargetKey ?: "—"}",
+                )
+                return@coroutineScope
             }
             try {
                 val provider = ProviderFactory.createFor(
@@ -3459,24 +3582,181 @@ class CopilotViewModel(
                 val hasDevelopedSubpoints = target?.let { t ->
                     db.subPointDao().forSection(t.id).any { it.developedHtml.isNotBlank() }
                 } ?: section.subPoints.any { it.hasDevelopment }
-                if (!targetDecision.autoApply) {
-                    val prefix = targetDecision.notice.ifBlank {
+                val prefix = if (!targetDecision.autoApply) {
+                    targetDecision.notice.ifBlank {
                         "Versão revisada (não aplicada automaticamente):"
                     }
-                    post(
-                        fromMe = false,
-                        kind = "text",
-                        payload = ChatCodec.escMap(
-                            mapOf("text" to "$prefix\n$revised"),
-                        ),
-                        allowCard = false,
+                } else {
+                    ""
+                }
+                // Releitura obrigatória no fim do turno: se o card-fonte foi
+                // editado durante a geração, o vínculo antigo não é reutilizado.
+                val liveSource = deliveryProvenanceFor(source.messageId)
+                if (liveSource == null ||
+                    liveSource.noteId != noteIdForPost ||
+                    liveSource.targetKey != sourceTargetKey ||
+                    liveSource.contentSha256 != source.contentSha256 ||
+                    liveSource.corpus != source.corpus ||
+                    liveSource.questionRefs != source.questionRefs ||
+                    !liveSource.binds(sourceBody)
+                ) {
+                    postText(
+                        "A proveniência do rascunho mudou durante a revisão; " +
+                            "nenhum card foi criado. Gere o rascunho novamente."
                     )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=PROVENANCE_STALE|source=${source.messageId}",
+                    )
+                    return@coroutineScope
+                }
+                val trustedSource = liveSource
+                // BETA-TRUST/P2/P4 — o texto revisado é revalidado pelo MESMO
+                // gate central, usando SOMENTE o corpus/refs da proveniência
+                // original. Nunca o corpus vivo nem o próprio texto revisado.
+                val gateCorpus = trustedSource.corpus
+                val gateRefs = trustedSource.questionRefs
+                val central = if (targetDecision.autoApply) {
+                    val cardGate = ContentEligibilityGate.forCardInsert(
+                        revised, gateCorpus, gateRefs,
+                    )
+                    val topicGate = ContentEligibilityGate.forTopicInsert(
+                        revised, gateCorpus, gateRefs,
+                    )
+                    if (!cardGate.allowed || !topicGate.allowed) {
+                        postText(
+                            "O gate central não liberou o texto revisado; nenhum card foi criado. " +
+                                "Verifique as fontes e tente novamente."
+                        )
+                        android.util.Log.w(
+                            "Mentor",
+                            "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                                "status=GATE_BLOCKED|source=${source.messageId}|" +
+                                "findings=${cardGate.findings.size + topicGate.findings.size}",
+                        )
+                        return@coroutineScope
+                    }
+                    cardGate
+                } else {
+                    val draftGate = ContentEligibilityGate.forDraftReview(
+                        revised, gateCorpus, gateRefs,
+                    )
+                    if (!draftGate.allowed) {
+                        postText(
+                            "O gate central não liberou o texto revisado; nada foi entregue. " +
+                                "Verifique as fontes e tente novamente."
+                        )
+                        android.util.Log.w(
+                            "Mentor",
+                            "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                                "status=GATE_BLOCKED_TEXT|source=${source.messageId}|" +
+                                "findings=${draftGate.findings.size}",
+                        )
+                        return@coroutineScope
+                    }
+                    draftGate
+                }
+                val delivered = stripInternalTags(central.text).trim()
+                if (delivered.isBlank()) {
+                    postText("O gate central esvaziou o texto revisado; nada foi entregue.")
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=GATE_EMPTY|source=${source.messageId}",
+                    )
+                    return@coroutineScope
+                }
+                val deliveryValidation = validatePointRewrite(prompts, delivered)
+                if (!deliveryValidation.ok) {
+                    postText(
+                        "O texto revisado deixou de cumprir o pedido após o gate central: " +
+                            "${deliveryValidation.reason} Nenhum card foi criado."
+                    )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=DELIVERY_INVALID|source=${source.messageId}|" +
+                            "reason=${deliveryValidation.reason}",
+                    )
+                    return@coroutineScope
+                }
+                val textForProvenance = if (targetDecision.autoApply) {
+                    delivered
+                } else {
+                    "$prefix\n$delivered"
+                }
+                val targetKeyForProvenance = if (targetDecision.autoApply) {
+                    currentTargetKey
+                } else {
+                    null
+                }
+                val preflight = DeliveryProvenance.rewriteFrom(
+                    source = trustedSource,
+                    sourceText = sourceBody,
+                    revisedText = textForProvenance,
+                    messageId = "preflight",
+                    turnId = currentTurnId,
+                    noteId = noteIdForPost,
+                    scopeId = scopeForPost,
+                    targetKey = targetKeyForProvenance,
+                    boundAt = System.currentTimeMillis(),
+                )
+                if (preflight == null) {
+                    postText(
+                        "Não consegui criar a proveniência da revisão; nenhum card foi criado."
+                    )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=PROVENANCE_PREFLIGHT_NULL|source=${source.messageId}",
+                    )
+                    return@coroutineScope
+                }
+                if (!targetDecision.autoApply) {
+                    val previous = activeCardTarget
+                    activeCardTarget = null
+                    try {
+                        val newMessageId = post(
+                            fromMe = false,
+                            kind = "text",
+                            payload = ChatCodec.escMap(
+                                mapOf("text" to textForProvenance),
+                            ),
+                            targetScope = scopeForPost,
+                            allowCard = false,
+                            provenanceSource = trustedSource,
+                            provenanceSourceText = sourceBody,
+                        )
+                        if (newMessageId == null ||
+                            !rewriteProvenanceStored(
+                                messageId = newMessageId,
+                                expectedText = textForProvenance,
+                                expectedTargetKey = null,
+                                expectedScope = scopeForPost,
+                                source = trustedSource,
+                            )
+                        ) {
+                            postText(
+                                "Não consegui persistir a proveniência do texto revisado; " +
+                                    "ele não será copiado nem inserido."
+                            )
+                            android.util.Log.w(
+                                "Mentor",
+                                "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                                    "status=PROVENANCE_NOT_STORED_TEXT|source=${source.messageId}",
+                            )
+                        }
+                    } finally {
+                        activeCardTarget = previous
+                    }
                     android.util.Log.i(
                         "Mentor",
                         "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
                             "status=COMPLETED_TEXT_ONLY|scope=${targetDecision.scope}|" +
+                            "source=${source.messageId}|" +
                             "reduction=${reductionPercent ?: "—"}|" +
-                            "words=${validation.wordCount}|target=${prompts.targetWords}|" +
+                            "words=${deliveryValidation.wordCount}|target=${prompts.targetWords}|" +
                             "model=${res.meta.model}|ms=${res.meta.durationMs}|" +
                             "totalMs=${System.currentTimeMillis() - started}",
                     )
@@ -3490,33 +3770,52 @@ class CopilotViewModel(
                     }
                     append(":")
                 }
-                // BETA-PEDAGOGY/P3 (B): a proveniência original do card
-                // (corpus/refs/gateMessageId) ainda depende do contrato de A.
-                // Até lá, o card revisado não liga o gate central e o texto
-                // revisado NÃO é usado como fonte documental.
                 val previous = activeCardTarget
                 activeCardTarget = cardTarget
                 try {
-                    post(
+                    val newMessageId = post(
                         fromMe = false,
                         kind = "text",
                         payload = ChatCodec.escMap(
                             mapOf(
                                 "text" to "$label\n" +
-                                    "<texto-do-card>$revised</texto-do-card>",
+                                    "<texto-do-card>$delivered</texto-do-card>",
                             )
                         ),
+                        targetScope = scopeForPost,
                         cardOrigin = CardOrigin.TRANSFORM,
                         cardSuggestedAction = CardSuggestedAction.REPLACE,
+                        provenanceSource = trustedSource,
+                        provenanceSourceText = sourceBody,
                     )
+                    if (newMessageId == null ||
+                        !rewriteProvenanceStored(
+                            messageId = newMessageId,
+                            expectedText = delivered,
+                            expectedTargetKey = currentTargetKey,
+                            expectedScope = scopeForPost,
+                            source = trustedSource,
+                        )
+                    ) {
+                        postText(
+                            "Não consegui persistir a proveniência do card; " +
+                                "ele não será aplicável."
+                        )
+                        android.util.Log.w(
+                            "Mentor",
+                            "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                                "status=PROVENANCE_NOT_STORED|source=${source.messageId}",
+                        )
+                    }
                 } finally {
                     activeCardTarget = previous
                 }
                 android.util.Log.i(
                     "Mentor",
                     "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
-                        "status=COMPLETED|reduction=${reductionPercent ?: "—"}|" +
-                        "words=${validation.wordCount}|target=${prompts.targetWords}|" +
+                        "status=COMPLETED|source=${source.messageId}|" +
+                        "reduction=${reductionPercent ?: "—"}|" +
+                        "words=${deliveryValidation.wordCount}|target=${prompts.targetWords}|" +
                         "model=${res.meta.model}|ms=${res.meta.durationMs}|" +
                         "in=${res.meta.usage?.inputTokens}|out=${res.meta.usage?.outputTokens}|" +
                         "totalMs=${System.currentTimeMillis() - started}",
@@ -4556,6 +4855,13 @@ class CopilotViewModel(
             )
             else -> null
         }
+        // BETA-PEDAGOGY/P4: quando a chamada declara uma fonte de revisão,
+        // ela é obrigatória; nunca persistimos mensagem/card sem vínculo.
+        if (!fromMe && (provenanceSource != null || provenanceSourceText != null) &&
+            storedProvenance == null
+        ) {
+            return null
+        }
         // BETA-TRUST/P2: a proveniência é persistida no payload; o mapa é só
         // cache hidratado do banco (copiar/inserir usa o payload após restart).
         if (storedProvenance != null) {
@@ -5146,6 +5452,9 @@ class CopilotViewModel(
                         request = text,
                         hasSubPointContext = _pushedContext?.subPointId != null,
                         previousTargetLabel = draft.targetLabel,
+                        sourceMessageId = draft.messageId,
+                        sourceTargetKey = draft.targetKey,
+                        recoveryScope = recoveryScope,
                     )
                 }
                 return@launch
