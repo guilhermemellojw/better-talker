@@ -9,7 +9,7 @@ produção, transporte real, POST, LLM ou Android foi executado.
 `python3: can't open file '<path>/.opencode/scripts/coord_trust_service_cli.py':
 [Errno 13] Permission denied` sob `setpriv --reuid=65533`.
 **Branch:** `feat/coord-trust-crossuid-cert`.
-**HEAD do código:** `2e816f6b6df700d90ca7b7e20f5ad0adfbcbd580`.
+**HEAD do código:** `17cd7d37138407a7602d4848fe994e4f9de9f53d`.
 **HEAD final do PR:** publicado no corpo/comentário do PR.
 
 ## 1. Causa e correção
