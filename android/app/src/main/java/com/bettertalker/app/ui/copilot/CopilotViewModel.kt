@@ -665,6 +665,135 @@ internal fun answerOutputBudget(hasResolvedRefs: Boolean): Int =
     com.bettertalker.app.domain.planning.OutputBudget.chat(hasResolvedRefs)
 
 /**
+ * J05 — linha bíblica já recuperada e rotulada. Nenhuma interpretação é
+ * inferida: apenas o trecho literal devolvido pelo índice TNM autorizado.
+ */
+internal data class RetrievedBibleLine(
+    val reference: String,
+    val labeledExcerpt: String,
+    /** P2: o texto recuperado foi recortado em 220 caracteres. */
+    val truncated: Boolean = false,
+)
+
+internal fun retrievedBibleBlock(lines: List<RetrievedBibleLine>): String =
+    lines.joinToString("\n") { line ->
+        val cut = if (line.truncated) " [recorte em 220 caracteres]" else ""
+        "${line.labeledExcerpt}$cut — ${line.reference}"
+    }
+
+/**
+ * P2 — leitura direta é reconhecida SOMENTE por verbo de leitura inequívoco
+ * + referência bíblica. Explicação, aplicação e significado NÃO são leitura.
+ */
+internal fun isDirectBibleRead(topic: String): Boolean {
+    if (RefDetector.detectBible(topic).isEmpty()) return false
+    val direct = Regex(
+        """(?i)\b(leia|ler|leiam|mostre|mostra|reproduza|copie|c[oó]pie|texto[ ]de|o[ ]que[ ]diz|o[ ]que[ ]est[aá][ ]escrito)\b""",
+    )
+    return direct.containsMatchIn(topic)
+}
+
+/** P2 — seam REAL usado por `answerAsk`: ref exata → TNM indexada → rótulo. */
+internal fun retrieveBibleForAsk(
+    topic: String,
+    textsByReference: Map<String, List<String>>,
+): List<RetrievedBibleLine> = buildList {
+    for (b in RefDetector.detectBible(topic).take(2)) {
+        val reference = "${b.label} ${b.chapter}:${b.verse}"
+        for (text in textsByReference[reference].orEmpty()) {
+            val truncated = text.length > BIBLE_EXCERPT_LIMIT
+            val excerpt = text.take(BIBLE_EXCERPT_LIMIT)
+            val rotulo = ChatBiblicalSupport.retrievedExcerpt("TNM", excerpt) ?: continue
+            add(RetrievedBibleLine(reference, rotulo, truncated))
+        }
+    }
+}
+
+private const val BIBLE_EXCERPT_LIMIT = 220
+
+/**
+ * J05/P2 — corpo determinístico de `answerAsk`. A recuperação bíblica
+ * explícita é independente de publicações temáticas. Leitura direta
+ * satisfeita entrega apenas o trecho literal: sem guia, sem bases, sem
+ * matéria e sem oferta automática de geração de ideias.
+ */
+internal fun answerAskBody(
+    topic: String,
+    thematicHitCount: Int,
+    contentHitCount: Int,
+    bibleBlock: String,
+    missingDetail: String,
+    contentLines: List<String>,
+    simplify: Boolean,
+    directRead: Boolean = false,
+): String {
+    if (directRead && bibleBlock.isNotBlank()) return bibleBlock.trim()
+    val prefix = if (bibleBlock.isBlank()) "" else "$bibleBlock\n\n"
+    if (thematicHitCount == 0) {
+        val head = if (prefix.isEmpty())
+            "Não encontrei trechos sobre “$topic” nos materiais baixados."
+        else
+            "Não encontrei matéria temática sobre “$topic” nos materiais baixados."
+        return prefix + head + missingDetail
+    }
+    if (contentHitCount == 0) {
+        val head = if (prefix.isEmpty())
+            "Sobre “$topic”, só tenho as publicações-guia (estrutura, não matéria). " +
+                "Baixe no site a matéria citada no esboço para eu responder com ela."
+        else
+            "Sobre “$topic”, só tenho as publicações-guia (estrutura, não matéria) " +
+                "nos materiais baixados."
+        return prefix + head
+    }
+    val sb = StringBuilder("Sobre “$topic”, nos seus materiais:\n")
+    if (prefix.isNotEmpty()) sb.append("\n$bibleBlock\n")
+    contentLines.take(4).forEachIndexed { i, line ->
+        sb.append("\n${i + 1}. $line\n")
+    }
+    sb.append("\nQuer que eu gere ideias com isso? Diga a seção.")
+    val body = sb.toString().trim()
+    return if (simplify) simplifyPedagogicalText(body) else body
+}
+
+/**
+ * P2 — plano compartilhado por `answerAsk`: corpo e decisão de postar o card
+ * de bases ausentes. Testável com dados de recuperação simulados, sem Room.
+ */
+internal data class AskAnswerPlan(
+    val body: String,
+    val postBases: Boolean,
+    val bases: List<String>,
+)
+
+internal fun planAskAnswer(
+    topic: String,
+    directRead: Boolean,
+    bibleBlock: String,
+    thematicHitCount: Int,
+    contentHitCount: Int,
+    missingDetail: String,
+    contentLines: List<String>,
+    missingBases: List<String>,
+    simplify: Boolean,
+): AskAnswerPlan {
+    val readSatisfied = directRead && bibleBlock.isNotBlank()
+    return AskAnswerPlan(
+        body = answerAskBody(
+            topic = topic,
+            thematicHitCount = thematicHitCount,
+            contentHitCount = contentHitCount,
+            bibleBlock = bibleBlock,
+            missingDetail = missingDetail,
+            contentLines = contentLines,
+            simplify = simplify,
+            directRead = directRead,
+        ),
+        postBases = missingBases.isNotEmpty() && !readSatisfied,
+        bases = missingBases,
+    )
+}
+
+/**
  * T2 (chat minimalista): banner de setup só quando o setup está
  * incompleto (sem vínculos), não dispensado e antes do primeiro uso.
  * Após o 1º envio, nunca mais. Puro/testável.
@@ -7950,63 +8079,62 @@ class CopilotViewModel(
         }
         lastTopic = topic
         val scope = refScope()
+        // J05 — recuperação bíblica explícita ANTES dos retornos antecipados.
+        // `biblePassages` exige TNM indexada e ref exata; sem isso, devolve
+        // vazio e a falha continua honesta. Nenhuma interpretação é gerada.
+        val directRead = isDirectBibleRead(topic)
+        // J05 — recuperação bíblica explícita ANTES dos retornos temáticos.
+        val textsByReference = RefDetector.detectBible(topic).take(2).associate { b ->
+            val reference = "${b.label} ${b.chapter}:${b.verse}"
+            reference to repo.biblePassages(reference, 2).map { it.passage.text }
+        }
+        val bibleLines = retrieveBibleForAsk(topic, textsByReference)
+        val bibleBlock = retrievedBibleBlock(bibleLines)
+        val readSatisfied = directRead && bibleBlock.isNotBlank()
         val hits = repo.askScoped(topic, noteId, 6,
             extraIds = scope.keys.toList(), extraLabels = scope)
-        if (hits.isEmpty()) {
+        val plan = if (hits.isEmpty()) {
             val missing = missingMatterText()
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Não encontrei trechos sobre “$topic” nos materiais baixados." +
-                    (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())),
-                MessageOrigin.LOCAL, finalResponse = finalResponse)
-            val slots = repo.missingBases()
-            if (slots.isNotEmpty()) {
-                post(false, "bases", ChatCodec.escMap(mapOf(
-                    "text" to "Faltam estas bases:",
-                    "slots" to slots.joinToString(","))),
-                    MessageOrigin.LOCAL)
-            }
-            return
-        }
-        // SÓ conteúdo (citadas): be/th instruem a estrutura, nunca são matéria
-        val content = com.bettertalker.app.data.repo.contentHits(hits)
-        if (content.isEmpty()) {
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Sobre “$topic”, só tenho as publicações-guia (estrutura, não matéria). " +
-                    "Baixe no site a matéria citada no esboço para eu responder com ela.")),
-                MessageOrigin.LOCAL, finalResponse = finalResponse)
-            val missing = repo.missingBases()
-            if (missing.isNotEmpty()) {
-                post(false, "bases", ChatCodec.escMap(mapOf(
-                    "text" to "Faltam estas bases:",
-                    "slots" to missing.joinToString(","))),
-                    MessageOrigin.LOCAL)
-            }
-            return
-        }
-        val sb = StringBuilder("Sobre “$topic”, nos seus materiais:\n")
-        // versículos citados na pergunta, direto da TNM indexada
-        for (b in RefDetector.detectBible(topic).take(2)) {
-            // T2: a ref vai por rótulo ("Jeremias 29:11") — biblePassages
-            // resolve por ref exata no índice (Je 29:11).
-            val verses = repo.biblePassages("${b.label} ${b.chapter}:${b.verse}", 2)
-            for (v in verses) {
-                // P5: rótulo restrito ao trecho REALMENTE recuperado — nunca
-                // a edição inteira nem um recorte apresentado como completo.
-                val trecho = v.passage.text.take(220)
-                val rotulo = ChatBiblicalSupport.retrievedExcerpt("TNM", trecho) ?: continue
-                sb.append("\n$rotulo — ${b.label} ${b.chapter}:${b.verse}\n")
+            val detail = (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint()
+            planAskAnswer(
+                topic = topic, directRead = directRead, bibleBlock = bibleBlock,
+                thematicHitCount = 0, contentHitCount = 0, missingDetail = detail,
+                contentLines = emptyList(),
+                missingBases = if (readSatisfied) emptyList() else repo.missingBases(),
+                simplify = simplify,
+            )
+        } else {
+            // SÓ conteúdo (citadas): be/th instruem a estrutura, nunca são matéria
+            val content = com.bettertalker.app.data.repo.contentHits(hits)
+            if (content.isEmpty()) {
+                planAskAnswer(
+                    topic = topic, directRead = directRead, bibleBlock = bibleBlock,
+                    thematicHitCount = hits.size, contentHitCount = 0, missingDetail = "",
+                    contentLines = emptyList(),
+                    missingBases = if (readSatisfied) emptyList() else repo.missingBases(),
+                    simplify = simplify,
+                )
+            } else {
+                val lines = content.mapNotNull { h ->
+                    val trecho = h.passage.text.take(180)
+                    ChatBiblicalSupport.retrievedExcerpt(h.source, trecho)
+                }
+                planAskAnswer(
+                    topic = topic, directRead = directRead, bibleBlock = bibleBlock,
+                    thematicHitCount = hits.size, contentHitCount = content.size,
+                    missingDetail = "", contentLines = lines,
+                    missingBases = emptyList(), simplify = simplify,
+                )
             }
         }
-        content.take(4).forEachIndexed { i, h ->
-            val trecho = h.passage.text.take(180)
-            val rotulo = ChatBiblicalSupport.retrievedExcerpt(h.source, trecho) ?: return@forEachIndexed
-            sb.append("\n${i + 1}. $rotulo\n")
+        post(false, "text", ChatCodec.escMap(mapOf("text" to plan.body)),
+            MessageOrigin.LOCAL, finalResponse = finalResponse)
+        if (plan.postBases) {
+            post(false, "bases", ChatCodec.escMap(mapOf(
+                "text" to "Faltam estas bases:",
+                "slots" to plan.bases.joinToString(","))),
+                MessageOrigin.LOCAL)
         }
-        sb.append("\nQuer que eu gere ideias com isso? Diga a seção.")
-        // P6: simplificação efetiva da linguagem. Citações literais, rótulos
-        // de trecho recuperado (TRUST #60) e referências voltam intactos.
-        val body = sb.toString().trim().let { if (simplify) simplifyPedagogicalText(it) else it }
-        post(false, "text", ChatCodec.escMap(mapOf("text" to body)), MessageOrigin.LOCAL, finalResponse = finalResponse)
     }
 
     /**
