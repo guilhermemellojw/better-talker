@@ -430,6 +430,21 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual("COMPLETED", result["result"]["state"])
         self.assertFalse(fx.service.ledger.is_reserved(MISSION_ID))
 
+
+    def test_lease_duplicate_and_request_replay_do_not_reserve_twice(self):
+        fx = self._prepared()
+        first = fx.reserve(request_id="req-reserve-once")
+        self.assertTrue(first["ok"], first)
+        same = fx.reserve(request_id="req-reserve-once")
+        self.assertTrue(same["ok"], same)
+        self.assertTrue(same.get("replayed"))
+        self.assertEqual(first["result"]["lease_id"],
+                         same["result"]["lease_id"])
+        duplicate = fx.reserve()
+        self.assertFalse(duplicate["ok"])
+        self.assertEqual("DISPATCHING", fx.request(
+            "status", {"mission_id": MISSION_ID})["result"]["state"])
+
     def test_wrong_lease_and_digest_are_rejected(self):
         fx = self._prepared()
         reserved = fx.reserve()

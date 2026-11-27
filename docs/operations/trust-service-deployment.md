@@ -24,10 +24,10 @@ Exemplo de preparação (executar somente na janela autorizada):
 ```bash
 install -d -m 0700 -o bt-coord-trust -g bt-coord-trust /var/lib/better-talker-coord
 install -d -m 0750 -o bt-coord-trust -g bt-coord-trust /run/better-talker-coord
-install -d -m 0750 -o root -g root /etc/better-talker
+install -d -m 0750 -o root -g bt-coord-trust /etc/better-talker
 install -m 0600 -o bt-coord-trust -g bt-coord-trust /dev/null /var/lib/better-talker-coord/trust-store.json
 install -m 0600 -o bt-coord-trust -g bt-coord-trust /dev/null /var/lib/better-talker-coord/consumers.json
-install -m 0600 -o root -g bt-coord-trust /dev/null /etc/better-talker/trust-service.json
+install -m 0640 -o root -g bt-coord-trust /dev/null /etc/better-talker/trust-service.json
 ```
 
 O comando acima é ilustrativo; não foi executado. O `INSTALL` de `/dev/null`
@@ -36,8 +36,8 @@ deve ser substituído por conteúdo revisado; use `install -T`/editor seguro.
 - `/var/lib/better-talker-coord`: 0700, dono do serviço; ledger, service state,
   trust store, consumer registry.
 - `/run/better-talker-coord`: 0750, grupo do serviço; socket 0660.
-- `/etc/better-talker/trust-service.json`: configuração do serviço, 0600
-  root:grupo do serviço (somente leitura pelo serviço).
+- `/etc/better-talker/trust-service.json`: configuração do serviço, 0640
+  root:grupo do serviço (somente leitura pelo serviço; não contém chave privada).
 - Nenhum arquivo contém chave privada.
 - `state_dir` não pode ser symlink, world-readable ou group-writable.
 

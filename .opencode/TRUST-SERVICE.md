@@ -100,14 +100,14 @@ Evidência local (`unshare -rn`):
 
 | Suíte | Resultado |
 |---|---|
-| `test_coord_trust_service.py` | **20/20 OK** |
-| `unittest discover` | **526/526 OK** |
+| `test_coord_trust_service.py` | **21/21 OK** |
+| `unittest discover` | **527/527 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **693** |
+| Total | **694** |
 
 O workflow `.github/workflows/coord-python.yml` executa o discover com
-baseline 526, a suíte do serviço com baseline 20, o supervisor com 167 e
-confere o total 693 dentro do namespace sem rede. Ver o PR para logs/hashes.
+baseline 527, a suíte do serviço com baseline 21, o supervisor com 167 e
+confere o total 694 dentro do namespace sem rede. Ver o PR para logs/hashes.
 
 ## 6. Limitações
 
