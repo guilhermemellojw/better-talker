@@ -35,7 +35,12 @@ object OratorySession {
 
 
     /** Última geração oratória da sessão (volátil por design). */
-    data class LastGeneration(val mode: OratoryGeneration.Mode, val sectionId: String?)
+    data class LastGeneration(
+        val mode: OratoryGeneration.Mode,
+        val sectionId: String?,
+        /** Ponto relacionado pedido junto (ex.: AI-04); preservado na iteração. */
+        val relatedSectionId: String? = null,
+    )
 
     sealed interface Decision {
         /** Gera com este modo/ponto. */
@@ -43,7 +48,9 @@ object OratorySession {
             val mode: OratoryGeneration.Mode,
             val sectionId: String?,
             val action: OratoryGeneration.Action,
-            val inherited: Boolean
+            val inherited: Boolean,
+            /** Ponto citado para relação explícita (conteúdo real no prompt). */
+            val relatedSectionId: String? = null,
         ) : Decision
 
         /** Refinamento sem geração anterior: nada a refinar. */
@@ -76,6 +83,35 @@ object OratorySession {
             "\\b(deixe mais|deixe melhor|mais natural|mais curta|mais curto|" +
             "mais simples|mais direto|explique melhor)\\b"
     )
+
+    private val POINT_REFERENCE = Regex(
+        "(pontos?|topicos?|secoes?|partes?)\\s*(n\\.?\\u00ba?\\s*)?(\\d{1,2})"
+    )
+    private val RELATION_VERB = Regex("\\b(relacion\\w*)\\b")
+    private val TRANSITION_MARK = Regex("\\b(transic\\w*|passagem|ponte)\\b")
+
+    /**
+     * Ponto citado DEPOIS de um verbo de relação:
+     * "relacione o ponto 2 com o ponto 3" → 3;
+     * "transição 2→3 relacionando com o ponto 1" → 1.
+     */
+    private val RELATION_WITH = Regex(
+        "\\brelacion\\w*\\b[^\\n]{0,80}?" +
+            "\\b(?:com|ao|a|e)\\s+(?:o\\s+|a\\s+)?(?:ponto|topico|secao|parte)\\s*(\\d{1,2})"
+    )
+
+    private data class PointRelation(val anchorId: String, val relatedId: String)
+
+    /**
+     * Todos os pontos citados, na ordem do texto. Diferente de
+     * [requestedPoint], preserva as duas pontas de "ponto 1 com o ponto 3".
+     */
+    fun requestedPoints(text: String): List<Int> {
+        val t = " ${normalizeText(text)} "
+        return POINT_REFERENCE.findAll(t)
+            .mapNotNull { it.groupValues[3].toIntOrNull() }
+            .toList()
+    }
 
     /**
      * Número de ponto pedido ("ponto 3", "3.", "no 3") — 1-based.
@@ -124,11 +160,32 @@ object OratorySession {
         // 2) Modo explícito manda (troca de modo/ponto).
         explicitMode(text)?.let { mode ->
             val sectionId = sectionFor(text, document, currentSectionId, mode)
+            // AI-03: "transição 2→3 relacionando com o ponto 1" mantém o
+            // modo TRANSITION, mas leva o CONTEÚDO real do ponto 1.
+            val related = sectionId?.let { anchor ->
+                document?.sections
+                    ?.sortedBy { it.order }
+                    ?.let { ordered -> relatedSectionFor(text, ordered, anchor) }
+            }
             return Decision.Generate(
                 mode = mode,
                 sectionId = sectionId,
                 action = OratoryGeneration.actionFor(text),
-                inherited = false
+                inherited = false,
+                relatedSectionId = related,
+            )
+        }
+
+        // 2b) AI-04 — relação explícita entre dois pontos sem verbo de
+        // geração: "volte ao ponto 1 e relacione com o ponto 3". Vira
+        // desenvolvimento do ponto-âncora com o outro ponto no prompt.
+        relationRequest(text, document, currentSectionId)?.let { relation ->
+            return Decision.Generate(
+                mode = OratoryGeneration.Mode.DEVELOPMENT,
+                sectionId = relation.anchorId,
+                action = OratoryGeneration.actionFor(text),
+                inherited = false,
+                relatedSectionId = relation.relatedId,
             )
         }
 
@@ -139,7 +196,8 @@ object OratorySession {
                 mode = last.mode,
                 sectionId = last.sectionId,
                 action = OratoryGeneration.Action.REPLACE,
-                inherited = true
+                inherited = true,
+                relatedSectionId = last.relatedSectionId,
             )
         }
 
@@ -177,6 +235,50 @@ object OratorySession {
         return false to null
     }
 
+    /** Ponto citado para relação, quando o modo já foi decidido (AI-03). */
+    private fun relatedSectionFor(
+        text: String,
+        ordered: List<S34Section>,
+        anchorId: String,
+    ): String? {
+        val n = RELATION_WITH.find(" ${normalizeText(text)} ")
+            ?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?: return null
+        return ordered.getOrNull(n - 1)?.id?.takeIf { it != anchorId }
+    }
+
+    /**
+     * Relação explícita entre pontos (AI-04). Não intercepta transição:
+     * "transição ... relacionando com o ponto N" continua TRANSITION, com
+     * o ponto N como `related`.
+     */
+    private fun relationRequest(
+        text: String,
+        document: S34Document?,
+        currentSectionId: String?,
+    ): PointRelation? {
+        val t = " ${normalizeText(text)} "
+        if (TRANSITION_MARK.containsMatchIn(t)) return null
+        if (!RELATION_VERB.containsMatchIn(t)) return null
+        val ordered = document?.sections?.sortedBy { it.order } ?: return null
+        if (ordered.isEmpty()) return null
+        val numbers = requestedPoints(text)
+        val relationNumber = RELATION_WITH.find(t)
+            ?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val anchorNumber = numbers.firstOrNull { it != relationNumber }
+            ?: numbers.firstOrNull()
+        val relatedNumber = relationNumber ?: numbers.getOrNull(1)
+        val anchorId = anchorNumber
+            ?.let { n -> ordered.getOrNull(n - 1)?.id }
+            ?: currentSectionId
+            ?: return null
+        val relatedId = relatedNumber
+            ?.let { n -> ordered.getOrNull(n - 1)?.id }
+            ?: return null
+        if (anchorId == relatedId) return null
+        return PointRelation(anchorId, relatedId)
+    }
+
     private fun sectionFor(
         text: String,
         document: S34Document?,
@@ -205,7 +307,11 @@ object OratorySession {
         document: S34Document?
     ): LastGeneration {
         // Introdução/conclusão fixam as pontas; desenvolvimento/transição
-        // mantêm o ponto resolvido.
-        return LastGeneration(decision.mode, decision.sectionId)
+        // mantêm o ponto resolvido e a relação explícita (AI-04).
+        return LastGeneration(
+            decision.mode,
+            decision.sectionId,
+            decision.relatedSectionId,
+        )
     }
 }
