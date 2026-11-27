@@ -1,7 +1,7 @@
 # BETA-PEDAGOGY/P4 — integração A+C (candidato Draft)
 
 **Data:** 27/11/2026  
-**HEAD candidato:** branch `feat/beta-integration-p4` (merge A+C `67bc3b55`; SHA final no PR)  
+**HEAD candidato:** branch `feat/beta-integration-p4` (A `ddc80e3e` + C `fe0ca1b3` + main `cc7b4522`; SHA final no PR Draft)  
 **Estado:** candidato combinado em branch isolada; PR Draft; sem merge/tag/release/ADB/LLM pago.  
 **Certificação:** aguardando D independente.
 
@@ -9,17 +9,19 @@
 
 | Papel | SHA | Branch/PR |
 |---|---|---|
-| A — contrato de proveniência | `2b476eeb7967eb6bf5cc116c6bfb4b3eedd8bb41` | `fix/beta-trust-source-fidelity` / #84 |
-| C — pedagogia | `fe0ca1b37089977918934ff18f197de8fbf14d2c` | `feat/beta-pedagogy-p1` / #85 |
-| main | `26c82f5cd6b5412cdce2dde68068a9a2f5e12fd8` | — |
+| A — contrato de proveniência (final P3) | `ddc80e3e0a8d3b568a69f2106f5f6fff6e1ac72e` | `fix/beta-trust-source-fidelity` / #84 |
+| C — pedagogia (HEAD certificado) | `fe0ca1b37089977918934ff18f197de8fbf14d2c` | `feat/beta-pedagogy-p1` / #85 |
+| main | `cc7b452253d0e6a8039e36c32e4276fd14937e80` | — |
 
-CI do SHA exato de A: **verde** (2× `build-apk`, `coord-python`, `propose`) antes da publicação do candidato.
+CI dos SHAs exatos: A `ddc80e3e` (`coord-python` PASS, `propose` PASS, `build-apk` verificado antes da publicação), C `fe0ca1b3` (`build-apk`/`propose` PASS), main `cc7b4522` (`coord-python` PASS). Nenhum SHA é publicado com CI vermelho.
 
 ## 2. Integração e sobreposições
 
 - Worktree/branch isolada: `feat/beta-integration-p4`, criada a partir de `2b476eeb`.
 - Merge de C (`fe0ca1b3`) sobre A: **sem conflitos textuais**. A sobreposição real era semântica em `CopilotViewModel.kt` e foi resolvida manualmente.
 - Arquivos de A preservados: `DeliveryProvenance.kt`, `ContentEligibilityGate.kt`, `SourceFidelityGate.kt`, `OratoryFidelityCheck.kt`, `GroundednessVerifier.kt`, `OratoryFidelityCleanup.kt`, `GenerationPrompts.kt`, `GlobalAssistant*`.
+- P4.1: fusão de A `ddc80e3e` gerou **um conflito** em `CopilotViewModel.kt` (bloco `storedProvenance` do `post`); resolvido preservando as duas regras: decisão de handoff extraída para `RewriteHandoff` (C) e `revision`/`explicitTargetChange` fail-closed de A. O caminho texto-only declara troca de alvo explícita porque `targetKey=null` significa "sem card", não troca de alvo.
+- Main `cc7b4522` mesclado sem conflitos (somente infraestrutura do trust boundary).
 - Nenhum verificador/resolvedor novo. C usa `ContentEligibilityGate` e `DeliveryProvenance.rewriteFrom` existentes.
 - BODY/SUBPOINT/AMBIGUOUS preservados; subponto/ambíguo entrega texto sem card automático.
 
@@ -60,11 +62,12 @@ Comando (flavor público, in-process, 1 worker):
   -Pkotlin.compiler.execution.strategy=in-process
 ```
 
-**PASS — 4650 testes, 0 falhas, 0 erros, 0 skipped**, 464 suites.  
-Taxas relevantes: `DeliveryProvenanceTest` 9/0, `BetaTrustP2FailFirstTest` 10/0, `BetaTrustSourceFidelityTest` 11/0, `PedagogyFidelityIntegrationTest` 5/0, `PedagogyProvenanceIntegrationTest` 7/0, `PointReviewRewriteTest` 13/0.
+**PASS — 4667 testes, 0 falhas, 0 erros, 0 skipped**, 466 suites (`BUILD SUCCESSFUL` em 3m30s, `--rerun-tasks`).  
+Taxas relevantes: `Ai09JourneyIntegrationTest` 9/0, `DeliveryProvenanceTest` 9/0, `BetaTrustP3ClosureTest` 8/0, `BetaTrustP2FailFirstTest` 10/0, `BetaTrustSourceFidelityTest` 11/0, `PedagogyFidelityIntegrationTest` 5/0, `PedagogyProvenanceIntegrationTest` 7/0, `PointReviewRewriteTest` 13/0.
 
-Testes focados: 22 de pedagogia + proveniência A + J05/F8.  
-Sem LLM pago, sem ADB, sem Room em teste; CI do candidato pendente no momento deste relatório.
+Fail-first P4.1: `ai09_notaEscopoOuAlvoDivergentesRejeitados` falhava no SHA pré-fecho de A (`2b476eeb`) e passa com `ddc80e3e`; os demais 8 testes da classe passaram antes e depois.  
+Focados no SHA combinado: 33 testes AI-09/proveniência (9 + 7 + 9 + 8), 0 falhas.  
+Sem LLM pago, sem ADB, sem Room em teste. CI dos SHAs de origem: `coord-python`/`propose` PASS em A/C/main; `build-apk` de A acompanhado antes da publicação.
 
 ## 6. Limitações e certificação D
 
@@ -87,7 +90,7 @@ Sem LLM pago, sem ADB, sem Room em teste; CI do candidato pendente no momento de
 | `provenanceSourceText` ausente rejeitado | `Ai09JourneyIntegrationTest.ai09_provenanceSourceTextAusenteEhRejeitada` | PASS |
 | Corpus do turno atual não é fallback | `Ai09JourneyIntegrationTest.ai09_corpusDoTurnoAtualNaoEhFallbackDaRevisao` | PASS |
 | Texto revisado nunca vira fonte de si próprio | `Ai09JourneyIntegrationTest.ai09_textoRevisadoNuncaViraFonteDeSiMesmo` | PASS |
-| Nota, escopo e alvo divergentes rejeitados | `Ai09JourneyIntegrationTest.ai09_notaEscopoOuAlvoDivergentesRejeitados` | depende do contrato final de A (fail-first no SHA pré-fecho) |
+| Nota, escopo e alvo divergentes rejeitados | `Ai09JourneyIntegrationTest.ai09_notaEscopoOuAlvoDivergentesRejeitados` | PASS com `ddc80e3e` (fail-first confirmado no SHA pré-fecho) |
 | Card válido após novo turno e restart | `ai09_jornadaRecuperaReferentePersisteReabreEInsere` + `PedagogyProvenanceIntegrationTest` | PASS |
 | Consentimento manual obrigatório | `Ai09JourneyIntegrationTest.ai09_consentimentoManualEFalhaFechadaNoReplace` | PASS |
 | BODY/SUBPOINT/AMBIGUOUS preservados | `Ai09JourneyIntegrationTest.ai09_corpoSubpontoEAmbiguoPreservados`, `PointReviewRewriteTest` | PASS |
