@@ -75,7 +75,7 @@ class P14AIntegrationTests(unittest.TestCase):
             )
             second.create(record("MISS-P14A-2", "OP-P14A-2", target()))
             with first.reserve():
-                with self.assertRaises(ledger.DuplicateReservation):
+                with self.assertRaises(cc.AuthorizationError):
                     with second.reserve():
                         pass
 
@@ -91,7 +91,7 @@ class P14AIntegrationTests(unittest.TestCase):
             )
             second.create(record("MISS-B", "OP-B", target()))
             with first.reserve():
-                with self.assertRaises(ledger.DuplicateReservation):
+                with self.assertRaises(cc.AuthorizationError):
                     with second.reserve():
                         pass
 
