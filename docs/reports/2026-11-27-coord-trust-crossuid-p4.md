@@ -7,7 +7,7 @@ transporte real, POST, LLM ou Android foi executado.
 **Base:** `main` no merge do PR #83, `cc7b452253d0e6a8039e36c32e4276fd14937e80`;
 cabeça P3 certificada por B: `fa89ebb23cf13cca86d6c475d2771e7891cd4844`.
 **Branch:** `feat/coord-trust-crossuid-cert`.
-**HEAD do código:** `1809415fae24fd382ce358bca655c7e351fb9118`.
+**HEAD do código:** `ae3fde0b10a3378ba902c96bace060cbd71a76be`.
 **HEAD final do PR:** publicado no corpo/comentário do PR.
 
 ## 1. Entrega
