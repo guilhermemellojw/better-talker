@@ -72,3 +72,28 @@ Sem LLM pago, sem ADB, sem Room em teste; CI do candidato pendente no momento de
 - A proveniência é local ao SQLite de chat (SHA-256 detecta edição, não atacante com escrita arbitrária).
 - D deve validar: AI-03/AI-04/AI-09 reais, card após encerramento/restart, troca de nota/seção, reatribuição, subponto, ambíguo, consentimento, J05/F8 e ausência de auto-insertion.
 - Pacote `beta-distribution-6.1.1-beta.1` permanece HOLD; nenhuma certificação beta integral é declarada.
+## 7. BETA-PEDAGOGY/P4.1 — cobertura AI-09 (jornadas reais)
+
+**Origens combinadas:** A `2b476eeb` (pré-fecho) → substituído pelo SHA final de A após P3; C `fe0ca1b3` (HEAD certificado do PR #85); main `cc7b4522`.
+
+### Matriz de cobertura
+
+| Item P4.1 | Evidência (teste real) | Resultado |
+|---|---|---|
+| Recuperação do referente original | `Ai09JourneyIntegrationTest.ai09_jornadaRecuperaReferentePersisteReabreEInsere` → `ConversationalReferentRecovery.recover` | PASS |
+| Proveniência persistida por mensagem | idem (`toPayload`/`fromPayload` + `authorizesCard`) | PASS |
+| Revisão efetiva com fonte válida | `PedagogyProvenanceIntegrationTest.ai09_revisaoPreservaProvenienciaAposFimDoTurnoERestart` + gate central | PASS |
+| `provenanceSource` ausente rejeitado | `Ai09JourneyIntegrationTest.ai09_provenanceSourceAusenteEhRejeitadaSemFallback` (`RewriteHandoff`, extraído do `post`) | PASS |
+| `provenanceSourceText` ausente rejeitado | `Ai09JourneyIntegrationTest.ai09_provenanceSourceTextAusenteEhRejeitada` | PASS |
+| Corpus do turno atual não é fallback | `Ai09JourneyIntegrationTest.ai09_corpusDoTurnoAtualNaoEhFallbackDaRevisao` | PASS |
+| Texto revisado nunca vira fonte de si próprio | `Ai09JourneyIntegrationTest.ai09_textoRevisadoNuncaViraFonteDeSiMesmo` | PASS |
+| Nota, escopo e alvo divergentes rejeitados | `Ai09JourneyIntegrationTest.ai09_notaEscopoOuAlvoDivergentesRejeitados` | depende do contrato final de A (fail-first no SHA pré-fecho) |
+| Card válido após novo turno e restart | `ai09_jornadaRecuperaReferentePersisteReabreEInsere` + `PedagogyProvenanceIntegrationTest` | PASS |
+| Consentimento manual obrigatório | `Ai09JourneyIntegrationTest.ai09_consentimentoManualEFalhaFechadaNoReplace` | PASS |
+| BODY/SUBPOINT/AMBIGUOUS preservados | `Ai09JourneyIntegrationTest.ai09_corpoSubpontoEAmbiguoPreservados`, `PointReviewRewriteTest` | PASS |
+| REPLACE sem duplicação de subpontos | `PedagogyProvenanceIntegrationTest.ai09_corpoSubstituivelNaoDuplicaSubpontos` | PASS |
+| AI-03/04 preservados | `Ai09JourneyIntegrationTest.ai03Ai04_corpusDoPontoAnteriorContinuaAutorizandoGate`, `PedagogyFidelityIntegrationTest` | PASS |
+
+### Nota de método
+
+O flavor posterior possui apenas JUnit4 + sqlite-jdbc (sem Robolectric/UI automator). As jornadas são exercitadas nos componentes reais usados pelo app — `ConversationalReferentRecovery`, `DeliveryProvenance` (payload persistido), `RewriteHandoff` (decisão extraída do `post`) e `ContentEligibilityGate` — sem LLM pago, ADB ou dispositivo. A verificação de UI/Room completa permanece com D.
