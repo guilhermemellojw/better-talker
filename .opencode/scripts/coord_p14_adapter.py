@@ -8,8 +8,12 @@ contratual para P14B.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import tempfile
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterator, Mapping, Optional
 
@@ -19,12 +23,50 @@ import coord_model_policy as model_policy
 import coord_pilot as pilot
 
 __all__ = [
+    "SyntheticAuthorization",
+    "synthetic_fixture_authorization",
     "LedgerOperationStore",
     "select_with_policy",
     "model_evidence",
     "authorization_interface_p14b",
     "synthetic_transport_evidence",
 ]
+
+
+@dataclass(frozen=True)
+class SyntheticAuthorization:
+    """Autorização de fixture EXPLÍCITA — nunca uma string do chamador.
+
+    Não é autoridade humana, não habilita transporte real e não substitui
+    #72/#77. Apenas permite o caminho sintético de testes/CLI.
+    """
+
+    approval_reference: str
+    authorization_digest: str
+    consumer_id: str
+    environment: str = "FIXTURE"
+
+    def validate(self) -> None:
+        if self.environment != "FIXTURE":
+            raise cc.AuthorizationError("autorização sintética não pode ser APPROVED/real")
+        if not self.approval_reference.strip() or not self.consumer_id.strip():
+            raise cc.AuthorizationError("autorização sintética incompleta")
+        if not cc.SHA256_PATTERN.fullmatch(self.authorization_digest):
+            raise cc.AuthorizationError("digest da autorização sintética inválido")
+
+
+def synthetic_fixture_authorization(
+    authorization_reference: str, *, consumer_id: str = "test-fixture",
+) -> SyntheticAuthorization:
+    """Autorização sintética determinística para testes — nunca é humana."""
+    digest = hashlib.sha256(cc.canonical_json({
+        "environment": "FIXTURE", "reference": authorization_reference,
+        "consumer_id": consumer_id,
+    }).encode("utf-8")).hexdigest()
+    return SyntheticAuthorization(
+        approval_reference=authorization_reference, authorization_digest=digest,
+        consumer_id=consumer_id, environment="FIXTURE",
+    )
 
 
 class LedgerOperationStore:
@@ -48,6 +90,8 @@ class LedgerOperationStore:
         clock: Optional[Any] = None,
         authorization_canonical: Optional[str] = None,
         mission_snapshot: Optional[Mapping[str, Any]] = None,
+        synthetic_authorization: Optional[SyntheticAuthorization] = None,
+        cache_dir: Optional[str] = None,
     ) -> None:
         self.db = db
         self.mission_id = mission_id
@@ -58,9 +102,19 @@ class LedgerOperationStore:
         self.target = target
         self.actor = actor
         self.clock = clock or cc.utc_now
-        self.authorization_canonical = authorization_canonical or authorization_reference
-        self.mission_snapshot = dict(mission_snapshot or {})
+        self.synthetic_authorization = synthetic_authorization
+        self.cache_dir = os.path.abspath(cache_dir) if cache_dir else None
         self._evidence: dict[str, Any] = {}
+        cached = self._read_cache()
+        self.authorization_canonical = (
+            authorization_canonical or cached.get("authorization_canonical")
+            or authorization_reference
+        )
+        self.mission_snapshot = dict(
+            mission_snapshot or cached.get("mission_snapshot") or {}
+        )
+        if cached.get("evidence"):
+            self._evidence.update(cached["evidence"])
 
     def _target_fields(self) -> dict[str, str]:
         return {
@@ -100,11 +154,58 @@ class LedgerOperationStore:
             mission_snapshot=dict(self.mission_snapshot or self._evidence.get("mission_snapshot", {})),
         )
 
+    def _cache_path(self) -> Optional[str]:
+        if not self.cache_dir:
+            return None
+        return os.path.join(self.cache_dir, "evidence-cache.json")
+
+    def _read_cache(self) -> dict[str, Any]:
+        """Cache NÃO autoritativo: apenas reconstrói contexto após reinício."""
+        path = self._cache_path()
+        if not path or not os.path.isfile(path):
+            return {}
+        try:
+            with open(path, "rb") as handle:
+                value = json.loads(handle.read().decode("utf-8"))
+            return value if isinstance(value, dict) else {}
+        except (OSError, ValueError, UnicodeError):
+            return {}
+
+    def _write_cache(self) -> None:
+        path = self._cache_path()
+        if not path:
+            return
+        os.makedirs(self.cache_dir, mode=0o700, exist_ok=True)
+        payload = {
+            "authorization_canonical": self.authorization_canonical,
+            "mission_snapshot": dict(self.mission_snapshot),
+            "evidence": dict(self._evidence),
+        }
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=".evidence-cache-", dir=self.cache_dir)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, sort_keys=True, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
     def create(self, record: pilot.PilotOperationRecord) -> pilot.PilotOperationRecord:
         # O ledger persistiu o material operacional; estes campos descritivos
         # acompanham a operação e permitem revalidação idempotente do executor.
+        if self.synthetic_authorization is None:
+            raise cc.AuthorizationError("autorização sintética explícita ausente")
+        self.synthetic_authorization.validate()
+        if self.synthetic_authorization.approval_reference != self.authorization_reference:
+            raise cc.AuthorizationError("autorização sintética diverge da referência da missão")
         self._evidence["authorization_canonical"] = record.authorization_canonical
         self._evidence["mission_snapshot"] = dict(record.mission_snapshot)
+        self._evidence["synthetic_authorization_digest"] = \
+            self.synthetic_authorization.authorization_digest
+        self._write_cache()
         fields = self._target_fields()
         self.db.register_proposed(
             mission_id=self.mission_id,
@@ -118,13 +219,20 @@ class LedgerOperationStore:
             payload=self.payload,
         )
         current = self.db.get(self.mission_id)
-        if current is not None and current.state == ledger.PROPOSED:
-            self.db.authorize(
-                self.mission_id,
-                authorization_reference=self.authorization_reference,
-                payload_sha256_value=self.payload_hash,
-                actor=self.actor,
-            )
+        if current is not None and current.state != ledger.PROPOSED:
+            raise cc.AuthorizationError("operação já iniciada no ledger; sem reenvio")
+        if current is not None:
+            try:
+                self.db.authorize(
+                    self.mission_id,
+                    authorization_reference=self.authorization_reference,
+                    payload_sha256_value=self.payload_hash,
+                    actor=self.actor,
+                )
+            except ledger.InvalidTransition as exc:
+                # Corrida entre processos: apenas um vence a transição.
+                raise cc.AuthorizationError(
+                    "operação já iniciada no ledger; sem reenvio") from exc
         return self.load() or record
 
     def load(self) -> Optional[pilot.PilotOperationRecord]:
@@ -150,7 +258,20 @@ class LedgerOperationStore:
         handler = transitions.get(state)
         if handler is None:
             raise cc.ContractError(f"transição de ledger desconhecida: {state}")
+        current = self.db.get(self.mission_id)
+        if state == ledger.COMPLETED and current and current.state == ledger.DISPATCHING:
+            # Reconciliação sintética com evidência positiva: o relatório
+            # confirmado percorre as transições canônicas do ledger.
+            self.db.mark_delivered(self.mission_id, evidence=text, actor=self.actor)
+            self.db.mark_running(self.mission_id, evidence=text, actor=self.actor)
+        if state == ledger.FAILED and current and current.state == ledger.DISPATCHING:
+            self.db.mark_unknown(self.mission_id, evidence=text, actor=self.actor)
+            self.db.reconcile(
+                self.mission_id, target=ledger.RUNNING, evidence=text,
+                authority_reference=self.authorization_reference, actor=self.actor,
+            )
         handler(self.mission_id, evidence=text, actor=self.actor)
+        self._write_cache()
         return self.load()
 
     def _reservation_view(self) -> dict[str, Any]:
@@ -166,6 +287,8 @@ class LedgerOperationStore:
     def reserve(self) -> Iterator[dict[str, Any]]:
         fields = self._target_fields()
         self.db.reserve_dispatch(self.mission_id, actor=self.actor, **fields)
+        self._evidence["reservation"] = self._reservation_view()
+        self._write_cache()
         # A mesma visão é devolvida por read_reservation(): o transporte
         # compara as duas imediatamente antes do POST.
         yield self._reservation_view()

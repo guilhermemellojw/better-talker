@@ -43,6 +43,7 @@ def build_store(directory: str, *, mission_id: str = "MISS-P14A-1",
     store = adapter.LedgerOperationStore(
         db, mission_id=mission_id, operation_id=operation_id,
         authorization_reference=AUTH, payload={"text": "p14a"}, target=tgt,
+        synthetic_authorization=adapter.synthetic_fixture_authorization(AUTH),
     )
     store.create(record(mission_id, operation_id, tgt))
     return db, store, tgt
@@ -70,6 +71,7 @@ class P14AIntegrationTests(unittest.TestCase):
             second = adapter.LedgerOperationStore(
                 db2, mission_id="MISS-P14A-2", operation_id="OP-P14A-2",
                 authorization_reference=AUTH, payload={"text": "p14a-2"}, target=target(),
+                synthetic_authorization=adapter.synthetic_fixture_authorization(AUTH),
             )
             second.create(record("MISS-P14A-2", "OP-P14A-2", target()))
             with first.reserve():
@@ -85,6 +87,7 @@ class P14AIntegrationTests(unittest.TestCase):
             second = adapter.LedgerOperationStore(
                 db2, mission_id="MISS-B", operation_id="OP-B",
                 authorization_reference=AUTH, payload={"text": "b"}, target=target(),
+                synthetic_authorization=adapter.synthetic_fixture_authorization(AUTH),
             )
             second.create(record("MISS-B", "OP-B", target()))
             with first.reserve():

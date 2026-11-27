@@ -32,7 +32,9 @@ def integrated(directory: str, *, client=None, mission=None):
         authorization_reference=mission.authorization_reference, payload=mission.payload,
         target=fx.TARGET, clock=lambda: fx.NOW,
         authorization_canonical=pilot_authorization.canonical(),
-        mission_snapshot=pilot.PilotExecutor._snapshot(mission))
+        mission_snapshot=pilot.PilotExecutor._snapshot(mission),
+        synthetic_authorization=adapter.synthetic_fixture_authorization(
+            mission.authorization_reference))
     executor = pilot.PilotExecutor(
         transport, store, fx.approval(), endpoint=pilot.DEFAULT_ENDPOINT,
         allow_real=False, clock=lambda: fx.NOW)

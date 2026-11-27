@@ -23,6 +23,9 @@ sys.path.insert(0, HERE)
 
 import coord_checkpoint as coord_checkpoint
 import coord_communication as cc
+import coord_ledger as ledger
+import coord_model_policy as model_policy
+import coord_p14_adapter as adapter
 import coord_pilot as pilot
 
 # Fonte única do endpoint: o mesmo módulo que valida e vincula a operação.
@@ -187,7 +190,30 @@ def _fixture_context(*, store_dir: str, endpoint: Optional[str] = None,
     transport = pilot.OpenCodeTransport(
         client, expected_instance_id=client.instance, registered_targets=(auth.target,),
         pilot_authorization=auth, allow_write=True, clock=lambda: NOW, mode="fixture")
-    store = pilot.PilotOperationStore(store_dir)
+    # P14A.3: a CLI não usa mais PilotOperationStore como autoridade. O ledger
+    # #70 é a única fonte operacional; JSON é apenas cache de evidências.
+    db = ledger.Ledger(
+        os.path.join(store_dir, "ledger.db"),
+        project_id=mission.project_id, repository_id=mission.repository_id,
+    )
+    synthetic = adapter.SyntheticAuthorization(
+        approval_reference=mission.authorization_reference,
+        authorization_digest=hashlib.sha256(cc.canonical_json({
+            "mission_id": mission.mission_id,
+            "authorization_id": auth.authorization_id,
+            "reference": mission.authorization_reference,
+        }).encode("utf-8")).hexdigest(),
+        consumer_id="cli-fixture-executor",
+        environment="FIXTURE",
+    )
+    store = adapter.LedgerOperationStore(
+        db, mission_id=mission.mission_id, operation_id=mission.operation_id,
+        authorization_reference=mission.authorization_reference, payload=mission.payload,
+        target=auth.target, clock=lambda: NOW,
+        authorization_canonical=auth.canonical(),
+        mission_snapshot=pilot.PilotExecutor._snapshot(mission),
+        synthetic_authorization=synthetic, cache_dir=store_dir,
+    )
     manifest = pilot.build_runtime_manifest(mission, auth, prompt_sha256, endpoint)
     approval = pilot.PilotApproval("APPROVAL-FIXTURE-001", "operador-fixture", "human",
                                    "FIXTURE", manifest)
@@ -896,6 +922,30 @@ def apply_catalog_evidence(observed: dict[str, Any], path: Optional[str]) -> Non
             "source": "model-catalog"}
 
 
+def fixture_model_policy_evidence() -> dict[str, Any]:
+    """Confirma a decisão #71 no caminho sintético, sem duplicar o motor."""
+    observed = cc.iso(NOW)
+    inventory = {
+        "source": "fixture-policy", "observed_at": observed,
+        "models": [{
+            "provider_id": "opencode", "id": "hy4-flash-free", "variant": "default",
+            "context_window_tokens": 1_000_000, "tools": True,
+            "modalities": ["text"], "capabilities": ["reasoning"],
+            "cost": {"category": "free", "source": "fixture", "observed_at": observed},
+        }],
+    }
+    mission_value = {
+        "mission_id": "MISS-COORD04-PILOT-001", "state": "PLANNED",
+        "scope": "piloto de comunicação experimental", "requirements": {},
+    }
+    availability = [{
+        "provider_id": "opencode", "model_id": "hy4-flash-free", "variant": "default",
+        "status": "available", "observed_at": observed, "source": "fixture",
+    }]
+    result = adapter.select_with_policy(inventory, mission_value, None, availability, (), NOW)
+    return adapter.model_evidence(result)
+
+
 def external_approval_binding(proposal: dict[str, Any], *, approver_id: str,
                               reference: str) -> dict[str, Any]:
     """Vincula aprovação externa ao digest da proposta, sem alterar seu material."""
@@ -1076,7 +1126,9 @@ def _prepare_real(observed: dict[str, Any], *, session: Optional[dict[str, Any]]
 def run(argv: list[str]) -> dict[str, Any]:
     """Executa uma operação de controle; nunca faz POST real."""
     command, options = _parse(argv)
-    store = pilot.PilotOperationStore(options["store_dir"])
+    # Nenhuma autoridade JSON é criada pela CLI. Comandos que leem estado
+    # usam o ledger via adaptador; os demais nunca criam store.
+    store = None
     mode = "real" if options["real"] else "fixture"
     source = "real" if options["real"] else "fixture"
     needs_session = options["real"] or command in ("permission-probe-plan", "rebind-check")
@@ -1269,6 +1321,9 @@ def run(argv: list[str]) -> dict[str, Any]:
                 "endpoint_bound": endpoint_state,
                 "reason": "P3B.0 não autoriza POST real; decisão separada do mantenedor"}
 
+    if command in {"reconcile", "closeout"}:
+        store = _fixture_context(store_dir=options["store_dir"])["store"]
+
     if command == "reconcile":
         record = store.load()
         if record is None:
@@ -1306,7 +1361,8 @@ def run(argv: list[str]) -> dict[str, Any]:
                 "service_contacted": False, "read_only": True, "real_calls": 0,
                 "fallback": "none", "execute": execute, "reconcile": reconcile,
                 "http_posts": len(posts), "final_state": context["store"].load().state,
-                "registered": len(context["store"].load().history)}
+                "registered": len(context["store"].load().history),
+                "model_policy": fixture_model_policy_evidence()}
     raise ValueError(f"comando não suportado: {command}")
 
 

@@ -379,9 +379,10 @@ class F6CliTests(unittest.TestCase):
                 tuple(TARGET.key()), pilot.sha256_text(PROMPT), "DISPATCHING",
                 cc.iso(NOW), cc.iso(NOW)))
             out = coord_pilot_cli.run(["--store-dir", td, "reconcile"])
+            # P14A.3: JSON não é autoridade; sem ledger não há registroalgumas
+            # e nenhuma evidência de fixture é aplicada.
             self.assertFalse(out["changed"])
-            self.assertEqual(out["state"], "DISPATCHING")
-            self.assertIn("não-fixture", out["reason"])
+            self.assertIsNone(out["state"])
 
 
 if __name__ == "__main__":
