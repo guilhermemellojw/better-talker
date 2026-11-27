@@ -6,6 +6,11 @@ transporte real, POST, LLM ou Android foi executado.
 
 **Base:** `main` no merge do PR #83, `cc7b452253d0e6a8039e36c32e4276fd14937e80`;
 cabeça P3 certificada por B: `fa89ebb23cf13cca86d6c475d2771e7891cd4844`.
+**Adendo P4.1:** a entrada de dispatch foi consolidada em
+`.github/workflows/coord-python.yml` (job `crossuid`, inputs `crossuid_full` e
+`certified_sha`); o workflow dedicado `.github/workflows/coord-trust-crossuid.yml`
+foi removido. Ver
+`docs/reports/2026-11-27-coord-trust-crossuid-p41-dispatch-entrypoint.md`.
 **Branch:** `feat/coord-trust-crossuid-cert`.
 **HEAD do código:** `93a2e637f8dc1567827b5f0301f19e6cd602c055`.
 **HEAD final do PR:** publicado no corpo/comentário do PR.
@@ -14,7 +19,7 @@ cabeça P3 certificada por B: `fa89ebb23cf13cca86d6c475d2771e7891cd4844`.
 
 | Arquivo | Papel |
 |---|---|
-| `.github/workflows/coord-trust-crossuid.yml` | job opt-in `workflow_dispatch`, 10 min, `contents: read`, runner hospedado, `unshare -n` |
+| `.github/workflows/coord-python.yml` | job `crossuid` opt-in no P4.1 (`workflow_dispatch`, 10 min, `contents: read`, runner hospedado, `unshare -n`) |
 | `.opencode/scripts/coord_trust_crossuid_harness.py` | orquestração root descartável, UIDs numéricos, layout, crash/restart, avaliação G1–G9 e resumo sanitizado |
 | `.opencode/scripts/coord_trust_crossuid_client.py` | cliente executado como consumidor; jornada, SCM_RIGHTS, GID, saturação, frames, sandbox e recuperação |
 | `.opencode/scripts/coord_trust_crossuid_common.py` | fixtures sintéticas, job do cliente sem material privado, layout/config, assinatura dinâmica da atestação |
@@ -69,16 +74,21 @@ em quarentena indevidamente. A suíte P3 continua 40/40.
 
 ## 4. Workflow e execução prevista
 
-- Gatilho único: `workflow_dispatch` com `crossuid_full` booleano; **não**
-  executa em `push`/`pull_request`.
+- Entrada única no P4.1: `.github/workflows/coord-python.yml`, job `crossuid`.
+- Gatilho manual: `workflow_dispatch` com `crossuid_full=true` e
+  `certified_sha=<40-hex>`; **não** executa em `push`/`pull_request` e a suíte
+  ordinária é omitida no dispatch cross-UID.
+- Checkout exato do `certified_sha`, `persist-credentials: false`, guarda
+  `git rev-parse HEAD == certified_sha`.
 - Permissões: `contents: read`; nenhum secret.
 - `runs-on: ubuntu-latest`; `timeout-minutes: 10`; deadline interno 480 s.
 - Comando previsto no runbook §7; nada foi disparado nesta rodada.
 - Artefatos: `summary.json.sanitized`, `crossuid.log.sanitized`,
   `service-logs.log.sanitized`; paths, chaves e credenciais são removidos.
 - Critérios de interrupção: qualquer gate falho, timeout, ausência de
-  `sudo -n`/`setpriv`/`unshare`/`ssh-keygen`, UID colidindo, usuário criado,
-  rede acessível, transporte habilitado ou logs não sanitizados.
+  `sudo -n`/`setpriv`/`unshare`/`ssh-keygen`, SHA certificado ausente/divergente,
+  UID colidindo, usuário criado, rede acessível, transporte habilitado ou logs
+  não sanitizados.
 
 ## 5. Validação local desta rodada
 
@@ -90,8 +100,8 @@ em quarentena indevidamente. A suíte P3 continua 40/40.
 | `test_supervisor.py` | **167/167 passed** | `92f3f934f682b8c48a854d41c2f6fd30b5173d7a7ff70987edeed1b18e8e79c4` |
 | Total | **721** | — |
 
-Também passaram: `py_compile` dos scripts novos/alterados, parser YAML dos dois
-workflows, `git diff --check`, jornada local same-UID com socket real, crash
+Também passaram: `py_compile` dos scripts novos/alterados, parser YAML do
+workflow consolidado, `git diff --check`, jornada local same-UID com socket real, crash
 local nos quatro limites e rollback/recuperação local. O teste **cross-UID real
 do serviço continua BLOCKED neste host** (sem privilégio para criar/menorizar
 UID); o harness não foi executado como root e o workflow não foi disparado.
@@ -128,9 +138,11 @@ UID); o harness não foi executado como root e o workflow não foi disparado.
 
 ## 8. Próximo passo
 
-1. B certifica o HEAD final, o workflow opt-in, as permissões, o timeout, os UIDs
-   e os critérios de interrupção.
-2. Autorizado o dispatch único, executar o job no SHA exato e publicar os
-   artefatos sanitizados.
+1. B certifica o HEAD final P4.1, o job opt-in em `coord-python.yml`, as
+   permissões, o timeout, o checkout do SHA certificado, os UIDs e os critérios
+   de interrupção.
+2. Autorizado o dispatch único, executar o job `crossuid` com
+   `crossuid_full=true` e `certified_sha` exato e publicar os artefatos
+   sanitizados.
 3. Somente após G1–G9 verdes, avaliar piloto separado; sem merge/deploy/
    transporte real nesta rodada.

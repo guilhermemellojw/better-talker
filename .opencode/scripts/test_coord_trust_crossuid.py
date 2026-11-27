@@ -57,20 +57,50 @@ def _restore_db(source: str, target: str) -> None:
 
 class CrossUidHarnessTest(unittest.TestCase):
     def test_workflow_is_opt_in_bounded_and_secretless(self):
-        path = ROOT / ".github/workflows/coord-trust-crossuid.yml"
+        path = ROOT / ".github/workflows/coord-python.yml"
         raw = path.read_text(encoding="utf-8")
         document = yaml.safe_load(raw)
         triggers = document.get("on") or document.get(True)
-        self.assertEqual({"workflow_dispatch"}, set(triggers))
-        workflow_dispatch = triggers["workflow_dispatch"]
-        self.assertIn("crossuid_full", workflow_dispatch["inputs"])
-        self.assertNotIn("push", triggers)
-        self.assertNotIn("pull_request", triggers)
+        self.assertEqual({"push", "pull_request", "workflow_dispatch"}, set(triggers))
+        dispatch = triggers["workflow_dispatch"]["inputs"]
+        self.assertEqual(True, dispatch["crossuid_full"]["required"])
+        self.assertEqual(False, dispatch["crossuid_full"]["default"])
+        self.assertEqual("boolean", dispatch["crossuid_full"]["type"])
+        self.assertEqual("", dispatch["certified_sha"]["default"])
+        self.assertEqual("string", dispatch["certified_sha"]["type"])
+        self.assertNotIn("coord-trust-crossuid.yml", raw)
+        self.assertFalse(
+            (ROOT / ".github/workflows/coord-trust-crossuid.yml").exists())
         self.assertEqual({"contents": "read"}, document["permissions"])
         self.assertNotIn("secrets.", raw)
-        job = document["jobs"]["crossuid"]
-        self.assertEqual("${{ inputs.crossuid_full }}", job["if"])
+        jobs = document["jobs"]
+        self.assertEqual({"coord-python", "crossuid"}, set(jobs))
+        ordinary = jobs["coord-python"]
+        self.assertIn("github.event_name != 'workflow_dispatch'", ordinary["if"])
+        self.assertIn("inputs.crossuid_full == false", ordinary["if"])
+        ordinary_checkout = next(
+            step for step in ordinary["steps"]
+            if step.get("uses") == "actions/checkout@v4")
+        self.assertEqual(False, ordinary_checkout["with"]["persist-credentials"])
+        job = jobs["crossuid"]
+        self.assertEqual(
+            "${{ github.event_name == 'workflow_dispatch' && "
+            "inputs.crossuid_full == true }}", job["if"])
         self.assertEqual(10, job["timeout-minutes"])
+        self.assertEqual("coord-trust-crossuid", job["concurrency"]["group"])
+        checkout = next(
+            step for step in job["steps"]
+            if step.get("uses") == "actions/checkout@v4")
+        self.assertEqual(False, checkout["with"]["persist-credentials"])
+        self.assertEqual("${{ inputs.certified_sha }}", checkout["with"]["ref"])
+        names = [step.get("name", "") for step in job["steps"]]
+        self.assertIn("Validar SHA certificado informado", names)
+        self.assertIn("Verificar SHA certificado após checkout", names)
+        guard = next(
+            step for step in job["steps"]
+            if step.get("name") == "Verificar SHA certificado após checkout")
+        self.assertIn("rev-parse HEAD", guard["run"])
+        self.assertIn("CERTIFIED-SHA-DIVERGENT", guard["run"])
         self.assertIn(".opencode/scripts/coord_trust_crossuid_harness.py", raw)
         self.assertIn("sudo -n unshare -n", raw)
         self.assertIn("actions/upload-artifact@v4", raw)

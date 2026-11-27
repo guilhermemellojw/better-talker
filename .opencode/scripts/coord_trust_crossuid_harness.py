@@ -1256,7 +1256,7 @@ class Harness:
             "generated_at": common.iso(datetime.now(timezone.utc)),
             "repo_head": self._repo_head(),
             "base": "main cc7b4522 (#83 fa89ebb2)",
-            "workflow": ".github/workflows/coord-trust-crossuid.yml",
+            "workflow": ".github/workflows/coord-python.yml",
             "root_execution": True,
             "network_namespace": "external unshare -n (harness)",
             "service_uid": common.SERVICE_UID,

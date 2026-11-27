@@ -140,9 +140,11 @@ Evidência local (`unshare -rn`):
 | `test_supervisor.py` | **167/167 passed** |
 | Total | **721/721** |
 
-A certificação cross-UID real é um job **opt-in** em
-`.github/workflows/coord-trust-crossuid.yml` (`workflow_dispatch`, input
-`crossuid_full=true`, timeout de 10 min). O harness
+A certificação cross-UID real é um job **opt-in** no workflow
+`.github/workflows/coord-python.yml` (`workflow_dispatch`, inputs
+`crossuid_full=true` e `certified_sha=<40-hex>`, timeout de 10 min). O job faz
+checkout exato do SHA certificado, sem credenciais persistidas; a suíte
+ordinária é omitida quando `crossuid_full=true`. O harness
 `.opencode/scripts/coord_trust_crossuid_harness.py` cobre G1–G9 em runner
 descartável, com dois UIDs numéricos efêmeros, sem criar usuários. Ele **não foi
 disparado** nesta rodada e não substitui a autorização/janela do mantenedor.

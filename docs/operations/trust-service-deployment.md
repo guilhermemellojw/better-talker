@@ -187,10 +187,14 @@ trust store, chave privada ou âncora.
 segundo UID sem privilégio; usuários reais não foram criados. O teste com dois
 UIDs reais só roda em runner/VM descartável.
 
-A certificação P4 é um job **exclusivamente opt-in** em
-`.github/workflows/coord-trust-crossuid.yml`:
+A certificação P4 é um job **exclusivamente opt-in** no workflow
+`.github/workflows/coord-python.yml`:
 
-- gatilho único `workflow_dispatch` com input booleano `crossuid_full=true`;
+- `workflow_dispatch` com input booleano `crossuid_full=true` e
+  `certified_sha=<40-hex>`; o job só roda com `crossuid_full=true`;
+- a suíte ordinária `coord-python` é omitida quando `crossuid_full=true`;
+- checkout exato de `certified_sha`, com `persist-credentials: false`, e guarda
+  `git rev-parse HEAD == certified_sha`;
 - `permissions: contents: read`, sem secrets de produção;
 - `runs-on: ubuntu-latest`, `timeout-minutes: 10`;
 - o harness roda como root **apenas** para preparar arquivos, spawnar UIDs
@@ -271,7 +275,7 @@ Critérios de interrupção/falha fechada:
 
 O probe `coord_trust_cross_uid_probe.py` continua sendo apenas a prova de
 kernel `SCM_CREDENTIALS` cross-UID; ele **não** substitui os gates acima. O
-workflow P4 não deve ser disparado até a certificação independente do SHA e
+job cross-UID não deve ser disparado até a certificação independente do SHA e
 dos limites pelo mantenedor/B; esta rodada apenas publica o Draft.
 
 ## 8. Critérios de aceite da implantação
