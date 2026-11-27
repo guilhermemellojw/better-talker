@@ -1,0 +1,53 @@
+{
+  "schema": "BT-COORD-CONSUMER-REGISTRY-V1",
+  "consumers": [
+    {
+      "consumer_id": "executor",
+      "uid": 9002,
+      "exe_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "allowed_actions": [
+        "reserve",
+        "assert",
+        "record_evidence",
+        "reconcile",
+        "interrupt",
+        "status"
+      ],
+      "agent_id": "agent-a",
+      "role": "executor"
+    },
+    {
+      "consumer_id": "observer",
+      "uid": 9003,
+      "exe_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "allowed_actions": [
+        "status"
+      ],
+      "agent_id": null,
+      "role": "observer"
+    },
+    {
+      "consumer_id": "coordinator",
+      "uid": 9004,
+      "exe_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "allowed_actions": [
+        "propose",
+        "authorize",
+        "status"
+      ],
+      "agent_id": null,
+      "role": "coordinator"
+    },
+    {
+      "consumer_id": "maintainer",
+      "uid": 9005,
+      "exe_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "allowed_actions": [
+        "revoke",
+        "status"
+      ],
+      "agent_id": null,
+      "role": "maintainer"
+    }
+  ]
+}

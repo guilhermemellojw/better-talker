@@ -1,0 +1,40 @@
+[Unit]
+Description=Better Talker coord trust boundary service (synthetic foundation)
+Documentation=file:/opt/better-talker/.opencode/TRUST-SERVICE.md
+After=local-fs.target
+RequiresMountsFor=/var/lib/better-talker-coord /run/better-talker-coord
+
+[Service]
+Type=simple
+User=bt-coord-trust
+Group=bt-coord-trust
+ExecStart=/usr/bin/python3 /opt/better-talker/.opencode/scripts/coord_trust_service_cli.py --config /etc/better-talker/trust-service.json
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+RuntimeDirectory=better-talker-coord
+RuntimeDirectoryMode=0750
+StateDirectory=better-talker-coord
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/better-talker-coord /run/better-talker-coord
+# A configuração e a chave pública do trust store são somente leitura.
+ReadOnlyPaths=/etc/better-talker/trust-service.json
+
+[Install]
+WantedBy=multi-user.target

@@ -11,6 +11,7 @@ on:
       - '.opencode/scripts/**'
       - '.opencode/agents/**'
       - '.opencode/*.md'
+      - '.opencode/deploy/**'
       - 'docs/**'
       - '.github/workflows/coord-python.yml'
       - '.github/requirements-ci.txt'
@@ -19,6 +20,7 @@ on:
       - '.opencode/scripts/**'
       - '.opencode/agents/**'
       - '.opencode/*.md'
+      - '.opencode/deploy/**'
       - 'docs/**'
       - '.github/workflows/coord-python.yml'
       - '.github/requirements-ci.txt'
@@ -86,7 +88,7 @@ jobs:
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_network_probe.py" --mode guard
 
-      - name: unittest discover dentro do namespace (baseline 506)
+      - name: unittest discover dentro do namespace (baseline 526)
         run: |
           set -euo pipefail
           COORD_HOME="$RUNNER_TEMP/coord-home"
@@ -101,7 +103,23 @@ jobs:
               "$GITHUB_WORKSPACE/.opencode/scripts" 2>&1 | tee "$COORD_LOGS/discover.log"
           count=$(grep -Eo 'Ran [0-9]+ tests' "$COORD_LOGS/discover.log" | awk '{print $2}')
           echo "DISCOVER_TESTS=$count"
-          [ "$count" = "506" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }
+          [ "$count" = "526" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }
+
+      - name: Serviço de fronteira de confiança (baseline 20)
+        run: |
+          set -euo pipefail
+          COORD_HOME="$RUNNER_TEMP/coord-home"
+          COORD_TMP="$RUNNER_TEMP/coord-tmp"
+          COORD_STATE="$RUNNER_TEMP/coord-state"
+          COORD_LOGS="$RUNNER_TEMP/coord-logs"
+          sudo -n unshare -n -- /usr/bin/setpriv --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+            /usr/bin/env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+            XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
+            PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard:$GITHUB_WORKSPACE/.opencode/scripts" \
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/test_coord_trust_service.py" 2>&1 | tee "$COORD_LOGS/trust-service.log"
+          count=$(grep -Eo 'Ran [0-9]+ tests' "$COORD_LOGS/trust-service.log" | awk '{print $2}')
+          echo "TRUST_SERVICE_TESTS=$count"
+          [ "$count" = "20" ] || { echo "BASELINE-TRUST-SERVICE-DIVERGENT"; exit 1; }
 
       - name: Provar detecção de regressão intencional dentro do namespace
         run: |
@@ -147,9 +165,9 @@ jobs:
           count=$(grep -Eo '[0-9]+ passed, 0 failed' "$COORD_LOGS/supervisor.log" | awk '{print $1}')
           echo "SUPERVISOR_TESTS=$count"
           [ "$count" = "167" ] || { echo "BASELINE-SUPERVISOR-DIVERGENT"; exit 1; }
-          total=$((count + 506))
+          total=$((count + 526))
           echo "TOTAL_TESTS=$total"
-          [ "$total" = "673" ] || { echo "BASELINE-TOTAL-DIVERGENT"; exit 1; }
+          [ "$total" = "693" ] || { echo "BASELINE-TOTAL-DIVERGENT"; exit 1; }
 
       - name: Sanitizar logs e publicar resultado
         if: always()
@@ -160,7 +178,7 @@ jobs:
           import os
           import sys
           runner_temp, workspace, logs = sys.argv[1:4]
-          for name in ("discover.log", "supervisor.log", "regression-probe.log"):
+          for name in ("discover.log", "supervisor.log", "trust-service.log", "regression-probe.log"):
               path = os.path.join(logs, name)
               if not os.path.isfile(path):
                   continue
@@ -172,7 +190,7 @@ jobs:
                   handle.write(text)
           print("LOGS-SANITIZED")
           PY
-          echo "RESULTADO: discover=506 supervisor=167 total=673 (namespace sem rede; guard adicional)"
+          echo "RESULTADO: discover=526 supervisor=167 total=693 (namespace sem rede; guard adicional)"
 
       - name: Publicar logs sanitizados
         if: always()
