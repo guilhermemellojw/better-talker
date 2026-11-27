@@ -30,9 +30,19 @@ from coord_ledger import (
     SCHEMA_VERSION,
     UnsafeReconciliation,
     UNKNOWN,
+    Ledger as _Ledger,
     iso,
     payload_sha256,
 )
+
+
+class Ledger(_Ledger):
+    """Fixture legada: opt-in explícito exigido pela política 1.1."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("policy", {"allow_legacy_dispatch": True})
+        super().__init__(*args, **kwargs)
+
 
 PROJECT = "better-talker"
 REPO = "guilhermemellojw/better-talker"
