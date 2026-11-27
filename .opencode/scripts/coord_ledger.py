@@ -585,6 +585,34 @@ class Ledger:
         assert record is not None
         return record
 
+    def append_evidence(
+        self,
+        mission_id: str,
+        *,
+        evidence: str,
+        actor: str = "p14a",
+    ) -> MissionRecord:
+        """Persiste evidência na transição atual SEM mudar estado nem schema.
+
+        P14A.4: o despacho precisa sobreviver a interrupção/reinício sem depender
+        de `evidence-cache.json`. Uma transição de mesmo estado é apenas um
+        registro adicional na tabela já existente; nenhuma coluna é criada.
+        """
+        if not evidence.strip():
+            raise UnsafeReconciliation("evidência obrigatória")
+        with self._write() as conn:
+            row = conn.execute(
+                "SELECT * FROM missions WHERE mission_id=?", (mission_id,)
+            ).fetchone()
+            if row is None:
+                raise LedgerError("missão inexistente")
+            self._assert_scope(row)
+            now = iso(utc_now())
+            self._append(conn, mission_id, row["state"], row["state"], evidence, actor, now)
+        record = self.get(mission_id)
+        assert record is not None
+        return record
+
     def authorize(
         self,
         mission_id: str,
