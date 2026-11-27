@@ -17,4 +17,10 @@ def _denied(*args, **kwargs):
 
 
 socket.socket.connect = _denied  # type: ignore[assignment]
+socket.socket.sendto = _denied  # type: ignore[assignment]
+if hasattr(socket.socket, "sendmsg"):
+    socket.socket.sendmsg = _denied  # type: ignore[assignment]
 socket.create_connection = _denied  # type: ignore[assignment]
+socket.getaddrinfo = _denied  # type: ignore[assignment]
+if hasattr(socket, "gethostbyname"):
+    socket.gethostbyname = _denied  # type: ignore[assignment]

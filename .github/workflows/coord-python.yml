@@ -1,18 +1,27 @@
 name: Coordenação — suíte Python host-only
 
 # Certificação automatizada dos componentes Python da coordenação.
-# Nenhum segredo, token, `gh`, push, serviço real, sessão OpenCode, LLM,
-# Gradle, Android, ADB ou transporte é utilizado. A rede é bloqueada antes
-# de qualquer teste e o bloqueio é verificado no próprio job.
+# A preparação de dependências é online e separada; as duas suítes executam
+# dentro de um network namespace sem rede, com o guard Python como defesa
+# adicional. Nenhum segredo, token, `gh`, push, serviço real, sessão OpenCode,
+# LLM, Gradle, Android, ADB ou transporte é utilizado.
 on:
   push:
     paths:
       - '.opencode/scripts/**'
+      - '.opencode/agents/**'
+      - '.opencode/*.md'
+      - 'docs/**'
       - '.github/workflows/coord-python.yml'
+      - '.github/requirements-ci.txt'
   pull_request:
     paths:
       - '.opencode/scripts/**'
+      - '.opencode/agents/**'
+      - '.opencode/*.md'
+      - 'docs/**'
       - '.github/workflows/coord-python.yml'
+      - '.github/requirements-ci.txt'
   workflow_dispatch:
 
 permissions:
@@ -31,13 +40,17 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Instalar dependência de teste (PyYAML)
+      - name: Preparar dependências online (fora do namespace)
         run: |
           set -euo pipefail
-          python3 -m pip install --no-cache-dir 'PyYAML==6.0.2'
+          python3 -m pip install --no-cache-dir --disable-pip-version-check \
+            --require-hashes --only-binary=:all: \
+            -r .github/requirements-ci.txt
           python3 -c 'import yaml; print("PY-YAML-READY", yaml.__version__)'
 
       - name: Preparar caminhos experimentais esperados
+        # O runner é efêmero e passwordless sudo é usado apenas para criar
+        # symlinks em caminhos canônicos fixos e entrar no network namespace.
         run: |
           set -euo pipefail
           sudo -n mkdir -p /home/guilherme/Documentos
@@ -54,51 +67,32 @@ jobs:
           COORD_STATE="$RUNNER_TEMP/coord-state"
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
           mkdir -p "$COORD_HOME" "$COORD_TMP" "$COORD_STATE" "$COORD_LOGS"
-          # Os testes usam um diretório canônico fixo e um worktree sintético;
-          # no runner ambos apontam para o checkout efêmero, sem tocar no repo.
-          sudo -n mkdir -p /home/guilherme/Documentos /repo
-          sudo -n ln -sfn "$GITHUB_WORKSPACE" /home/guilherme/Documentos/better-talker
+          sudo -n mkdir -p /repo
           sudo -n ln -sfn "$GITHUB_WORKSPACE" /repo/wt
-          sudo -n ln -sfn "$GITHUB_WORKSPACE" \
-            /home/guilherme/Documentos/better-talker-coord-supervisor-shadow
           echo "ISOLATION-READY"
 
-      - name: Provar bloqueio de rede
+      - name: Provar TCP/UDP/DNS/subprocesso no namespace sem rede
         run: |
           set -euo pipefail
-          sudo -n unshare -rn env -i PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C python3 - <<'PY'
-          import socket
-          try:
-              socket.create_connection(("1.1.1.1", 443), timeout=3)
-          except OSError as exc:
-              print(f"NETWORK-BLOCKED {type(exc).__name__}")
-          else:
-              raise SystemExit("FALHA: rede disponível durante a suíte")
-          PY
+          sudo -n unshare -rn env -i \
+            PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_network_probe.py" --mode os
 
-      - name: Provar guarda de rede aplicada aos testes
+      - name: Provar guarda Python como defesa adicional
         run: |
           set -euo pipefail
           env -i PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
-            python3 - <<'PY'
-          import socket
-          try:
-              socket.create_connection(("1.1.1.1", 443), timeout=3)
-          except OSError as exc:
-              print(f"NETWORK-GUARD-ACTIVE {type(exc).__name__}")
-          else:
-              raise SystemExit("FALHA: guarda de rede não bloqueou conexão")
-          PY
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_network_probe.py" --mode guard
 
-      - name: unittest discover (baseline 378)
+      - name: unittest discover dentro do namespace (baseline 378)
         run: |
           set -euo pipefail
           COORD_HOME="$RUNNER_TEMP/coord-home"
           COORD_TMP="$RUNNER_TEMP/coord-tmp"
           COORD_STATE="$RUNNER_TEMP/coord-state"
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
-          env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+          sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_discover.py" \
@@ -107,7 +101,7 @@ jobs:
           echo "DISCOVER_TESTS=$count"
           [ "$count" = "378" ] || { echo "BASELINE-DISCOVER-DIVERGENT"; exit 1; }
 
-      - name: Provar detecção de regressão intencional
+      - name: Provar detecção de regressão intencional dentro do namespace
         run: |
           set -euo pipefail
           COORD_HOME="$RUNNER_TEMP/coord-home"
@@ -123,7 +117,7 @@ jobs:
             '        self.assertTrue(False, "REGRESSAO-INTENCIONAL-DETECTADA")' \
             > "$PROBE/test_intencional.py"
           set +e
-          env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+          sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
             PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard" \
             python3 "$GITHUB_WORKSPACE/.opencode/scripts/ci_discover.py" "$PROBE" \
@@ -134,7 +128,7 @@ jobs:
           grep -q "REGRESSAO-INTENCIONAL-DETECTADA" "$COORD_LOGS/regression-probe.log"
           echo "REGRESSION-DETECTION-OK rc=$rc"
 
-      - name: Suíte do supervisor (baseline 167)
+      - name: Suíte do supervisor dentro do namespace (baseline 167)
         if: always()
         run: |
           set -euo pipefail
@@ -142,11 +136,10 @@ jobs:
           COORD_TMP="$RUNNER_TEMP/coord-tmp"
           COORD_STATE="$RUNNER_TEMP/coord-state"
           COORD_LOGS="$RUNNER_TEMP/coord-logs"
-          cd "$GITHUB_WORKSPACE/.opencode/scripts"
-          env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
+          sudo -n unshare -rn env -i HOME="$COORD_HOME" TMPDIR="$COORD_TMP" \
             XDG_STATE_HOME="$COORD_STATE" PATH="$pythonLocation/bin:/usr/bin:/bin" LANG=C LC_ALL=C \
-            PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard:$PWD" \
-            python3 test_supervisor.py 2>&1 | tee "$COORD_LOGS/supervisor.log"
+            PYTHONPATH="$GITHUB_WORKSPACE/.opencode/scripts/ci_netguard:$GITHUB_WORKSPACE/.opencode/scripts" \
+            python3 "$GITHUB_WORKSPACE/.opencode/scripts/test_supervisor.py" 2>&1 | tee "$COORD_LOGS/supervisor.log"
           count=$(grep -Eo '[0-9]+ passed, 0 failed' "$COORD_LOGS/supervisor.log" | awk '{print $1}')
           echo "SUPERVISOR_TESTS=$count"
           [ "$count" = "167" ] || { echo "BASELINE-SUPERVISOR-DIVERGENT"; exit 1; }
@@ -175,8 +168,7 @@ jobs:
                   handle.write(text)
           print("LOGS-SANITIZED")
           PY
-          echo "RESULTADO: discover=378 supervisor=167 total=545 (somente host-only, rede bloqueada)"
-        # O upload abaixo é o único artefato; nenhum conteúdo de credencial é coletado.
+          echo "RESULTADO: discover=378 supervisor=167 total=545 (namespace sem rede; guard adicional)"
 
       - name: Publicar logs sanitizados
         if: always()
