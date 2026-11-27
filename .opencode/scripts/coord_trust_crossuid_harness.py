@@ -628,7 +628,8 @@ class Harness:
         err = os.fdopen(err_fd, "wb")
         try:
             proc = subprocess.Popen(
-                cmd, env=dict(env), stdout=out, stderr=err,
+                cmd, env=dict(env), cwd=self.runtime_dir,
+                stdout=out, stderr=err,
                 start_new_session=True, close_fds=True)
         finally:
             out.close()
@@ -755,8 +756,9 @@ class Harness:
         started = time.monotonic()
         try:
             proc = subprocess.Popen(
-                cmd, env=dict(env), stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, text=True, start_new_session=True)
+                cmd, env=dict(env), cwd=self.runtime_dir,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                start_new_session=True)
         except OSError as exc:
             return "", type(exc).__name__ + ": " + str(exc), False, -1, 0.0
         self.process_groups.add(proc.pid)
@@ -849,8 +851,8 @@ class Harness:
         try:
             proc = subprocess.Popen(
                 cmd, env=self.client_env(layout.plan, uid),
-                stdout=out, stderr=err, start_new_session=True,
-                close_fds=True)
+                cwd=self.runtime_dir, stdout=out, stderr=err,
+                start_new_session=True, close_fds=True)
         finally:
             out.close()
             err.close()
