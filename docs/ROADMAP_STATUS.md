@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#88 — COORD-OPS/P9 — prontidão operacional isolada e piloto sintético (Draft)](https://github.com/guilhermemellojw/better-talker/pull/88) | Documentação | `60d6cc8aded2` | Pendente |
+| [#88 — COORD-OPS/P9 — prontidão operacional isolada e piloto sintético (Draft)](https://github.com/guilhermemellojw/better-talker/pull/88) | Documentação | `c11dd08ee599` | Pendente |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
@@ -35,8 +35,8 @@
 
 | PR | Frente inferida | Data UTC |
 | --- | --- | --- |
-| [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | 2026-11-28 15:17 |
 | [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | 2026-11-28 15:17 |
+| [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | 2026-11-28 15:17 |
 | [#86 — feat(pedagogy): BETA-PEDAGOGY/P4 — candidato combinado A+C (Draft)](https://github.com/guilhermemellojw/better-talker/pull/86) | Beta e infraestrutura | 2026-11-28 15:17 |
 | [#87 — COORD-TRUST-BOUNDARY/P4 — certificação cross-UID descartável](https://github.com/guilhermemellojw/better-talker/pull/87) | TRUST | 2026-11-28 11:04 |
 | [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | 2026-11-27 21:35 |
