@@ -87,17 +87,17 @@ class OruaryDocumentarySourcesTest {
 
     @Test
     fun F_refsSemTextoRecuperadoNaoViramCorpus() {
-        assertTrue(OratoryGeneration.oruaryDocumentarySources(dossier(), specWithRefs(listOf(ref("Salpo 103:20", null))), "sec-1").isEmpty())
+        assertTrue(OratoryGeneration.oruaryDocumentarySources(dossier(), specWithRefs(listOf(ref("Salmos 103:20", null))), "sec-1").isEmpty())
     }
 
     @Test
     fun D_dossieComRecuperacaoViraDocumentoElegivel() {
         val v = "Louvem a Jeová, todos os seus anjos, fortes e poderosos, que cumprem a sua palavra, obedecendo ao que ele diz."
-        val docs = OratoryGeneration.oruaryDocumentarySources(dossier(bibleTexts = listOf(ResolvedBibleText("Salpo 103:20", v, ReferenceStatus.RESOLVED))), specWithRefs(), "sec-1")
+        val docs = OratoryGeneration.oruaryDocumentarySources(dossier(bibleTexts = listOf(ResolvedBibleText("Salmos 103:20", v, ReferenceStatus.RESOLVED))), specWithRefs(), "sec-1")
         assertEquals(1, docs.size)
         assertEquals(v, docs.single().text)
         assertTrue(docs.single().isDocumentaryEligible())
-        assertTrue(docs.single().sourceId.contains("Salpo 103:20"))
+        assertTrue(docs.single().sourceId.contains("Salmos 103:20"))
     }
 
     @Test
@@ -110,17 +110,17 @@ class OruaryDocumentarySourcesTest {
     @Test
     fun D_refsDoSpecTrazemTextosRecuperadosComRotulo() {
         val t = "Louvem a Jeová, todos os seus anjos, fortes e poderosos, que cumprem a sua palavra, obedecendo ao que ele diz."
-        val docs = OratoryGeneration.oruaryDocumentarySources(dossier(), specWithRefs(listOf(ref("Salpo 103:20", t))), "sec-1")
+        val docs = OratoryGeneration.oruaryDocumentarySources(dossier(), specWithRefs(listOf(ref("Salmos 103:20", t))), "sec-1")
         assertEquals(1, docs.size)
-        assertEquals("Salpo 103:20", docs.single().sourceId)
+        assertEquals("Salmos 103:20", docs.single().sourceId)
         assertEquals(t, docs.single().text)
         assertTrue(docs.single().isDocumentaryEligible())
     }
 
     @Test
     fun E_passagemPartialNaoPromoveACompleta() {
-        val parcial = "[Salpo 103:20] Trecho approximado, recuperação parcial."
-        val docs = OratoryGeneration.oruaryDocumentarySources(dossier(bibleTexts = listOf(ResolvedBibleText("Salpo 103:20", parcial, ReferenceStatus.PARTIAL))), specWithRefs(), "sec-1")
+        val parcial = "[Salmos 103:20] Trecho approximado, recuperação parcial."
+        val docs = OratoryGeneration.oruaryDocumentarySources(dossier(bibleTexts = listOf(ResolvedBibleText("Salmos 103:20", parcial, ReferenceStatus.PARTIAL))), specWithRefs(), "sec-1")
         assertFalse(docs.any { it.text.contains("Trecho approximado") })
         assertTrue(docs.none { it.text.contains("Trecho") })
     }
@@ -133,7 +133,7 @@ class OruaryDocumentarySourcesTest {
             fullContentHtml = "<p>$editor</p>",
             speakerNote = "Nota do orador: falar sobre Jeová.",
             methodPrinciples = listOf("Princípio oratória inventado X."),
-            bibleTexts = listOf(ResolvedBibleText("Salpo 34", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED)),
+            bibleTexts = listOf(ResolvedBibleText("Salmos 34", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED)),
         )
         val corpus = OratoryGeneration.oruaryDocumentarySources(d, specWithRefs(), "sec-1")
         assertTrue(corpus.isNotEmpty())

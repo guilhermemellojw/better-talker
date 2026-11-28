@@ -167,6 +167,12 @@ fun DraftSheet(
                         FidelityLine("Publicações inventadas:", v.inventedPublicationRefs)
                         FidelityLine("Fontes fora do dossiê:", v.usedSourcesOutsideDossier)
                         FidelityLine("Referências não resolvidas:", v.unresolvedRefsCited)
+                        FidelityLine("Citações sem texto local:", v.unsupportedLiteralQuotes)
+                        Text(
+                            "Aceite bloqueado: gere novamente com fontes recuperadas.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
 
                     Spacer(Modifier.height(4.dp))
@@ -213,7 +219,10 @@ fun DraftSheet(
                         if (needsContinue) {
                             TextButton(onClick = onContinue) { Text("Continuar geração") }
                         }
-                        Button(onClick = onAccept) {
+                        Button(
+                            onClick = onAccept,
+                            enabled = com.bettertalker.app.domain.planning.draftAcceptAllowed(v),
+                        ) {
                             Text(draftAcceptLabel(needsContinue))
                         }
                     }
