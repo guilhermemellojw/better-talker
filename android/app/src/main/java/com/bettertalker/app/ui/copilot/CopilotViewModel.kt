@@ -160,7 +160,9 @@ import com.bettertalker.app.data.edit.validateEditProposal
 import com.bettertalker.app.data.llm.GroundednessVerifier
 import com.bettertalker.app.data.llm.LlmAction
 import com.bettertalker.app.data.llm.LlmRequest
+import com.bettertalker.app.data.llm.DefaultProviderSource
 import com.bettertalker.app.data.llm.ProviderFactory
+import com.bettertalker.app.data.llm.ProviderSource
 import com.bettertalker.app.data.llm.ProviderError
 import com.bettertalker.app.data.llm.ResponseFormat
 import com.bettertalker.app.data.llm.DeepSeekProvider
@@ -1092,6 +1094,8 @@ class CopilotViewModel(
     private val db: AppDatabase,
     private val noteId: String? = null,
     private val voiceEngine: com.bettertalker.app.data.voice.VoiceEngine? = null,
+    /** BETA-TESTABILITY/P10 — seam de provider; default = produção. */
+    private val providerSource: ProviderSource = DefaultProviderSource,
 ) : ViewModel() {
     private val app = ctx.applicationContext
     private val repo = CopilotRepository(db)
@@ -3136,7 +3140,7 @@ class CopilotViewModel(
             ),
             now = System.currentTimeMillis(),
         )
-        val remote = ProviderFactory.resolveRemote(settings, app)
+        val remote = providerSource.resolveRemote(settings, app)
         val words = pointReviewWordCount(snapshot)
         val hasKey = remote.apiKey.isNotBlank()
         val canQuality = shouldRequestPointQuality(words, hasKey)
@@ -3333,8 +3337,8 @@ class CopilotViewModel(
             postText("Fonte rejeitada ou sem proveniência válida; nenhuma revisão foi gerada.")
             return
         }
-        val remote = ProviderFactory.resolveRemote(settings, app)
-        if (!ProviderFactory.useRemoteRoute(remote)) {
+        val remote = providerSource.resolveRemote(settings, app)
+        if (!providerSource.useRemoteRoute(remote)) {
             postText("Configure a chave de IA na tela Modelo IA para eu entregar o texto revisado.")
             return
         }
@@ -3573,7 +3577,7 @@ class CopilotViewModel(
                 return@coroutineScope
             }
             try {
-                val provider = ProviderFactory.createFor(
+                val provider = providerSource.createFor(
                     remote.copy(model = DeepSeekProvider.MODEL_FLASH),
                     app,
                 )
@@ -3941,7 +3945,7 @@ class CopilotViewModel(
             val prompts = buildPointReviewQualityPrompts(context)
             val allowedKeys = allowedPublicationKeys(s34Section, prompts.evidenceText)
             try {
-                val provider = ProviderFactory.createFor(
+                val provider = providerSource.createFor(
                     remote.copy(model = DeepSeekProvider.MODEL_FLASH),
                     app,
                 )
@@ -4500,12 +4504,12 @@ class CopilotViewModel(
                     targetWords = oldMap["targetWords"]?.toIntOrNull(),
                     targetTurns = oldMap["targetTurns"]?.toIntOrNull(),
                 )
-                val remote = ProviderFactory.resolveRemote(settings, app)
-                if (!ProviderFactory.useRemoteRoute(remote)) {
+                val remote = providerSource.resolveRemote(settings, app)
+                if (!providerSource.useRemoteRoute(remote)) {
                     postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
                     return@launch
                 }
-                val provider = ProviderFactory.createFor(
+                val provider = providerSource.createFor(
                     remote, app, thinkingEffortFor(_thinkingMode.value)
                 )
                 val history = conversationTurnsScoped()
@@ -5969,8 +5973,8 @@ class CopilotViewModel(
                         route.mode, route.sectionId, route.relatedSectionId
                     )
                     // Provider remoto (DeepSeek) + sua chave.
-                    val remote = ProviderFactory.resolveRemote(settings, app)
-                    if (!ProviderFactory.useRemoteRoute(remote)) {
+                    val remote = providerSource.resolveRemote(settings, app)
+                    if (!providerSource.useRemoteRoute(remote)) {
                         postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
                         return@launch
                     }
@@ -6045,8 +6049,8 @@ class CopilotViewModel(
             // Sem chave, o motor legado local continua (comportamento atual).
             // Provider remoto (DeepSeek) + sua chave.
             // (try aberto acima cobre também as rotas com return@launch.)
-            val remote = ProviderFactory.resolveRemote(settings, app)
-            if (ProviderFactory.useRemoteRoute(remote)) {
+            val remote = providerSource.resolveRemote(settings, app)
+            if (providerSource.useRemoteRoute(remote)) {
                 // Guiado seção-a-seção: determinístico, antes do LLM
                 // (mesmo padrão dos comandos de referência do Bug #7).
                 if (resolveSectionNav(text)) return@launch
@@ -6578,7 +6582,7 @@ class CopilotViewModel(
             CardSuggestedAction.APPEND
         }
         try {
-            val provider = ProviderFactory.createFor(remote, app)
+            val provider = providerSource.createFor(remote, app)
             val oratoryBudget = OutputBudget.oratory(
                 focusChars = block.length,
                 minutes = ready.minutes ?: lastDossier?.currentSection?.minutes,
@@ -6796,8 +6800,8 @@ class CopilotViewModel(
         history: List<ChatTurn>,
         isFirst: Boolean,
     ) {
-        val remote = ProviderFactory.resolveRemote(settings, app)
-        if (!ProviderFactory.useRemoteRoute(remote)) {
+        val remote = providerSource.resolveRemote(settings, app)
+        if (!providerSource.useRemoteRoute(remote)) {
             postText("Configure a chave de IA na tela Modelo IA para conversar sobre o esboço.")
             return
         }
@@ -6806,7 +6810,7 @@ class CopilotViewModel(
             postText("Cole o esboço de novo — perdi o texto colado.")
             return
         }
-        val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
+        val provider = providerSource.createFor(remote, app)
         // 1C.2.2B0: no modo colar, só o ledger confirmado vira memória. O
         // resumo rolante não promove falas do histórico a decisão. O bloco
         // entra como CONTEÚDO da mensagem; o system continua minimalista.
@@ -6945,7 +6949,7 @@ class CopilotViewModel(
     ) {
         // #17-fix: a rota de chat respeita o chip (Rápido = low / Profundo = high);
         // rotas estruturadas (oratória/proposta) forçam "none" dentro do provider.
-        val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(
+        val provider = providerSource.createFor(
             remote, app, thinkingEffortFor(_thinkingMode.value)
         )
         // Inversão de contexto (correção): o payload recebe AMBOS — o dossiê
@@ -7700,8 +7704,8 @@ class CopilotViewModel(
                     return@launch
                 }
                 // Provider remoto (DeepSeek) + sua chave.
-                val remote = ProviderFactory.resolveRemote(settings, app)
-                if (!ProviderFactory.useRemoteRoute(remote)) {
+                val remote = providerSource.resolveRemote(settings, app)
+                if (!providerSource.useRemoteRoute(remote)) {
                     postText("Configure a chave de IA na tela Modelo IA para gerar propostas.")
                     return@launch
                 }
@@ -7713,7 +7717,7 @@ class CopilotViewModel(
                     history, history.none { it.fromMe }, focus, proposalMinutes)
                 _chatEvidence.value = turnContext.evidence
                 android.util.Log.e("CopilotLLM", "proposal context ok focus=" + focus.length)
-                val provider = ProviderFactory.createFor(remote, app)
+                val provider = providerSource.createFor(remote, app)
                 val proposalBudget = OutputBudget.proposal(
                     focusChars = focus.length,
                     operations = 1 + focus.length / 6000,
@@ -8003,8 +8007,8 @@ class CopilotViewModel(
             postText("Não achei a seção em foco. Reabra o tópico no editor.")
             return
         }
-        val remote = ProviderFactory.resolveRemote(settings, app)
-        if (!ProviderFactory.useRemoteRoute(remote)) {
+        val remote = providerSource.resolveRemote(settings, app)
+        if (!providerSource.useRemoteRoute(remote)) {
             postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
             return
         }
@@ -8014,7 +8018,7 @@ class CopilotViewModel(
         // guarda); a seção só costuma ter refs depois de um aceite anterior.
         val subPoints = db.subPointDao().forSection(sectionId).map { it.toDomain() }
         val generator = com.bettertalker.app.data.planning.OutlineGeneratorImpl(
-            ProviderFactory.createFor(remote, app)
+            providerSource.createFor(remote, app)
         )
         val request = buildStructureRequest(section, principles, subPoints = subPoints)
         // Refs vazias no request: o prompt manda o LLM não inventar — validar
@@ -8333,12 +8337,12 @@ class CopilotViewModel(
             postText(STRUCTURE_PASTED_NEEDS_SECTION_MESSAGE)
             return
         }
-        val remote = ProviderFactory.resolveRemote(settings, app)
-        if (!ProviderFactory.useRemoteRoute(remote)) {
+        val remote = providerSource.resolveRemote(settings, app)
+        if (!providerSource.useRemoteRoute(remote)) {
             postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
             return
         }
-        val generator = OutlineGeneratorImpl(ProviderFactory.createFor(remote, app))
+        val generator = OutlineGeneratorImpl(providerSource.createFor(remote, app))
         val request = buildStructureFromPastedRequest(
             section, sourceText, materialNature = materialNature,
         )
@@ -8439,8 +8443,8 @@ class CopilotViewModel(
             postText(ANGLES_NEEDS_THEME_MESSAGE)
             return
         }
-        val remote = ProviderFactory.resolveRemote(settings, app)
-        if (!ProviderFactory.useRemoteRoute(remote)) {
+        val remote = providerSource.resolveRemote(settings, app)
+        if (!providerSource.useRemoteRoute(remote)) {
             postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
             return
         }
@@ -8448,7 +8452,7 @@ class CopilotViewModel(
             OutlineProposerFactory(
                 passageDao = db.passageDao(),
                 attachmentDao = db.attachmentDao(),
-                llmProvider = ProviderFactory.createFor(remote, app),
+                llmProvider = providerSource.createFor(remote, app),
             ).create().propose(clean, ANGLES_TOTAL_MINUTES, Audience.GENERAL)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -8486,8 +8490,8 @@ class CopilotViewModel(
             postText("Abra uma nota para eu montar o discurso.")
             return
         }
-        val remote = ProviderFactory.resolveRemote(settings, app)
-        if (!ProviderFactory.useRemoteRoute(remote)) {
+        val remote = providerSource.resolveRemote(settings, app)
+        if (!providerSource.useRemoteRoute(remote)) {
             postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
             return
         }
@@ -8503,7 +8507,7 @@ class CopilotViewModel(
             emptyList()
         }
         val generator = com.bettertalker.app.data.planning.OutlineGeneratorImpl(
-            ProviderFactory.createFor(remote, app),
+            providerSource.createFor(remote, app),
         )
         val request = com.bettertalker.app.domain.planning.OutlineGenerationRequest(
             id = newId("nl"),
@@ -8568,8 +8572,8 @@ class CopilotViewModel(
                 onResult(TribunaFailures.noNote())
                 return@launch
             }
-            val remote = ProviderFactory.resolveRemote(settings, app)
-            if (!ProviderFactory.useRemoteRoute(remote)) {
+            val remote = providerSource.resolveRemote(settings, app)
+            if (!providerSource.useRemoteRoute(remote)) {
                 val failure = TribunaFailures.noAiKey()
                 postText(failure.message)
                 onResult(failure)
@@ -8584,7 +8588,7 @@ class CopilotViewModel(
                 onResult(failure)
                 return@launch
             }
-            val provider = ProviderFactory.createFor(
+            val provider = providerSource.createFor(
                 remote, app, thinkingEffortFor(_thinkingMode.value)
             )
             val noteDetail = settings.tribunaDetail(nid).first()
@@ -8638,8 +8642,8 @@ class CopilotViewModel(
         onResult: (TribunaResult) -> Unit = {},
     ) {
         viewModelScope.launch {
-            val remote = ProviderFactory.resolveRemote(settings, app)
-            if (!ProviderFactory.useRemoteRoute(remote)) {
+            val remote = providerSource.resolveRemote(settings, app)
+            if (!providerSource.useRemoteRoute(remote)) {
                 val failure = TribunaFailures.noAiKey()
                 postText(failure.message)
                 onResult(failure)
@@ -8662,7 +8666,7 @@ class CopilotViewModel(
                 .sortedBy { it.order }
                 .firstOrNull { it.order > section.order }
                 ?.title
-            val provider = ProviderFactory.createFor(
+            val provider = providerSource.createFor(
                 remote, app, thinkingEffortFor(_thinkingMode.value)
             )
             val detail = settings.tribunaSectionDetail(section.noteId, section.id).first()
@@ -10291,8 +10295,8 @@ class CopilotViewModel(
     private suspend fun requestApplyStructure(history: List<ChatTurn>) {
         detachStructuredProgress()
         val nid = noteId ?: return
-        val remote = ProviderFactory.resolveRemote(settings, app)
-        if (!ProviderFactory.useRemoteRoute(remote)) {
+        val remote = providerSource.resolveRemote(settings, app)
+        if (!providerSource.useRemoteRoute(remote)) {
             postText("Configure a chave de IA na tela Modelo IA para gerar a estrutura.")
             return
         }
@@ -10300,7 +10304,7 @@ class CopilotViewModel(
         resetLocalProgress()
         _runState.value = ChatRunState.Generating
         try {
-            val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
+            val provider = providerSource.createFor(remote, app)
             // C1: orçamento pelo total de minutos/seções e divisão ANTES do
             // teto. Acima de 30 min a resposta única é proibida: o modelo
             // recebe os títulos de cada parte e o app une na ordem.

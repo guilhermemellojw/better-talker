@@ -16,7 +16,9 @@ import com.bettertalker.app.data.library.GlobalLibraryTool
 import com.bettertalker.app.data.llm.DeepSeekProvider
 import com.bettertalker.app.data.llm.LlmAction
 import com.bettertalker.app.data.llm.LlmRequest
+import com.bettertalker.app.data.llm.DefaultProviderSource
 import com.bettertalker.app.data.llm.ProviderFactory
+import com.bettertalker.app.data.llm.ProviderSource
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.util.newId
@@ -93,6 +95,8 @@ class GlobalAssistantViewModel(
     private val notesRepo: NotesRepository,
     private val voiceRouter: VoiceRouter,
     private val libraryTool: GlobalLibraryTool = GlobalLibraryTool.from(db),
+    /** BETA-TESTABILITY/P10 — seam de provider; default = produção. */
+    private val providerSource: ProviderSource = DefaultProviderSource,
 ) : ViewModel() {
 
     private val _turns = MutableStateFlow<List<GlobalTurn>>(emptyList())
@@ -309,8 +313,8 @@ class GlobalAssistantViewModel(
                     return@launch
                 }
 
-                val remote = ProviderFactory.resolveRemote(settings, app)
-                if (!ProviderFactory.useRemoteRoute(remote)) {
+                val remote = providerSource.resolveRemote(settings, app)
+                if (!providerSource.useRemoteRoute(remote)) {
                     reply(
                         message = localNoKeyReply(library),
                         action = GlobalTurnAction.CONFIGURE_AI,
@@ -318,7 +322,7 @@ class GlobalAssistantViewModel(
                     )
                     return@launch
                 }
-                val provider = ProviderFactory.createFor(
+                val provider = providerSource.createFor(
                     remote,
                     app,
                     DeepSeekProvider.CHAT_REASONING_EFFORT,
