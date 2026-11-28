@@ -69,6 +69,11 @@ import com.bettertalker.app.data.copilot.isNewChatEntrySession
 import com.bettertalker.app.data.copilot.resolveChatEntryFocus
 import com.bettertalker.app.data.copilot.TurnPhase
 import com.bettertalker.app.data.copilot.TurnUiState
+import com.bettertalker.app.data.copilot.SourceFidelityGate
+import com.bettertalker.app.data.copilot.ContentEligibilityGate
+import com.bettertalker.app.data.copilot.DeliveryProvenance
+import com.bettertalker.app.data.copilot.RewriteHandoff
+import com.bettertalker.app.data.copilot.provenanceForMessage
 import com.bettertalker.app.data.copilot.cancelledPayload
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
@@ -103,17 +108,30 @@ import com.bettertalker.app.data.copilot.pointCoachingFromPayload
 import com.bettertalker.app.data.copilot.PointReviewAnalyzer
 import com.bettertalker.app.data.copilot.PointReviewCodec
 import com.bettertalker.app.data.copilot.PointReviewInput
+import com.bettertalker.app.data.copilot.PointReviewNextStep
 import com.bettertalker.app.data.copilot.PointReviewReport
 import com.bettertalker.app.data.copilot.PointReviewQualityContext
 import com.bettertalker.app.data.copilot.PointReviewQualityParser
+import com.bettertalker.app.data.copilot.PointRewriteTargetDecision
+import com.bettertalker.app.data.copilot.PointRewriteTargetScope
 import com.bettertalker.app.data.copilot.NoteSectionSnapshot
 import com.bettertalker.app.data.copilot.PointQualityStatus
 import com.bettertalker.app.data.copilot.POINT_REVIEW_QUALITY_SCHEMA
 import com.bettertalker.app.data.copilot.buildPointReviewQualityPrompts
+import com.bettertalker.app.data.copilot.buildPointReviewRewritePrompts
+import com.bettertalker.app.data.copilot.decidePointRewriteTarget
+import com.bettertalker.app.data.copilot.extractPointRewriteText
+import com.bettertalker.app.data.copilot.isPointRewriteRequest
 import com.bettertalker.app.data.copilot.matchS34SectionForPoint
 import com.bettertalker.app.data.copilot.pointQualitySkipReason
+import com.bettertalker.app.data.copilot.pointReviewDraftText
+import com.bettertalker.app.data.copilot.pointReviewDraftWordCount
 import com.bettertalker.app.data.copilot.pointReviewTextHash
 import com.bettertalker.app.data.copilot.pointReviewWordCount
+import com.bettertalker.app.data.copilot.refersToPreviousDraft
+import com.bettertalker.app.data.copilot.requestedReductionPercent
+import com.bettertalker.app.data.copilot.shouldClarifySubPointRewrite
+import com.bettertalker.app.data.copilot.validatePointRewrite
 import com.bettertalker.app.data.copilot.shouldApplyPointQuality
 import com.bettertalker.app.data.copilot.shouldRequestPointQuality
 import com.bettertalker.app.data.copilot.pointReviewFromPayload
@@ -148,6 +166,7 @@ import com.bettertalker.app.data.llm.ResponseFormat
 import com.bettertalker.app.data.llm.DeepSeekProvider
 import com.bettertalker.app.data.copilot.ProviderErrorCode
 import com.bettertalker.app.data.llm.VerificationCategory
+import com.bettertalker.app.data.llm.VerificationMetrics
 import com.bettertalker.app.data.llm.VerificationResult
 import com.bettertalker.app.data.planning.RoomReferenceResolver
 import com.bettertalker.app.data.prefs.SettingsStore
@@ -653,6 +672,46 @@ fun verifyChatText(text: String, corpus: List<String>): ChatVerificationOutcome 
     )
 }
 
+/**
+ * BETA-TRUST/P1 — versão de ENTREGA. Diferente do modo aviso, o texto que
+ * chega ao histórico, ao rascunho ou à área de transferência nunca contém
+ * afirmação bíblica sem fonte local verificável.
+ *
+ * `questionRefs` são as refs citadas na pergunta: explicam a referência, mas
+ * NÃO autorizam citação literal sem o texto TNM/publicação recuperado.
+ */
+fun verifyChatTextForDelivery(
+    text: String,
+    corpus: List<String>,
+    questionRefs: List<String> = emptyList(),
+): ChatVerificationOutcome {
+    val gated = ContentEligibilityGate.forFinalAnswer(text, corpus, questionRefs)
+    if (!gated.allowed) {
+        return ChatVerificationOutcome(
+            VerificationResult("", gated.removed, VerificationMetrics()),
+            gated.notice,
+        )
+    }
+    val strict = GroundednessVerifier.verify(gated.text, corpus, warnOnly = false)
+    val clean = strict.text
+        .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE)
+        .trimEnd()
+    val reasons = buildList {
+        gated.notice?.removePrefix("⚠️ ")?.let { add(it) }
+        if (strict.hasRemovals) add("trechos sem apoio no acervo removidos")
+    }
+    val notice = reasons.takeIf { it.isNotEmpty() }
+        ?.joinToString("; ")
+        ?.let { "⚠️ Revise: $it." }
+    return ChatVerificationOutcome(
+        VerificationResult(
+            text = clean,
+            removed = gated.removed + strict.removed,
+            metrics = strict.metrics,
+        ),
+        notice,
+    )
+}
 
 /**
  * #11-fix: orçamento de saída do chat — maior quando a pergunta cita refs do
@@ -1511,8 +1570,94 @@ class CopilotViewModel(
         val newMap = map.toMutableMap().apply {
             put("text", updated)
             put("cardSummary", capCardSummary(clean))
+            // Conteúdo alterado invalida a aprovação anterior; o gate rejeita
+            // até haver nova proveniência verificável.
+            remove(DeliveryProvenance.KEY)
+            remove(DeliveryProvenance.KEY_SHA256)
         }
+        deliveryProvenance.remove(messageId)
         db.chatDao().updateMessagePayload(messageId, ChatCodec.escMap(newMap))
+    }
+
+    /**
+     * BETA-TRUST/P1 — texto liberado para histórico/cópia/editor. Nenhuma rota
+     * deve copiar o payload cru: a decisão é central e always-on.
+     */
+    /**
+     * BETA-TRUST/P2 — histórico/cópia usam a proveniência do próprio turno.
+     * Sem vínculo vigente (restart, troca de nota/seção), falha fechada: o
+     * texto permanece no registro, mas não é copiado nem reinserido.
+     */
+    fun eligibleTextForUse(
+        messageId: String,
+        text: String,
+        fromMe: Boolean = false,
+    ): String {
+        if (fromMe) return text
+        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
+            ?: return ""
+        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return ""
+        val decision = ContentEligibilityGate.forHistory(
+            text, bound.corpus, bound.questionRefs,
+        )
+        return if (decision.allowed) decision.text else ""
+    }
+
+    /** P3/P4 — rota real de inserção usa `forTopicInsert`, não `forHistory`. */
+    fun insertEligibleTextIntoScope(messageId: String, text: String) {
+        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
+            ?: return
+        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return
+        val decision = ContentEligibilityGate.forTopicInsert(
+            text, bound.corpus, bound.questionRefs,
+        )
+        if (decision.allowed && decision.text.isNotBlank()) {
+            insertTextIntoScope(decision.text)
+        }
+    }
+
+    /** P3 — registro antigo permanece no banco; a exibição é marcada. */
+    fun historyTextFor(messageId: String, raw: String, fromMe: Boolean): String {
+        if (fromMe) return raw
+        val safe = eligibleTextForUse(messageId, raw)
+        return safe.ifBlank { "[conteúdo histórico sem fonte verificável]" }
+    }
+
+    /** BETA-TRUST/P2 — cópia usa o vínculo persistido, não o turno vivo. */
+    fun eligibleCopyText(
+        messageId: String,
+        text: String,
+        fromMe: Boolean = false,
+    ): String {
+        if (fromMe) return text
+        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
+            ?: return ""
+        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return ""
+        val decision = ContentEligibilityGate.forResponseCopy(
+            text, bound.corpus, bound.questionRefs,
+        )
+        return if (decision.allowed) decision.text else ""
+    }
+
+    /** BETA-TRUST/P2 — cópia de card usa a entrada específica da rota. */
+    fun eligibleCardCopyText(messageId: String, text: String): String {
+        val bound = provenanceForMessage(deliveryProvenance, messageId, noteId)
+            ?: return ""
+        if (!bound.authorizesMessage(noteId, text, turnScope ?: _chatScope.value)) return ""
+        val decision = ContentEligibilityGate.forCardCopy(text, bound.corpus, bound.questionRefs)
+        return if (decision.allowed) decision.text else ""
+    }
+
+    /**
+     * BETA-TRUST/P2 — contrato de handoff para C/AI-09: lê a proveniência
+     * persistida da mensagem/card original. O chamador deve usar
+     * [DeliveryProvenance.rewriteFrom] e passar `provenanceSource` ao `post`;
+     * o texto revisado nunca é usado como corpus.
+     */
+    suspend fun deliveryProvenanceFor(messageId: String): DeliveryProvenance? {
+        val entity = db.chatDao().get(messageId) ?: return null
+        return DeliveryProvenance.fromPayload(ChatCodec.unescMap(entity.payload))
+            ?.takeIf { it.messageId == messageId }
     }
 
     /** Verificação warn-only: informa, nunca remove texto nem bloqueia insert. */
@@ -1547,7 +1692,9 @@ class CopilotViewModel(
     /** NO_TARGET: escolhe a seção e captura o hash NAQUELE momento. */
     fun pickCardTarget(messageId: String, sectionId: String) = viewModelScope.launch {
         val nid = noteId ?: return@launch
-        val section = db.speechSectionDao().get(sectionId) ?: return@launch
+        val section = db.speechSectionDao().get(sectionId)
+            ?.takeIf { it.noteId == nid }
+            ?: return@launch // alvo de outra nota nunca é aceito
         val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return@launch
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return@launch
@@ -1558,7 +1705,16 @@ class CopilotViewModel(
             contentHtml = section.contentHtml,
             now = System.currentTimeMillis(),
         )
-        updateCardPayload(messageId, map, picked)
+        val rebased = map.toMutableMap()
+        DeliveryProvenance.fromPayload(map)
+            ?.takeIf { it.messageId == messageId }
+            ?.let { bound ->
+                val updated = bound.withTargetKey(cardTargetKey(picked), authorized = true)
+                    ?: return@let
+                rebased.putAll(updated.toPayload())
+                deliveryProvenance[messageId] = updated
+            }
+        updateCardPayload(messageId, rebased, picked)
         logCard(messageId, "USER_PICK", picked, 0)
         CardMetrics.target(
             kind = "NO_TARGET",
@@ -1653,7 +1809,29 @@ class CopilotViewModel(
         val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return
-        val text = extractCardText(map["text"].orEmpty()) ?: return
+        val rawText = extractCardText(map["text"].orEmpty()) ?: return
+        val bound = DeliveryProvenance.fromPayload(map)
+        if (bound == null || bound.messageId != messageId ||
+            !bound.authorizesCard(entity.noteId, cardTargetKey(card), rawText, entity.sectionId)
+        ) {
+            _cardEvents.tryEmit(
+                CardUiEvent("Card sem proveniência verificável; não foi inserido."),
+            )
+            return
+        }
+        val eligible = ContentEligibilityGate.forCardInsert(
+            rawText, bound.corpus, bound.questionRefs,
+        )
+        val topicEligible = ContentEligibilityGate.forTopicInsert(
+            rawText, bound.corpus, bound.questionRefs,
+        )
+        if (!eligible.allowed || !topicEligible.allowed) {
+            _cardEvents.tryEmit(
+                CardUiEvent("Card sem proveniência verificável; não foi inserido."),
+            )
+            return
+        }
+        val text = eligible.text
         val now = System.currentTimeMillis()
         try {
             // HTML final do editor: markdown/HTML do card deixa de aparecer cru.
@@ -1931,6 +2109,22 @@ class CopilotViewModel(
     fun setSimpleMode(v: Boolean) = viewModelScope.launch { settings.setSimpleMode(v) }
     private var activeTurnProgressJob: Job? = null
     private var cancelledPersistJob: Job? = null
+    /** BETA-TRUST/P1 — corpus do turno para sanear parcial e cancelamento. */
+    private var activeDeliveryCorpus: List<String> = emptyList()
+    private var activeQuestionRefs: List<String> = emptyList()
+    /** P2: cache hidratado do payload persistido; nunca autoridade própria. */
+    private val deliveryProvenance = mutableMapOf<String, DeliveryProvenance>()
+
+    /** Fonte de verdade é o payload; o mapa só evita I/O nos call sites de UI. */
+    private fun hydrateDeliveryProvenance(entities: List<com.bettertalker.app.data.db.ChatEntity>) {
+        val ids = entities.map { it.id }.toSet()
+        deliveryProvenance.clear()
+        entities.forEach { entity ->
+            DeliveryProvenance.fromPayload(ChatCodec.unescMap(entity.payload))
+                ?.takeIf { it.messageId == entity.id && it.noteId == noteId }
+                ?.let { deliveryProvenance[entity.id] = it }
+        }
+    }
     private var currentTurnId: String? = null
     /** Card-first: alvo capturado no início da geração, nunca no clique. */
     private var activeCardTarget: CardTarget? = null
@@ -2296,7 +2490,9 @@ class CopilotViewModel(
                 val safePartial = if (looksLikeOutlineJson(progress.partial)) {
                     ""
                 } else {
-                    progress.partial
+                    SourceFidelityGate.sanitizePartialForDisplay(
+                        progress.partial, activeDeliveryCorpus, activeQuestionRefs,
+                    )
                 }
                 val next = current.withProgress(
                     partial = safePartial,
@@ -2897,13 +3093,14 @@ class CopilotViewModel(
             }
             return
         }
-        reviewPoint(nid, target, body)
+        reviewPoint(nid, target, body, text)
     }
 
     private suspend fun reviewPoint(
         nid: String,
         target: SpeechSection,
         body: List<SpeechSection>,
+        request: String?,
     ) {
         if (target.role != SectionRole.BODY) {
             postText("O Mentor revisa os pontos de desenvolvimento. Abra um ponto e peça de novo.")
@@ -2943,12 +3140,27 @@ class CopilotViewModel(
         val words = pointReviewWordCount(snapshot)
         val hasKey = remote.apiKey.isNotBlank()
         val canQuality = shouldRequestPointQuality(words, hasKey)
+        val rewriteRequested = request?.let(::isPointRewriteRequest) == true
+        val reductionPercent = request?.let(::requestedReductionPercent)
+        val hasDraft = pointReviewDraftText(snapshot).isNotBlank()
+        val canRewrite = rewriteRequested && hasKey && hasDraft
         val textHash = pointReviewTextHash(snapshot)
         val reportWithQuality = report.copy(
-            qualityStatus = if (canQuality) PointQualityStatus.PENDING else PointQualityStatus.SKIPPED,
-            qualityError = pointQualitySkipReason(words, hasKey),
+            qualityStatus = when {
+                rewriteRequested -> PointQualityStatus.SKIPPED
+                canQuality -> PointQualityStatus.PENDING
+                else -> PointQualityStatus.SKIPPED
+            },
+            qualityError = when {
+                rewriteRequested && !hasKey ->
+                    "Reescrita pedida, mas falta configurar a chave de IA."
+                rewriteRequested ->
+                    "Reescrita solicitada: a revisão do corpo exige proveniência de um " +
+                        "card/rascunho anterior; use \"Revise o rascunho acima\"."
+                else -> pointQualitySkipReason(words, hasKey)
+            },
             qualityTextHash = textHash,
-            qualityStartedAt = if (canQuality) started else null,
+            qualityStartedAt = if (!rewriteRequested && canQuality) started else null,
         )
         db.chatDao().all(nid)
             .let(::reviewMessageIdsToDeactivate)
@@ -2974,7 +3186,27 @@ class CopilotViewModel(
                 "s34=${if (s34Section != null) "matched" else "unavailable"}|" +
                 "words=$words|ms=${System.currentTimeMillis() - started}",
         )
-        if (canQuality && messageId != null) {
+        if (canRewrite && messageId != null) {
+            launchPointRewrite(
+                target = target,
+                section = snapshot,
+                s34 = s34,
+                s34Section = s34Section,
+                deterministic = reportWithQuality,
+                sourceCounts = sourceCounts,
+                remote = remote,
+                reductionPercent = reductionPercent,
+                nextPointTitle = body.getOrNull(pointNumber)?.title,
+            )
+        } else if (rewriteRequested && !canRewrite) {
+            postText(
+                if (!hasKey) {
+                    "Configure a chave de IA na tela Modelo IA para eu entregar o texto revisado."
+                } else {
+                    "Este ponto ainda não tem texto desenvolvido para eu revisar."
+                }
+            )
+        } else if (canQuality && messageId != null) {
             launchQualityReview(
                 nid = nid,
                 target = target,
@@ -2997,7 +3229,661 @@ class CopilotViewModel(
         val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
         val body = sections.filter { it.role == SectionRole.BODY }.sortedBy { it.order }
         val target = body.firstOrNull { it.id == sectionId } ?: return@launch
-        reviewPoint(nid, target, body)
+        reviewPoint(nid, target, body, null)
+    }
+
+    private data class RecoveredPointDraft(
+        /** Identidade persistida da mensagem-fonte (proveniência). */
+        val messageId: String,
+        val text: String,
+        /** Rótulo do alvo do card anterior; "· Para:" indica foco em subponto. */
+        val targetLabel: String?,
+        /** Alvo persistido do card-fonte; `null` = NO_TARGET. */
+        val targetKey: String?,
+    )
+
+    /**
+     * Recupera o texto e o rótulo do alvo do card anterior pelo contrato
+     * central de referência (`ConversationalReferentRecovery`): identidade,
+     * escopo, supersessão e alvo comprovado. Sem candidato elegível, devolve
+     * null (fail-closed); nunca cai em card antigo por omissão.
+     */
+    private suspend fun recoverPreviousPointDraft(
+        nid: String,
+        sectionId: String?,
+    ): RecoveredPointDraft? {
+        val messages = db.chatDao().all(nid).map { e ->
+            ConversationalReferentRecovery.Message(
+                id = e.id,
+                noteId = e.noteId,
+                sectionId = e.sectionId,
+                payload = ChatCodec.unescMap(e.payload),
+                createdAt = e.createdAt,
+                active = e.isActive,
+            )
+        }
+        val targets = buildMap {
+            db.speechSectionDao().forNote(nid).forEach { s ->
+                put(
+                    "${CardTargetKind.SECTION.name}:${s.id}",
+                    ConversationalReferentRecovery.TargetState(
+                        exists = true,
+                        currentHash = hashText(s.contentHtml),
+                    ),
+                )
+            }
+            db.noteDao().get(nid)?.let { n ->
+                put(
+                    "${CardTargetKind.NOTE.name}:${n.id}",
+                    ConversationalReferentRecovery.TargetState(
+                        exists = true,
+                        currentHash = hashText(n.richHtml),
+                    ),
+                )
+            }
+        }
+        val outcome = ConversationalReferentRecovery.recover(
+            messages = messages,
+            context = ConversationalReferentRecovery.Context(
+                noteId = nid,
+                sectionId = sectionId,
+                targets = targets,
+            ),
+        )
+        val found = outcome as? ConversationalReferentRecovery.Outcome.Found
+            ?: return null
+        val text = found.text?.takeIf { it.isNotBlank() } ?: return null
+        return RecoveredPointDraft(
+            messageId = found.messageId,
+            text = text,
+            targetLabel = found.card.targetLabel,
+            targetKey = cardTargetKey(found.card),
+        )
+    }
+
+    /**
+     * AI-09 (pedido real "Revise o rascunho acima"): usa o card/rascunho
+     * anterior do histórico como texto-fonte. O destino é o ponto em foco,
+     * quando existe; sem foco, o texto é oferecido sem aplicação automática.
+     */
+    private suspend fun runDraftRewrite(
+        draft: String,
+        request: String,
+        hasSubPointContext: Boolean,
+        previousTargetLabel: String?,
+        sourceMessageId: String,
+        sourceTargetKey: String?,
+        recoveryScope: String?,
+    ) {
+        val nid = noteId ?: run {
+            postText("Abra uma nota para receber o texto revisado.")
+            return
+        }
+        // P5 — checa proveniência e elegibilidade ANTES do provider.
+        val earlySource = deliveryProvenanceFor(sourceMessageId)
+        val earlyTargetMismatch = sourceTargetKey != null &&
+            earlySource?.targetKey != null && earlySource.targetKey != sourceTargetKey
+        val earlyEligible = earlySource != null && !earlySource.rejected &&
+            earlySource.messageId == sourceMessageId && earlySource.noteId == nid &&
+            earlySource.scopeId == recoveryScope && earlySource.binds(draft) &&
+            !earlyTargetMismatch && ContentEligibilityGate.forDraftReview(
+                draft, earlySource.corpus, earlySource.questionRefs,
+            ).allowed
+        if (!earlyEligible) {
+            postText("Fonte rejeitada ou sem proveniência válida; nenhuma revisão foi gerada.")
+            return
+        }
+        val remote = ProviderFactory.resolveRemote(settings, app)
+        if (!ProviderFactory.useRemoteRoute(remote)) {
+            postText("Configure a chave de IA na tela Modelo IA para eu entregar o texto revisado.")
+            return
+        }
+        // BETA-PEDAGOGY/P4 — a revisão só existe com a proveniência
+        // persistida do card original. Sem vínculo íntegro, não gastamos LLM
+        // nem oferecemos card: falha fechada, nunca corpus vivo como fallback.
+        val sourceProvenance = deliveryProvenanceFor(sourceMessageId)
+        val sourceTargetMismatch = sourceTargetKey != null &&
+            sourceProvenance?.targetKey != null &&
+            sourceProvenance.targetKey != sourceTargetKey
+        if (sourceProvenance == null ||
+            sourceProvenance.messageId != sourceMessageId ||
+            sourceProvenance.noteId != nid ||
+            sourceProvenance.scopeId != recoveryScope ||
+            !sourceProvenance.binds(draft) ||
+            sourceTargetMismatch
+        ) {
+            postText(
+                "Não consegui validar a proveniência do rascunho anterior. " +
+                    "Gere o rascunho novamente e peça a revisão; nenhum card foi criado."
+            )
+            android.util.Log.w(
+                "Mentor",
+                "rewrite|status=PROVENANCE_INVALID|source=$sourceMessageId|" +
+                    "noteOk=${sourceProvenance?.noteId == nid}|" +
+                    "scopeOk=${sourceProvenance?.scopeId == recoveryScope}|" +
+                    "hashOk=${sourceProvenance?.binds(draft) == true}|" +
+                    "targetOk=${!sourceTargetMismatch}",
+            )
+            return
+        }
+        val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        val body = sections.filter { it.role == SectionRole.BODY }.sortedBy { it.order }
+        val targetId = _chatScope.value ?: _pushedContext?.sectionId
+        val target = targetId?.let { id -> sections.firstOrNull { it.id == id } }
+        val pointNumber = target
+            ?.let { t -> body.indexOfFirst { it.id == t.id } + 1 }
+            ?.takeIf { it > 0 }
+            ?: 1
+        val draftPlain = htmlToPlainText(draft).trim()
+        if (draftPlain.isBlank()) {
+            postText("O rascunho anterior está vazio; não há texto para revisar.")
+            return
+        }
+        val s34 = loadDiagnosisS34(nid)
+        val s34Section = target?.let { matchS34SectionForPoint(it.title, s34?.sections) }
+        val snapshot = NoteSectionSnapshot(
+            id = target?.id ?: "draft",
+            order = target?.order ?: pointNumber,
+            role = target?.role ?: SectionRole.BODY,
+            title = target?.title ?: "Rascunho anterior",
+            minutes = target?.minutes ?: 5,
+            bodyText = draftPlain,
+            objective = target?.objective,
+        )
+        val words = pointReviewDraftWordCount(snapshot)
+        val targetDecision = decidePointRewriteTarget(
+            hasSectionContext = target != null,
+            hasSubPointContext = hasSubPointContext,
+            request = request,
+            previousTargetLabel = previousTargetLabel,
+        )
+        val report = PointReviewReport(
+            sectionId = snapshot.id,
+            pointNumber = pointNumber,
+            title = snapshot.title,
+            minutes = snapshot.minutes,
+            overall = DiagnosisLevel.OK,
+            reading = "Rascunho anterior · $words palavra(s)",
+            strengths = emptyList(),
+            improvements = emptyList(),
+            nextStep = PointReviewNextStep.OpenEditor(
+                sectionId = snapshot.id,
+                title = snapshot.title,
+                sectionNumber = pointNumber,
+            ),
+            generatedAt = System.currentTimeMillis(),
+        )
+        launchPointRewrite(
+            target = target,
+            section = snapshot,
+            s34 = s34,
+            s34Section = s34Section,
+            deterministic = report,
+            sourceCounts = DiagnosisSourceCounts.NONE,
+            remote = remote,
+            reductionPercent = requestedReductionPercent(request),
+            nextPointTitle = target?.let { body.getOrNull(pointNumber)?.title },
+            targetDecision = targetDecision,
+            sourceProvenance = sourceProvenance,
+            sourceText = draft,
+            sourceTargetKey = sourceTargetKey,
+        )
+    }
+
+    /** Confere o vínculo persistido recém-criado pelo `post` da revisão. */
+    private suspend fun rewriteProvenanceStored(
+        messageId: String,
+        expectedText: String,
+        expectedTargetKey: String?,
+        expectedScope: String?,
+        source: DeliveryProvenance,
+    ): Boolean {
+        val stored = deliveryProvenanceFor(messageId) ?: return false
+        return stored.messageId == messageId &&
+            stored.noteId == source.noteId &&
+            stored.scopeId == expectedScope &&
+            stored.targetKey == expectedTargetKey &&
+            stored.binds(expectedText) &&
+            stored.corpus == source.corpus &&
+            stored.questionRefs == source.questionRefs &&
+            stored.sourceMessageId == (source.sourceMessageId ?: source.messageId)
+    }
+
+    /**
+     * AI-09 — entrega o TEXTO revisado como card de substituição.
+     *
+     * A validação (redução pedida + referências preservadas) é
+     * determinística e acontece ANTES de oferecer o card; texto que não
+     * cumpre o pedido não vira proposta aplicável. Quando o alvo é subponto
+     * ou ambíguo, o texto é oferecido sem aplicação automática. A revisão
+     * herda a proveniência persistida do card-fonte; sem ela, falha fechada.
+     */
+    private suspend fun launchPointRewrite(
+        target: SpeechSection?,
+        section: NoteSectionSnapshot,
+        s34: S34Document?,
+        s34Section: S34Section?,
+        deterministic: PointReviewReport,
+        sourceCounts: DiagnosisSourceCounts,
+        remote: ProviderFactory.RemoteConfig,
+        reductionPercent: Int?,
+        nextPointTitle: String?,
+        targetDecision: PointRewriteTargetDecision = PointRewriteTargetDecision(
+            scope = PointRewriteTargetScope.BODY,
+            autoApply = true,
+            notice = "",
+        ),
+        /** Proveniência persistida da mensagem/card-fonte; obrigatória. */
+        sourceProvenance: DeliveryProvenance? = null,
+        /** Texto original efetivamente revisado (hash conferido na fonte). */
+        sourceText: String? = null,
+        /** Alvo persistido do card-fonte (identidade conferida). */
+        sourceTargetKey: String? = null,
+    ) {
+        // Mantém o card no MESMO turno do pedido (e cancela junto com ele):
+        // um card que chega depois do turno encerrado perderia o vínculo de
+        // consentimento e de escopo.
+        kotlinx.coroutines.coroutineScope {
+            val started = System.currentTimeMillis()
+            val noteIdForPost = noteId
+            val currentScope = turnScope ?: _chatScope.value ?: _pushedContext?.sectionId
+            val source = sourceProvenance
+            val sourceBody = sourceText
+            val scopeMismatch = source?.scopeId != null && source.scopeId != currentScope
+            val missingSource = source == null || sourceBody == null
+            val sourceEligible = source != null && sourceBody != null &&
+                !source.rejected &&
+                ContentEligibilityGate.forDraftReview(
+                    sourceBody, source.corpus, source.questionRefs,
+                ).allowed
+            val invalidSource = source == null || sourceBody == null || noteIdForPost == null ||
+                source.messageId.isBlank() ||
+                source.noteId != noteIdForPost ||
+                scopeMismatch ||
+                !source.binds(sourceBody) ||
+                source.targetKey != sourceTargetKey ||
+                !sourceEligible
+            if (invalidSource) {
+                postText(
+                    if (missingSource) {
+                        "A revisão com card exige um rascunho/card anterior com " +
+                            "proveniência verificável. Gere o rascunho e peça " +
+                            "\"Revise o rascunho acima\"."
+                    } else {
+                        "Não consegui validar a proveniência do rascunho original. " +
+                            "Gere o rascunho novamente e peça a revisão; nenhum card foi criado."
+                    }
+                )
+                android.util.Log.w(
+                    "Mentor",
+                    "rewrite|status=PROVENANCE_INVALID|source=${source?.messageId ?: "—"}|" +
+                        "noteOk=${source?.noteId == noteIdForPost}|" +
+                        "scopeOk=${!scopeMismatch}|" +
+                        "hashOk=${source?.binds(sourceBody ?: "") == true}|" +
+                        "targetOk=${source?.targetKey == sourceTargetKey}",
+                )
+                return@coroutineScope
+            }
+            // O escopo persistido da fonte é a autoridade; o escopo vivo só
+            // completa quando a fonte era global.
+            val scopeForPost = source.scopeId ?: currentScope
+            val context = PointReviewQualityContext(
+                pointNumber = deterministic.pointNumber,
+                title = deterministic.title,
+                minutes = deterministic.minutes,
+                noteTitle = noteIdForPost?.let { db.noteDao().get(it)?.title }
+                    ?: _noteTitle.value,
+                s34Objective = s34?.objective,
+                s34Section = s34Section,
+                section = section,
+                deterministic = deterministic,
+                sourceCounts = sourceCounts,
+                nextPointTitle = nextPointTitle,
+            )
+            val prompts = buildPointReviewRewritePrompts(context, reductionPercent)
+            val targetId = target?.id ?: "draft"
+            // O alvo é capturado ANTES do LLM: o texto revisado corresponde
+            // ao snapshot que entrou no prompt, não a uma edição posterior.
+            // Sem seção em foco (rascunho vindo do histórico), o card nasce
+            // NO_TARGET e o usuário escolhe o destino.
+            val cardTarget = target?.let { t ->
+                cardTargetForSection(
+                    sectionId = t.id,
+                    label = t.title,
+                    contentHtml = t.contentHtml,
+                    capturedFrom = CardCapturedFrom.ACTIVE_BLOCK,
+                    capturedAt = System.currentTimeMillis(),
+                )
+            }
+            val currentTargetKey = cardTarget?.let { "${it.kind.name}:${it.id}" }
+            if (targetDecision.autoApply &&
+                (cardTarget == null ||
+                    (source.targetKey != null && source.targetKey != currentTargetKey))
+            ) {
+                postText(
+                    "O alvo do rascunho não corresponde ao ponto em foco. " +
+                        "Abra o ponto correto e peça a revisão novamente; nenhum card foi criado."
+                )
+                android.util.Log.w(
+                    "Mentor",
+                    "rewrite|status=TARGET_MISMATCH|source=${source.messageId}|" +
+                        "sourceTarget=${source.targetKey ?: "—"}|" +
+                        "currentTarget=${currentTargetKey ?: "—"}",
+                )
+                return@coroutineScope
+            }
+            try {
+                val provider = ProviderFactory.createFor(
+                    remote.copy(model = DeepSeekProvider.MODEL_FLASH),
+                    app,
+                )
+                val maxTokens = ((prompts.maxWords * 2) + 400).coerceIn(600, 3_000)
+                val res = provider.generate(
+                    LlmRequest(
+                        text = "",
+                        action = LlmAction.CHAT,
+                        message = "",
+                        responseFormat = ResponseFormat.TEXT,
+                        maxOutputTokens = maxTokens,
+                        maxOutputTokensCap = 3_500,
+                        timeoutMs = 20_000,
+                        maxAttempts = 1,
+                        customSystemPrompt = prompts.system,
+                        customUserPrompt = prompts.user,
+                        silentProgress = true,
+                    )
+                )
+                val revised = extractPointRewriteText(res.text)
+                if (revised == null) {
+                    postText(
+                        "O modelo devolveu análise em vez do texto revisado. " +
+                            "Tente de novo; não ofereci nenhum card."
+                    )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=NO_CARD|chars=${res.text.length}|" +
+                            "ms=${res.meta.durationMs}",
+                    )
+                    return@coroutineScope
+                }
+                val validation = validatePointRewrite(prompts, revised)
+                if (!validation.ok) {
+                    postText(
+                        "Não entreguei o card: ${validation.reason} " +
+                            "O texto original continua intacto."
+                    )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=INVALID|words=${validation.wordCount}|" +
+                            "min=${validation.minWords}|max=${validation.maxWords}|" +
+                            "missing=${validation.missingRefs.size}|new=${validation.newRefs.size}|" +
+                            "ms=${res.meta.durationMs}|reason=${validation.reason}",
+                    )
+                    return@coroutineScope
+                }
+                val hasDevelopedSubpoints = target?.let { t ->
+                    db.subPointDao().forSection(t.id).any { it.developedHtml.isNotBlank() }
+                } ?: section.subPoints.any { it.hasDevelopment }
+                val prefix = if (!targetDecision.autoApply) {
+                    targetDecision.notice.ifBlank {
+                        "Versão revisada (não aplicada automaticamente):"
+                    }
+                } else {
+                    ""
+                }
+                // Releitura obrigatória no fim do turno: se o card-fonte foi
+                // editado durante a geração, o vínculo antigo não é reutilizado.
+                val liveSource = deliveryProvenanceFor(source.messageId)
+                if (liveSource == null ||
+                    liveSource.noteId != noteIdForPost ||
+                    liveSource.targetKey != sourceTargetKey ||
+                    liveSource.contentSha256 != source.contentSha256 ||
+                    liveSource.corpus != source.corpus ||
+                    liveSource.questionRefs != source.questionRefs ||
+                    !liveSource.binds(sourceBody)
+                ) {
+                    postText(
+                        "A proveniência do rascunho mudou durante a revisão; " +
+                            "nenhum card foi criado. Gere o rascunho novamente."
+                    )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=PROVENANCE_STALE|source=${source.messageId}",
+                    )
+                    return@coroutineScope
+                }
+                val trustedSource = liveSource
+                // BETA-TRUST/P2/P4 — o texto revisado é revalidado pelo MESMO
+                // gate central, usando SOMENTE o corpus/refs da proveniência
+                // original. Nunca o corpus vivo nem o próprio texto revisado.
+                val gateCorpus = trustedSource.corpus
+                val gateRefs = trustedSource.questionRefs
+                val central = if (targetDecision.autoApply) {
+                    val cardGate = ContentEligibilityGate.forCardInsert(
+                        revised, gateCorpus, gateRefs,
+                    )
+                    val topicGate = ContentEligibilityGate.forTopicInsert(
+                        revised, gateCorpus, gateRefs,
+                    )
+                    if (!cardGate.allowed || !topicGate.allowed) {
+                        postText(
+                            "O gate central não liberou o texto revisado; nenhum card foi criado. " +
+                                "Verifique as fontes e tente novamente."
+                        )
+                        android.util.Log.w(
+                            "Mentor",
+                            "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                                "status=GATE_BLOCKED|source=${source.messageId}|" +
+                                "findings=${cardGate.findings.size + topicGate.findings.size}",
+                        )
+                        return@coroutineScope
+                    }
+                    cardGate
+                } else {
+                    val draftGate = ContentEligibilityGate.forDraftReview(
+                        revised, gateCorpus, gateRefs,
+                    )
+                    if (!draftGate.allowed) {
+                        postText(
+                            "O gate central não liberou o texto revisado; nada foi entregue. " +
+                                "Verifique as fontes e tente novamente."
+                        )
+                        android.util.Log.w(
+                            "Mentor",
+                            "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                                "status=GATE_BLOCKED_TEXT|source=${source.messageId}|" +
+                                "findings=${draftGate.findings.size}",
+                        )
+                        return@coroutineScope
+                    }
+                    draftGate
+                }
+                val delivered = stripInternalTags(central.text).trim()
+                if (delivered.isBlank()) {
+                    postText("O gate central esvaziou o texto revisado; nada foi entregue.")
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=GATE_EMPTY|source=${source.messageId}",
+                    )
+                    return@coroutineScope
+                }
+                val deliveryValidation = validatePointRewrite(prompts, delivered)
+                if (!deliveryValidation.ok) {
+                    postText(
+                        "O texto revisado deixou de cumprir o pedido após o gate central: " +
+                            "${deliveryValidation.reason} Nenhum card foi criado."
+                    )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=DELIVERY_INVALID|source=${source.messageId}|" +
+                            "reason=${deliveryValidation.reason}",
+                    )
+                    return@coroutineScope
+                }
+                val textForProvenance = if (targetDecision.autoApply) {
+                    delivered
+                } else {
+                    "$prefix\n$delivered"
+                }
+                val targetKeyForProvenance = if (targetDecision.autoApply) {
+                    currentTargetKey
+                } else {
+                    null
+                }
+                // Texto-only não cria card: `targetKey = null` não é troca de
+                // alvo. Só o card com REPLACE mantém o alvo da fonte.
+                val explicitTargetChange = !targetDecision.autoApply
+                val preflight = DeliveryProvenance.rewriteFrom(
+                    source = trustedSource,
+                    sourceText = sourceBody,
+                    revisedText = textForProvenance,
+                    messageId = "preflight",
+                    turnId = currentTurnId,
+                    noteId = noteIdForPost,
+                    scopeId = scopeForPost,
+                    targetKey = targetKeyForProvenance,
+                    boundAt = System.currentTimeMillis(),
+                    explicitTargetChange = explicitTargetChange,
+                )
+                if (preflight == null) {
+                    postText(
+                        "Não consegui criar a proveniência da revisão; nenhum card foi criado."
+                    )
+                    android.util.Log.w(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=PROVENANCE_PREFLIGHT_NULL|source=${source.messageId}",
+                    )
+                    return@coroutineScope
+                }
+                if (!targetDecision.autoApply) {
+                    val previous = activeCardTarget
+                    activeCardTarget = null
+                    try {
+                        val newMessageId = post(
+                            fromMe = false,
+                            kind = "text",
+                            payload = ChatCodec.escMap(
+                                mapOf("text" to textForProvenance),
+                            ),
+                            targetScope = scopeForPost,
+                            allowCard = false,
+                            provenanceSource = trustedSource,
+                            provenanceSourceText = sourceBody,
+                            revision = true,
+                            explicitTargetChange = explicitTargetChange,
+                        )
+                        if (newMessageId == null ||
+                            !rewriteProvenanceStored(
+                                messageId = newMessageId,
+                                expectedText = textForProvenance,
+                                expectedTargetKey = null,
+                                expectedScope = scopeForPost,
+                                source = trustedSource,
+                            )
+                        ) {
+                            postText(
+                                "Não consegui persistir a proveniência do texto revisado; " +
+                                    "ele não será copiado nem inserido."
+                            )
+                            android.util.Log.w(
+                                "Mentor",
+                                "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                                    "status=PROVENANCE_NOT_STORED_TEXT|source=${source.messageId}",
+                            )
+                        }
+                    } finally {
+                        activeCardTarget = previous
+                    }
+                    android.util.Log.i(
+                        "Mentor",
+                        "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                            "status=COMPLETED_TEXT_ONLY|scope=${targetDecision.scope}|" +
+                            "source=${source.messageId}|" +
+                            "reduction=${reductionPercent ?: "—"}|" +
+                            "words=${deliveryValidation.wordCount}|target=${prompts.targetWords}|" +
+                            "model=${res.meta.model}|ms=${res.meta.durationMs}|" +
+                            "totalMs=${System.currentTimeMillis() - started}",
+                    )
+                    return@coroutineScope
+                }
+                val label = buildString {
+                    append("Versão revisada")
+                    if (reductionPercent != null) append(" (−$reductionPercent%)")
+                    if (hasDevelopedSubpoints) {
+                        append(" do corpo (subpontos preservados)")
+                    }
+                    append(":")
+                }
+                val previous = activeCardTarget
+                activeCardTarget = cardTarget
+                try {
+                    val newMessageId = post(
+                        fromMe = false,
+                        kind = "text",
+                        payload = ChatCodec.escMap(
+                            mapOf(
+                                "text" to "$label\n" +
+                                    "<texto-do-card>$delivered</texto-do-card>",
+                            )
+                        ),
+                        targetScope = scopeForPost,
+                        cardOrigin = CardOrigin.TRANSFORM,
+                        cardSuggestedAction = CardSuggestedAction.REPLACE,
+                        provenanceSource = trustedSource,
+                        provenanceSourceText = sourceBody,
+                        revision = true,
+                        explicitTargetChange = explicitTargetChange,
+                    )
+                    if (newMessageId == null ||
+                        !rewriteProvenanceStored(
+                            messageId = newMessageId,
+                            expectedText = delivered,
+                            expectedTargetKey = currentTargetKey,
+                            expectedScope = scopeForPost,
+                            source = trustedSource,
+                        )
+                    ) {
+                        postText(
+                            "Não consegui persistir a proveniência do card; " +
+                                "ele não será aplicável."
+                        )
+                        android.util.Log.w(
+                            "Mentor",
+                            "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                                "status=PROVENANCE_NOT_STORED|source=${source.messageId}",
+                        )
+                    }
+                } finally {
+                    activeCardTarget = previous
+                }
+                android.util.Log.i(
+                    "Mentor",
+                    "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                        "status=COMPLETED|source=${source.messageId}|" +
+                        "reduction=${reductionPercent ?: "—"}|" +
+                        "words=${deliveryValidation.wordCount}|target=${prompts.targetWords}|" +
+                        "model=${res.meta.model}|ms=${res.meta.durationMs}|" +
+                        "in=${res.meta.usage?.inputTokens}|out=${res.meta.usage?.outputTokens}|" +
+                        "totalMs=${System.currentTimeMillis() - started}",
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val code = (e as? ProviderError)?.code?.name ?: e.javaClass.simpleName
+                android.util.Log.w(
+                    "Mentor",
+                    "rewrite|section=$targetId|point=${deterministic.pointNumber}|" +
+                        "status=FAILED|code=$code|ms=${System.currentTimeMillis() - started}",
+                )
+                postText(friendlyChatError(e))
+            }
+        }
     }
 
     // ---------- 1B: revisão qualitativa (DeepSeek Flash) ----------
@@ -3585,6 +4471,30 @@ class CopilotViewModel(
                 // no payload quando a resposta veio de texto longo.
                 val oldMap = ChatCodec.unescMap(target.payload)
                 val existingText = oldMap["text"].orEmpty()
+                // P5 — proveniência e elegibilidade ANTES do provider: fonte
+                // rejeitada, vínculo inválido ou texto não fundamentado não
+                // gastam chamada e não criam autoridade nova.
+                val bound = DeliveryProvenance.fromPayload(oldMap)
+                    ?.takeIf { it.messageId == target.id && it.noteId == nid }
+                val originalGate = bound?.let {
+                    ContentEligibilityGate.forFinalAnswer(
+                        existingText, it.corpus, it.questionRefs,
+                    )
+                }
+                if (bound == null || bound.rejected || !bound.binds(existingText) ||
+                    originalGate?.allowed != true
+                ) {
+                    postText(
+                        if (bound?.rejected == true) {
+                            "Fonte rejeitada; não é possível continuar esta resposta."
+                        } else {
+                            "Não há proveniência válida para continuar esta resposta."
+                        },
+                    )
+                    return@launch
+                }
+                val expectedPayload = target.payload
+                val expectedText = existingText
                 val continueBudget = OutputBudget.continueGeneration(
                     currentText = existingText,
                     targetWords = oldMap["targetWords"]?.toIntOrNull(),
@@ -3636,12 +4546,49 @@ class CopilotViewModel(
                     postText("Não consegui continuar a resposta agora. Tente novamente.")
                     return@launch
                 }
-                val merged = mergeContinuation(existingText, cont)
+                // P5 — relê o estado persistido após a chamada: edição,
+                // exclusão ou invalidação concorrente impedem a atualização.
+                val current = db.chatDao().get(target.id)
+                val currentMap = current?.let { ChatCodec.unescMap(it.payload) }
+                if (current == null || !current.isActive || current.noteId != nid ||
+                    current.payload != expectedPayload ||
+                    currentMap?.get("text").orEmpty() != expectedText ||
+                    bound.stillValidAfterProvider(bound, currentMap.orEmpty(), expectedText) == null
+                ) {
+                    postText("A mensagem mudou durante a geração; continuação não aplicada.")
+                    return@launch
+                }
+                val contGate = ContentEligibilityGate.forFinalAnswer(
+                    cont, bound.corpus, bound.questionRefs,
+                )
+                if (!contGate.allowed) {
+                    postText("Não foi possível continuar: o trecho não tem fonte verificável.")
+                    return@launch
+                }
+                val merged = mergeContinuation(existingText, contGate.text)
+                val mergedGate = ContentEligibilityGate.forFinalAnswer(
+                    merged, bound.corpus, bound.questionRefs,
+                )
+                val updated = bound.continueFrom(
+                    existingText, merged, System.currentTimeMillis(),
+                )
+                if (!mergedGate.allowed || updated == null) {
+                    postText("Continuação rejeitada: o conteúdo final não foi validado.")
+                    return@launch
+                }
                 val newMap = oldMap.toMutableMap().apply {
                     put("text", merged)
                     if (continueTruncated) put("truncated", "1") else remove("truncated")
+                    putAll(updated.toPayload())
                 }
-                db.chatDao().updateMessagePayload(target.id, ChatCodec.escMap(newMap))
+                val written = db.chatDao().updateMessagePayloadIfUnchanged(
+                    target.id, expectedPayload, ChatCodec.escMap(newMap),
+                )
+                if (written != 1) {
+                    postText("A mensagem mudou durante a geração; continuação não aplicada.")
+                    return@launch
+                }
+                deliveryProvenance[target.id] = updated
                 // #streaming-fix: a bolha existente já recebeu o texto novo.
                 com.bettertalker.app.data.llm.LocalProgress.clearPartial()
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -3674,7 +4621,10 @@ class CopilotViewModel(
         // muda apenas o prompt/alvo; trocar de tópico nunca troca a lista.
         db.chatDao().observe(noteId)
             .onStart { _scopeLoading.value = true }
-            .onEach { _scopeLoading.value = false }
+            .onEach { list ->
+                _scopeLoading.value = false
+                hydrateDeliveryProvenance(list)
+            }
             .combine(targetChanges) { list, _ -> list }
             .map { list ->
             val items = list.map { e ->
@@ -3891,10 +4841,37 @@ class CopilotViewModel(
         val safeTurn = if (looksLikeOutlineJson(turn.partialText)) {
             turn.copy(partialText = OUTLINE_JSON_CHAT_FALLBACK)
         } else {
-            turn
+            turn.copy(
+                partialText = SourceFidelityGate.sanitizePartialForDisplay(
+                    turn.partialText, activeDeliveryCorpus, activeQuestionRefs,
+                ),
+            )
         }
-        val payload = safeTurn.cancelledPayload()
+        val payload = safeTurn.cancelledPayload().toMutableMap()
         val messageId = newId("msg")
+        // P1-B: trecho rejeitado continua visível como parcial seguro, mas
+        // nunca vira conteúdo copiável/inserível após o cancelamento.
+        val partialDecision = if (looksLikeOutlineJson(turn.partialText)) {
+            null
+        } else {
+            ContentEligibilityGate.forCancelledPartial(
+                turn.partialText, activeDeliveryCorpus, activeQuestionRefs,
+            )
+        }
+        val provenance = DeliveryProvenance.newForMessage(
+            messageId = messageId,
+            turnId = safeTurn.turnId,
+            noteId = noteId,
+            scopeId = scope,
+            targetKey = null,
+            corpus = activeDeliveryCorpus,
+            questionRefs = activeQuestionRefs,
+            content = safeTurn.partialText,
+            boundAt = System.currentTimeMillis(),
+            rejected = partialDecision?.allowed == false,
+        )
+        payload.putAll(provenance.toPayload())
+        deliveryProvenance[messageId] = provenance
         db.chatDao().put(
             ChatEntity(
                 messageId,
@@ -3929,8 +4906,25 @@ class CopilotViewModel(
         cardSuggestedAction: CardSuggestedAction = CardSuggestedAction.APPEND,
         /** Fase 4: false = resposta explicativa não vira card. */
         allowCard: Boolean = true,
+        /**
+         * BETA-TRUST/P2 — proveniência da mensagem-fonte para AI-09/revisão.
+         * O texto revisado recebe novo hash; o corpus/refs são os originais.
+         */
+        provenanceSource: DeliveryProvenance? = null,
+        provenanceSourceText: String? = null,
+        /** P3 — distingue revisão derivada de geração nova. */
+        revision: Boolean = false,
+        /** P3 — troca de alvo em revisão exige autorização explícita. */
+        explicitTargetChange: Boolean = false,
     ): String? {
         val nid = noteId ?: return null
+        // P3 — revisão sem fonte persistida falha fechado: nenhuma mensagem
+        // é gravada e nenhum fallback para o corpus vivo do turno.
+        if (revision && (fromMe || provenanceSource == null ||
+            provenanceSourceText == null || provenanceSourceText.isBlank())
+        ) {
+            return null
+        }
         // Origem embutida no JSON do payload (sem migration; histórico
         // antigo sem a chave decodifica como COPILOT).
         val withOrigin = ChatCodec.unescMap(payload)
@@ -3960,10 +4954,63 @@ class CopilotViewModel(
             withOrigin["reasoningSeconds"] = reasoningSeconds.toString()
         }
         val messageId = newId("msg")
+        val cardText = if (!fromMe && allowCard) {
+            extractCardText(withOrigin["text"].orEmpty())
+        } else {
+            null
+        }
+        val now = System.currentTimeMillis()
+        val targetKey = activeCardTarget?.let { "${it.kind.name}:${it.id}" }
+        val generated = !fromMe && (durationMs != null || cardText != null)
+        // BETA-PEDAGOGY/P4.1 + BETA-TRUST/P3 — a decisão de handoff é extraída
+        // para o contrato puro `RewriteHandoff` e exercitada nas jornadas
+        // AI-09. Geração comum segue o fluxo normal; revisão declarada sem
+        // vínculo íntegro falha fechado (sem gravar e sem fallback de corpus).
+        val handoff = RewriteHandoff.decide(
+            RewriteHandoff.Input(
+                fromMe = fromMe,
+                revision = revision,
+                source = provenanceSource,
+                sourceText = provenanceSourceText,
+                revisedText = cardText ?: withOrigin["text"].orEmpty(),
+                messageId = messageId,
+                turnId = effectiveTurnId,
+                noteId = nid,
+                scopeId = targetScope,
+                targetKey = targetKey,
+                boundAt = now,
+                explicitTargetChange = explicitTargetChange,
+                currentTurnCorpus = activeDeliveryCorpus,
+            )
+        )
+        if (handoff is RewriteHandoff.Outcome.Rejected) return null
+        val storedProvenance = when (handoff) {
+            is RewriteHandoff.Outcome.Accepted -> handoff.provenance
+            RewriteHandoff.Outcome.NotApplicable -> if (!fromMe && generated) {
+                DeliveryProvenance.newForMessage(
+                    messageId = messageId,
+                    turnId = effectiveTurnId,
+                    noteId = nid,
+                    scopeId = targetScope,
+                    targetKey = targetKey,
+                    corpus = activeDeliveryCorpus,
+                    questionRefs = activeQuestionRefs,
+                    content = cardText ?: withOrigin["text"].orEmpty(),
+                    boundAt = now,
+                )
+            } else {
+                null
+            }
+        }
+        // BETA-TRUST/P2: a proveniência é persistida no payload; o mapa é só
+        // cache hidratado do banco (copiar/inserir usa o payload após restart).
+        if (storedProvenance != null) {
+            withOrigin.putAll(storedProvenance.toPayload())
+            deliveryProvenance[messageId] = storedProvenance
+        }
         // Card-first: se a resposta tem <texto-do-card>, o alvo capturado na
         // geração vira payload do card. O gate aponta para esta mensagem.
         if (!fromMe && allowCard) {
-            val cardText = extractCardText(withOrigin["text"].orEmpty())
             if (cardText != null) {
                 val target = activeCardTarget
                 val card = CardPayload(
@@ -4521,6 +5568,50 @@ class CopilotViewModel(
                 runPointCoaching(text)
                 return@launch
             }
+            // AI-09 (pedido real): "Revise o rascunho acima" não cita ponto.
+            // A fonte é o card/rascunho anterior do histórico; a saída é um
+            // card revisado, não uma análise com oferta de reescrever.
+            if (isPointRewriteRequest(text) && refersToPreviousDraft(text)) {
+                val nid = noteId
+                if (nid == null) {
+                    postText("Abra uma nota para receber o texto revisado.")
+                    return@launch
+                }
+                val focusWhole = _focusMode.value == FocusMode.WHOLE
+                val recoveryScope = if (focusWhole) null
+                else (_chatScope.value ?: _pushedContext?.sectionId)
+                val draft = recoverPreviousPointDraft(nid, recoveryScope)
+                if (draft == null) {
+                    postText(
+                        "Não recuperei com segurança o rascunho anterior. " +
+                            "Gere o rascunho e peça a revisão em seguida, ou abra o ponto."
+                    )
+                } else {
+                    runDraftRewrite(
+                        draft = draft.text,
+                        request = text,
+                        hasSubPointContext = _pushedContext?.subPointId != null,
+                        previousTargetLabel = draft.targetLabel,
+                        sourceMessageId = draft.messageId,
+                        sourceTargetKey = draft.targetKey,
+                        recoveryScope = recoveryScope,
+                    )
+                }
+                return@launch
+            }
+            // Subponto não é alvo de card neste contrato. Um pedido explícito
+            // de revisão de subponto (ou foco ativo nele) não pode reescrever
+            // o corpo do ponto; pede esclarecimento antes de qualquer card.
+            val subPointFocus = _pushedContext?.subPointId != null
+            val explicitPoint =
+                com.bettertalker.app.data.copilot.OratorySession.requestedPoint(text) != null
+            if (shouldClarifySubPointRewrite(text, subPointFocus, explicitPoint)) {
+                postText(
+                    "A revisão automática de subponto ainda não substitui o corpo do ponto. " +
+                        "Abra o corpo do ponto ou peça a revisão do ponto inteiro."
+                )
+                return@launch
+            }
             if (com.bettertalker.app.data.copilot.ChatRouter.isPointReviewCommand(text)) {
                 runPointReview(text)
                 return@launch
@@ -4875,7 +5966,7 @@ class CopilotViewModel(
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.Oratory -> {
                     lastOratory = com.bettertalker.app.data.copilot.OratorySession.LastGeneration(
-                        route.mode, route.sectionId
+                        route.mode, route.sectionId, route.relatedSectionId
                     )
                     // Provider remoto (DeepSeek) + sua chave.
                     val remote = ProviderFactory.resolveRemote(settings, app)
@@ -5049,9 +6140,13 @@ class CopilotViewModel(
                 turnScope = null
                 currentTurnId = null
                 activeCardTarget = null
+                activeDeliveryCorpus = emptyList()
+                activeQuestionRefs = emptyList()
                 currentGenerationJob = null
                 _chatBusy.value = false
                 activeWaivedRefs = emptyList()
+                activeDeliveryCorpus = emptyList()
+                activeQuestionRefs = emptyList()
                 if (_runState.value is ChatRunState.Generating || _runState.value is ChatRunState.Sending) {
                     _runState.value = ChatRunState.Success
                 }
@@ -5324,6 +6419,9 @@ class CopilotViewModel(
             com.bettertalker.app.data.copilot.OratoryGeneration.referenceTextsFor(
                 doc.sections,
             ) { raw -> repo.biblePassages(raw).map { it.passage.text } },
+            // AI-03/AI-04: o ponto citado para relação leva conteúdo real
+            // ao prompt (não apenas o ID).
+            relatedSectionId = route.relatedSectionId,
         )
         if (spec is com.bettertalker.app.data.copilot.OratoryGeneration.Result.CannotGenerate) {
             postText(spec.blocked.message)
@@ -5414,6 +6512,13 @@ class CopilotViewModel(
             promptBuilder = dossierPromptBuilder,
         )
         val resolvedExtraAuthorizedRefs = oratoryResolution.authorizedRefs
+        // AI-03/AI-04: o ponto relacionado está no prompt e suas refs são
+        // autorizadas pelo MESMO ponto de extensão do gate central
+        // (`extraAuthorizedRefs`); nenhuma regra de proveniência nova.
+        val fidelityRefs = (resolvedExtraAuthorizedRefs +
+            ready.previous?.references.orEmpty().map { it.label } +
+            ready.related?.references.orEmpty().map { it.label })
+            .distinct()
         val oratoryContextBlock = oratoryResolution.contextBlock
         val block = oratoryFocusBlock(
             sectionTitle = section.title,
@@ -5546,7 +6651,7 @@ class CopilotViewModel(
             // audita o texto do card, e remoções do verificador entram no
             // texto final (não no payload de conversa).
             val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                .check(cardText, ready, resolvedExtraAuthorizedRefs)
+                .check(cardText, ready, fidelityRefs)
             // Fidelidade bloqueante para o card: se o verificador achou ref/
             // número sem apoio, remove as sentenças ofensoras ANTES de
             // publicar. Se sobrar vazio ou ainda houver ofensa, não entrega o
@@ -5561,7 +6666,7 @@ class CopilotViewModel(
                 fidelity
             } else {
                 com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                    .check(cleanedCardText, ready, resolvedExtraAuthorizedRefs)
+                    .check(cleanedCardText, ready, fidelityRefs)
             }
             if (cleanedCardText.isBlank() || !cleanedFidelity.ok) {
                 postText(
@@ -5593,11 +6698,21 @@ class CopilotViewModel(
             // (userContextBlock/structural), nunca como evidência.
             // turnContext do foco (A) permanece null: evidência exclusiva
             // de A não valida afirmações de B.
+            // BETA-TRUST/P1: o mesmo corpus tipado alimenta o gate central de
+            // elegibilidade usado depois por cópia e inserção do card.
+            val cardSources = OratoryGeneration.oruaryDocumentarySources(resolvedDossier, ready, section.id)
+            activeDeliveryCorpus = cardSources.map { it.text }
+            activeQuestionRefs = emptyList()
             val verified = verifyGeneratedText(
                 cleanedCardText,
                 turnContext = null,
-                documentarySources = OratoryGeneration.oruaryDocumentarySources(resolvedDossier, ready, section.id),
+                documentarySources = cardSources,
             )
+            if (verified.text.isBlank()) {
+                postText(verified.notice
+                    ?: "Trecho sem fonte verificável; nenhum card foi criado.")
+                return
+            }
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text
                     .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
@@ -5631,7 +6746,7 @@ class CopilotViewModel(
                     cardOrigin = CardOrigin.ORATORY,
                     cardSuggestedAction = suggestedAction,
                 )
-                val notice = listOfNotNull(fidelityNotice, removalNotice)
+                val notice = listOfNotNull(fidelityNotice, removalNotice, verified.notice)
                     .joinToString(" ").ifBlank { null }
                 if (messageId != null && notice != null) {
                     _cardVerificationNotices.value =
@@ -5741,7 +6856,9 @@ class CopilotViewModel(
         // Gate em modo aviso: o esboço colado É a fonte — nada é removido,
         // só avisado. Corpus = texto íntegro (o modelo citou o esboço).
         val corpus = listOf(pasted)
-        val outcome = verifyChatText(outText, corpus)
+        activeDeliveryCorpus = corpus
+        activeQuestionRefs = questionVerseAliases(pasted)
+        val outcome = verifyChatTextForDelivery(outText, corpus, activeQuestionRefs)
         val verified = outcome.result
         // Nível 0: o strict shadow mede o “antes” (o que seria removido) sem
         // alterar o texto entregue. Só métricas, nunca conteúdo.
@@ -6171,7 +7288,9 @@ class CopilotViewModel(
                     listOfNotNull(effectiveContextBlock),
             )
         }
-        val outcome = verifyChatText(text, corpus)
+        activeDeliveryCorpus = corpus
+        activeQuestionRefs = questionVerseAliases(text)
+        val outcome = verifyChatTextForDelivery(text, corpus, activeQuestionRefs)
         val verified = outcome.result
         // Nível 0: mede o “antes” (strict) e o “depois” (warn-only) no mesmo
         // turno. O strict shadow NÃO é usado como resposta — só métricas.
@@ -6279,14 +7398,20 @@ class CopilotViewModel(
         // turno leva o rótulo do foco em que foi produzido.
         val titles = db.speechSectionDao().forNote(nid).associate { it.id to it.title }
         return db.chatDao().all(nid).mapNotNull { e ->
-            // Payload legível, nunca o nome do kind.
+            // Payload legível, nunca o nome do kind. P3: histórico ativo só
+            // reutiliza texto proveniente do contrato central.
             val raw = com.bettertalker.app.data.copilot.readableChatTurn(e.kind, e.payload)
+            val eligible = if (!e.fromMe && e.kind == "text") {
+                historyTextFor(e.id, raw, e.fromMe)
+            } else {
+                raw
+            }
             // 1C.1: listas longas do Copilot (ex.: ideias no caminho remoto)
             // preservam os itens numerados; o truncamento cego perderia o 2º.
             val t = if (!e.fromMe && e.kind == "text") {
-                com.bettertalker.app.data.copilot.compactAssistantListForHistory(raw)
+                com.bettertalker.app.data.copilot.compactAssistantListForHistory(eligible)
             } else {
-                raw
+                eligible
             }
             if (t.isBlank()) null else ChatTurn(
                 e.fromMe,
@@ -7863,7 +8988,11 @@ class CopilotViewModel(
         return db.chatDao().all(nid)
             .asReversed()
             .firstOrNull { !it.fromMe && it.kind == "text" }
-            ?.let { ChatCodec.unescMap(it.payload)["text"].orEmpty() }
+            ?.let { entity ->
+                eligibleTextForUse(
+                    entity.id, ChatCodec.unescMap(entity.payload)["text"].orEmpty(),
+                )
+            }
             ?.trim()
             .orEmpty()
     }
@@ -9281,6 +10410,11 @@ class CopilotViewModel(
                 documentarySources = documentarySources,
                 structuralExtras = structuralContext,
             )
+            if (verified.text.isBlank()) {
+                postText(verified.notice
+                    ?: "Texto sem fonte verificável; nada foi aplicado.")
+                return
+            }
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text
                     .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
@@ -9312,6 +10446,7 @@ class CopilotViewModel(
             if (removalNotice != null) {
                 postText(removalNotice)
             }
+            verified.notice?.let { postText(it) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             _runState.value = ChatRunState.Cancelled()
             throw e

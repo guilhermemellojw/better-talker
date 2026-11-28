@@ -576,7 +576,10 @@ class DefaultDossierPromptBuilder(
         """
 
         val BODY_SUBPOINT_BULLETS = """
-            - Use os textos bíblicos literalmente quando citar.
+            - Use os textos bíblicos literalmente quando citar, apenas se o
+              texto estiver nos TEXTOS BÍBLICOS fornecidos.
+            - NUNCA cite referência sem texto recuperado; paráfrase deve ser
+              marcada como paráfrase, sem aspas e sem atribuição indevida.
             - NÃO repita o outlineText literalmente; desenvolva a ideia.
             - Se um texto bíblico não foi fornecido, NÃO invente; escreva
               "[desenvolver com base em {ref}]".

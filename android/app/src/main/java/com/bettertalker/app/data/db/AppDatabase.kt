@@ -648,6 +648,10 @@ interface ChatDao {
     fun observe(noteId: String): Flow<List<ChatEntity>>
     @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND isActive = 1 ORDER BY createdAt ASC")
     suspend fun all(noteId: String): List<ChatEntity>
+
+    /** BETA-TRUST/P2: leitura por id para proveniência persistida (sem schema novo). */
+    @Query("SELECT * FROM chat_messages WHERE id = :id")
+    suspend fun get(id: String): ChatEntity?
     /** F2.3: conversa de um tópico (ou a global, quando [sectionId] é null). */
     @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND sectionId IS :sectionId AND isActive = 1 ORDER BY createdAt ASC")
     fun observeScoped(noteId: String, sectionId: String?): Flow<List<ChatEntity>>
@@ -680,6 +684,20 @@ interface ChatDao {
     /** #26-fix-c: substitui o payload de uma mensagem (edição inline). */
     @Query("UPDATE chat_messages SET payload = :newPayload WHERE id = :messageId")
     suspend fun updateMessagePayload(messageId: String, newPayload: String)
+
+    /**
+     * P5 — atualização condicional e atômica: só substitui se o payload
+     * persistido continuar idêntico ao capturado antes da geração.
+     */
+    @Query(
+        "UPDATE chat_messages SET payload = :newPayload " +
+            "WHERE id = :messageId AND payload = :expectedPayload AND isActive = 1"
+    )
+    suspend fun updateMessagePayloadIfUnchanged(
+        messageId: String,
+        expectedPayload: String,
+        newPayload: String,
+    ): Int
 }
 
 @Dao

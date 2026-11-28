@@ -1,5 +1,6 @@
 package com.bettertalker.app.data.planning
 
+import com.bettertalker.app.data.copilot.SourceFidelityGate
 import com.bettertalker.app.data.copilot.generationTelemetry
 import com.bettertalker.app.data.llm.LlmProvider
 import com.bettertalker.app.data.llm.LlmRequest
@@ -433,13 +434,31 @@ class SectionGeneratorImpl(
         dossier: Dossier,
         truncated: Boolean,
     ): SectionDraft {
+        // BETA-TRUST/P1 — saneia o texto ANTES de ele virar draft copiável.
+        // Refs + texto: o gate precisa do rótulo para aceitar a referência e
+        // do texto literal para conferir aspas (não o contrário).
+        val recovered = dossier.bibleTexts.mapNotNull { entry ->
+            entry.text?.let { body -> "${entry.ref} — $body" }
+        } + dossier.publicationTexts.mapNotNull { entry ->
+            entry.text?.let { body -> "${entry.ref.symbol} — $body" }
+        }
+        val plain = textHtml.replace(Regex("<[^>]+>"), " ").replace("&nbsp;", " ")
+        val gated = SourceFidelityGate.enforce(plain, recovered)
+        val safeHtml = if (gated.text.trim() == plain.trim()) {
+            textHtml
+        } else {
+            gated.text.split("\n")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .joinToString("") { "<p>$it</p>" }
+        }
         val fidelity = DossierFidelityCheck.check(
-            textHtml = textHtml,
+            textHtml = safeHtml,
             usedSources = usedSources,
             dossier = dossier,
         )
         return SectionDraft(
-            textHtml = textHtml,
+            textHtml = safeHtml,
             usedSources = usedSources,
             validation = fidelity,
             possiblyTruncated = truncated,
