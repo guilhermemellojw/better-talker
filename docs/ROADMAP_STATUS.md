@@ -4,7 +4,7 @@
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `cc7b452253d0e6a8039e36c32e4276fd14937e80`
-- Checks da `main` consultada: **Pendente**
+- Checks da `main` consultada: **Verde**
 - PRs encontrados na janela de consulta: **84** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-28.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -25,7 +25,7 @@
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
 | [#87 — COORD-TRUST-BOUNDARY/P4 — certificação cross-UID descartável (Draft)](https://github.com/guilhermemellojw/better-talker/pull/87) | TRUST | `690fee56f444` | Verde (com ignorados) |
-| [#86 — feat(pedagogy): BETA-PEDAGOGY/P4 — candidato combinado A+C (Draft) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/86) | Beta e infraestrutura | `c693c28e2cdc` | Verde |
+| [#86 — feat(pedagogy): BETA-PEDAGOGY/P4 — candidato combinado A+C (Draft) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/86) | Beta e infraestrutura | `c693c28e2cdc` | Pendente |
 | [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | `fe0ca1b37089` | Verde |
 | [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `ddc80e3e0a8d` | Verde |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
@@ -78,7 +78,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=75.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.8 dias (referência fixa: 2026-11-28).
-- Estados de check dos PRs abertos: Verde=8, Verde (com ignorados)=1.
+- Estados de check dos PRs abertos: Pendente=1, Verde=7, Verde (com ignorados)=1.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
