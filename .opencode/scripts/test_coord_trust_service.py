@@ -21,6 +21,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 import coord_authority as ca
 import coord_authority_signed as cas
@@ -1036,6 +1037,42 @@ class ServiceTest(unittest.TestCase):
             self.assertEqual(0, cli.main(
                 ["--config", cfg_path, "--check"]))
         self.assertIn("CONFIG-OK real_transport=false", output.getvalue())
+
+    def test_unexpected_exception_returns_sanitized_internal_error(self):
+        """Regressão P4.7: o handler genérico não pode referenciar exc solto."""
+        self.assertTrue(self.fx.propose()["ok"])
+        request_id = "req-unexpected-handler"
+        with mock.patch.object(
+                self.fx.service, "_status",
+                side_effect=RuntimeError("/private/path boom")):
+            response = self.fx.request(
+                "status", {"mission_id": MISSION_ID},
+                request_id=request_id)
+        self.assertEqual(
+            {"ok": False, "request_id": request_id,
+             "error": {"code": "SERVICE_ERROR",
+                       "message": "falha interna do serviço",
+                       "reason": "INTERNAL"}},
+            response)
+        serialized = json.dumps(response)
+        self.assertNotIn("/private/path", serialized)
+        self.assertNotIn("RuntimeError", serialized)
+        self.assertNotIn("Traceback", serialized)
+
+        with mock.patch.object(
+                self.fx.service, "_status",
+                side_effect=RuntimeError("boom")), mock.patch.object(
+                self.fx.service.state, "audit",
+                side_effect=RuntimeError("audit unavailable")):
+            audited = self.fx.request(
+                "status", {"mission_id": MISSION_ID},
+                request_id="req-unexpected-audit")
+        self.assertEqual("SERVICE_ERROR", audited["error"]["code"])
+        self.assertEqual("falha interna do serviço",
+                         audited["error"]["message"])
+        self.assertEqual("INTERNAL", audited["error"]["reason"])
+        self.assertEqual("req-unexpected-audit", audited["request_id"])
+        self.assertNotIn("audit unavailable", json.dumps(audited))
 
     def test_wrong_consumer_peer_is_unauthenticated(self):
         unknown = svc.PeerIdentity(

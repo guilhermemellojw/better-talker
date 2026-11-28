@@ -1328,7 +1328,9 @@ class TrustService:
             return {"ok": False, "request_id": request_id,
                     "error": {"code": "SERVICE_ERROR",
                               "message": "falha interna do serviço",
-                              "reason": _safe_reason(exc)}}
+                              # Exceção desconhecida não é interpretada: o
+                              # motivo é sempre INTERNAL, sem binder `exc`.
+                              "reason": "INTERNAL"}}
 
     def _seal_anchor(self) -> None:
         try:
