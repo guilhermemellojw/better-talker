@@ -355,7 +355,7 @@ class GenerationVerificationTest {
         // D — dossiê da seção B possui trecho documental recuperado;
         // citação literal correspondente passa sem remoção.
         val verso = "Louvem a Jeová, todos os seus anjos, fortes e poderosos, que cumprem a sua palavra, obedecendo ao que ele diz."
-        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Salpo 103:20", "[Salpo 103:20] $verso", ReferenceStatus.RESOLVED)))
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Salmos 103:20", "[Salmos 103:20] $verso", ReferenceStatus.RESOLVED)))
         val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7(), "sec-1")
         assertTrue(corpus.any { it.text.contains(verso) })
         val r = verifyGeneratedText(text = "O Salmo 103:20 diz: \"$verso\"", turnContext = null, documentarySources = corpus)
@@ -367,10 +367,10 @@ class GenerationVerificationTest {
     fun E_passagemPartialNaoValidaCitacao() {
         // E — passagem parcial: não promove documento completo; citação dele
         // não é aceita por apoio integral.
-        val parcial = "[Salpo 103:20] Trecho da recuperação aproximada."
+        val parcial = "[Salmos 103:20] Trecho da recuperação aproximada."
         val d = dirP7(bibleTexts = listOf(
-            ResolvedBibleText("Salpo 103:20", parcial, ReferenceStatus.PARTIAL),
-            ResolvedBibleText("Salpo 34", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED),
+            ResolvedBibleText("Salmos 103:20", parcial, ReferenceStatus.PARTIAL),
+            ResolvedBibleText("Salmos 34", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED),
         ))
         val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7(), "sec-1")
         assertFalse(corpus.any { it.text.contains("Trecho da recuperação aproximada") })
@@ -426,7 +426,7 @@ class GenerationVerificationTest {
         // P7.1 — DEVELOPMENT: o prompt não apresenta refs de spec.next; a
         // fonte exclusiva de B não pode validar a citação no tópico A.
         val textoB = "Texto exclusivo do topico seguinte."
-        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Salpo 34", "Texto recuperado do topico atual.", ReferenceStatus.RESOLVED)))
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Salmos 34", "Texto recuperado do topico atual.", ReferenceStatus.RESOLVED)))
         val spec = specP71(
             OratoryGeneration.Mode.DEVELOPMENT,
             current = secP71("sec-1"),

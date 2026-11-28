@@ -10,9 +10,13 @@ package com.bettertalker.app.data.util
  */
 internal object RefCanonicalizer {
 
-    /** Nomes de livros por extenso → abreviação canônica (#16-fix-a). */
+    /**
+     * Nomes de livros por extenso → abreviação canônica (#16-fix-a).
+     * BETA-TRUST/P8 — grafias inválidas (ex.: "Salpo") NÃO entram aqui:
+     * aliases ampliariam a autoridade documental além do acervo recuperado.
+     */
     private val BOOK_NORMALIZE: Map<String, String> = mapOf(
-        "salmo" to "sal", "salmos" to "sal", "salpo" to "sal",
+        "salmo" to "sal", "salmos" to "sal",
         "daniel" to "da",
         "1corintios" to "1co", "2corintios" to "2co",
         "genesis" to "gen", "exodo" to "ex",
