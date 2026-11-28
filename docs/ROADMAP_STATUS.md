@@ -25,7 +25,7 @@
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
 | [#90 — BETA-TESTABILITY/P10 — provider injection para testes instrumentados (Draft)](https://github.com/guilhermemellojw/better-talker/pull/90) | Beta e infraestrutura | `a016cdfd4387` | Pendente |
-| [#89 — test(physical): instrumentação P9 — Room, CAS e ViewModel (Draft) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/89) | Beta e infraestrutura | `7bdcfcefb925` | Pendente |
+| [#89 — test(physical): instrumentação P9 — Room, CAS e ViewModel (Draft) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/89) | Beta e infraestrutura | `42bd9726a228` | Pendente |
 | [#88 — COORD-OPS/P9 — prontidão operacional isolada e piloto sintético (Draft)](https://github.com/guilhermemellojw/better-talker/pull/88) | Documentação | `c11dd08ee599` | Verde (com ignorados) |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
