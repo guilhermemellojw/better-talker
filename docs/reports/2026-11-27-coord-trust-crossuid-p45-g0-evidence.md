@@ -5,7 +5,7 @@ merge, deploy, piloto, usuário persistente, secret de produção, transporte
 real, POST, LLM ou Android foi executado.
 
 **Baseline:** `d2022b2062a5a694e3bc724a5c9553e2d00b4d04` (P4.4 documental).
-**SHA de implementação P4.5:** `<CODE_SHA>`.
+**SHA de implementação P4.5:** `7066a482ff9e7f4628f8d9962f6623a213a6eba3`.
 **Candidato histórico (dispatch FAIL):** `31a150330d2b9c8af420cdfac322fde73132dda8`.
 **SHA final certificado:** definido no comentário externo de certificação em
 https://github.com/guilhermemellojw/better-talker/pull/87; não é
