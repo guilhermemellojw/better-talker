@@ -548,7 +548,7 @@ transporte real.
 
 ## 11. Driver implementado e lacunas residuais
 
-**Implementado nesta rodada (código `933846b714b05dec786ef9ab99290af80039fb67`;
+**Implementado nesta rodada (código `9c876727efab5cc4f88c0cd10c986b774fe48cf7`;
 sem tocar no serviço/ledger/autoridade):**
 
 - `.opencode/scripts/coord_ops_p9_pilot.py`: driver `--mode synthetic`, nove

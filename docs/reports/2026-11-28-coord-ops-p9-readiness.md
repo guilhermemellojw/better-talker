@@ -8,7 +8,7 @@ rodada. O runbook está em
 **Baseline:** `ab9f08c4b233ea8d3c273084b720f8ffa827d022` (main, PR #87
 integrado); PR #88 em Draft. **Certificação cross-UID histórica:** 106/106.
 **Suíte Python:** 745 (P9.2: 578 discover + 167 supervisor).
-**Código P9.2:** `933846b714b05dec786ef9ab99290af80039fb67`.
+**Código P9.2:** `9c876727efab5cc4f88c0cd10c986b774fe48cf7`.
 `real_transport=false`.
 
 ## 1. Sumário executivo
