@@ -1,4 +1,4 @@
-# COORD-TRUST-BOUNDARY/P3 — serviço local de autoridade e ledger
+# COORD-TRUST-BOUNDARY/P3/P4 — serviço local de autoridade e ledger
 
 **Estado:** fundação em PR Draft; nenhuma operação real, instalação, usuário,
 sudo, migração, credencial ou transporte real foi executado.
@@ -109,9 +109,10 @@ permanece desabilitado (`real_transport=false`).
   `service_id` público; não basta um path.
 - A âncora de rollback é monotônica fora do `state_dir`. Ledger ou service
   state atrasado entra em quarentena; recuperação exige declaração assinada
-  por autoridade externa e cria nova epoch. Restaurar ledger e service state
-  juntos ainda exige política forward-only e revogação externa — a âncora não é
-  distribuída.
+  por autoridade externa e cria nova epoch. O nonce da declaração é consumido
+  de forma persistente e não pode ser reutilizado em epoch futura. Restaurar
+  ledger e service state juntos ainda exige política forward-only e revogação
+  externa — a âncora não é distribuída.
 - Trust store/consumer registry são arquivos 0600 do serviço; alteração exige
   reinício controlado e não é feita pelo agente.
 
@@ -127,20 +128,42 @@ credenciais SCM ausentes/divergentes/truncadas, replay histórico vs atual,
 autoconcessão, least privilege, hardlinks/sidecars, substituição de socket,
 autenticação do servidor, timeout total, adulteração de ledger/service state,
 quarentena/rollback, revogação, interrupção, atestação forjada/relatório
-adulterado, transporte desabilitado e jornada completa sintética.
+adulterado, transporte desabilitado, nonce de recuperação e jornada completa
+sintética.
 
 Evidência local (`unshare -rn`):
 
 | Suíte | Resultado |
 |---|---|
-| `test_coord_trust_service.py` | **40/40 OK** |
-| `unittest discover` | **546/546 OK** |
+| `unittest discover` (inclui os 41 do serviço e os 17 P4) | **564/564 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **713/713** |
+| Total | **731/731 = 564 + 167** |
 
-Teste cross-UID com dois UIDs reais é **BLOCKED** neste host (sem privilégio
-para criar/menorizar UID; usuários reais não são criados). O procedimento
-descartável está no runbook e deve ser executado por B/CI antes do piloto.
+`test_coord_trust_service.py` (**41/41**) é subconjunto do discover; não entra
+novamente na soma.
+
+A certificação cross-UID real é um job **opt-in** no workflow
+`.github/workflows/coord-python.yml` (`workflow_dispatch`, inputs
+`crossuid_full=true` e `certified_sha=<40-hex>`, timeout de 10 min). O job
+recebe `certified_sha` por env, exige formato 40-hex, `GITHUB_SHA` e checkout
+HEAD iguais ao certificado, bloqueia `run_attempt != 1`, faz checkout exato
+sem credenciais persistidas e tem limpeza `always()` por manifest/`run_id`.
+A suíte ordinária é omitida quando `crossuid_full=true`. O harness
+`.opencode/scripts/coord_trust_crossuid_harness.py` cobre G1–G9 em runner
+descartável, com dois UIDs numéricos efêmeros, sem criar usuários. Antes de G1
+ele copia um runtime bundle mínimo (`0555`/`0444`) para fora do checkout e
+verifica, sob os UIDs efetivos, interpretador, scripts, imports, ancestrais e
+negação de state/trust/âncora/chaves. O serviço recebe um `/etc/passwd`/`group`
+sintético em mount namespace privado apenas para getpwuid do OpenSSH; o UID
+continua 65533, o host não é alterado e nenhum usuário é criado. O dispatch do
+candidato histórico P4.2 `31a150330d2b9c8af420cdfac322fde73132dda8` falhou no
+run `46081657455`; após P4.3/P4.5, o dispatch do HEAD P4.5
+`876bc654ce1ab1032f64e25405d89cb8601e55d3` falhou no run `46087440250`
+(G1/G3/G4/G5/G7), com causa raiz OpenSSH/NSS documentada em
+`docs/reports/2026-11-27-coord-trust-crossuid-p46-signed-authority.md`. Ambas
+as autorizações foram consumidas e nenhuma nova execução está autorizada. O
+teste local com dois UIDs reais continua **BLOCKED** neste host (sem privilégio
+para criar/menorizar UID; usuários reais não são criados).
 
 ## 6. Limitações
 

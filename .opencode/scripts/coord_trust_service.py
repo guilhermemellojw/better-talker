@@ -111,6 +111,41 @@ class ServiceConflict(ServiceError):
     code = "CONFLICT"
 
 
+class CryptoInfrastructure(ServiceError):
+    """Falha ao executar a verificação criptográfica local."""
+
+    code = "CRYPTO_INFRASTRUCTURE"
+
+
+_SAFE_REASONS = frozenset({
+    "TRUST_POLICY_MISMATCH", "APPROVER_KEY_UNKNOWN", "FINGERPRINT_MISMATCH",
+    "APPROVER_KEY_INACTIVE", "AUTHORIZATION_NOT_YET_VALID",
+    "AUTHORIZATION_EXPIRED", "SIGNATURE_INVALID", "OPERATION_MISMATCH",
+    "MISSION_IDENTITY_MISMATCH", "MISSION_MATERIAL_MISMATCH",
+    "MISSION_SOURCE_ERROR", "MISSION_IDENTITY_INVALID",
+    "INSUFFICIENT_ENVELOPE", "UNKNOWN_SCHEMA", "INVALID_ENVELOPE",
+    "REVOCATION_SIGNATURE_INVALID", "AUTHORIZATION_REVOKED",
+    "CRYPTO_INFRASTRUCTURE",
+})
+
+
+def _authentication_error(message: str, reason: str) -> AuthenticationError:
+    """Rejeição de recuperação com código diagnóstico allowlisted."""
+    error = AuthenticationError(message)
+    error.reason = reason
+    return error
+
+
+def _safe_reason(exc: Exception) -> str:
+    """Código diagnóstico allowlisted; nunca devolve a mensagem crua."""
+    if isinstance(exc, CryptoInfrastructure):
+        return "CRYPTO_INFRASTRUCTURE"
+    match = re.match(r"^([A-Z][A-Z0-9_]{2,}):", str(exc))
+    if match and match.group(1) in _SAFE_REASONS:
+        return match.group(1)
+    return "INTERNAL"
+
+
 def canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"),
                       ensure_ascii=False)
@@ -696,6 +731,11 @@ class ServiceState:
                     outcome TEXT NOT NULL,
                     detail_sha256 TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS service_recovery_nonces (
+                    nonce TEXT PRIMARY KEY,
+                    epoch INTEGER NOT NULL,
+                    used_at TEXT NOT NULL
+                );
             """)
             columns = {
                 row[1] for row in conn.execute(
@@ -756,6 +796,25 @@ class ServiceState:
     def clear_requests(self) -> None:
         with self._write() as conn:
             conn.execute("DELETE FROM service_requests")
+
+    def consume_recovery_nonce(self, nonce: str, epoch: int,
+                               now: datetime) -> None:
+        """Consome o nonce de recuperação de forma persistente e irreversível.
+
+        A epoch já bloqueia a repetição da mesma declaração; o nonce persistido
+        também impede que uma nova declaração assinada reutilize o mesmo nonce
+        para uma epoch futura. Falhas posteriores à gravação queimam o nonce
+        (fail closed); a autoridade deve emitir outro.
+        """
+        with self._write() as conn:
+            try:
+                conn.execute(
+                    """INSERT INTO service_recovery_nonces
+                       (nonce, epoch, used_at) VALUES (?,?,?)""",
+                    (nonce, int(epoch), _iso(now)))
+            except sqlite3.IntegrityError as exc:
+                raise ServiceConflict(
+                    "nonce de recuperação já utilizado") from exc
 
     def get_mission(self, mission_id: str) -> cc.MissionEnvelope:
         with self._read() as conn:
@@ -1221,7 +1280,10 @@ class TrustService:
             self.state.audit(
                 consumer.consumer_id, action, "ok", {"request_id": request_id},
                 self._now())
-            if action != "recover" and not self.quarantined:
+            # A recuperação também precisa selar a âncora DEPOIS do audit
+            # final; caso contrário um restart veria service_seq à frente da
+            # âncora e entraria em quarentena imediatamente após recuperar.
+            if not self.quarantined:
                 self._seal_anchor()
             response = {"ok": True, "request_id": request_id,
                         "result": dict(result)}
@@ -1240,7 +1302,9 @@ class TrustService:
             except Exception:
                 pass
             return {"ok": False, "request_id": request_id,
-                    "error": {"code": exc.code, "message": str(exc)}}
+                    "error": {"code": exc.code, "message": str(exc),
+                              "reason": getattr(exc, "reason",
+                                                _safe_reason(exc))}}
         except (ledger.LedgerError, cla.AuthorityContractError) as exc:
             try:
                 self.state.audit(
@@ -1251,7 +1315,8 @@ class TrustService:
                 pass
             return {"ok": False, "request_id": request_id,
                     "error": {"code": "SERVICE_REJECTED",
-                              "message": type(exc).__name__}}
+                              "message": type(exc).__name__,
+                              "reason": _safe_reason(exc)}}
         except Exception:
             try:
                 self.state.audit(
@@ -1262,7 +1327,10 @@ class TrustService:
                 pass
             return {"ok": False, "request_id": request_id,
                     "error": {"code": "SERVICE_ERROR",
-                              "message": "falha interna do serviço"}}
+                              "message": "falha interna do serviço",
+                              # Exceção desconhecida não é interpretada: o
+                              # motivo é sempre INTERNAL, sem binder `exc`.
+                              "reason": "INTERNAL"}}
 
     def _seal_anchor(self) -> None:
         try:
@@ -1294,27 +1362,50 @@ class TrustService:
             raise ServiceConflict("nova epoch deve ser maior que a atual")
         allowlist = self.authority.allowlist
         if statement.trust_policy_sha256 != allowlist.digest():
-            raise AuthenticationError("trust policy de recuperação divergente")
+            raise _authentication_error(
+                "trust policy de recuperação divergente",
+                "TRUST_POLICY_MISMATCH")
         approver = allowlist.find(
             statement.approver_id, statement.approver_key_fingerprint)
         if approver is None:
-            raise AuthenticationError("aprovador de recuperação desconhecido")
-        actual = cas.public_key_fingerprint(approver.public_key)
+            raise _authentication_error(
+                "aprovador de recuperação desconhecido",
+                "APPROVER_KEY_UNKNOWN")
+        try:
+            actual = cas.public_key_fingerprint(approver.public_key)
+        except Exception as exc:  # noqa: BLE001 - infraestrutura OpenSSH/NSS
+            raise CryptoInfrastructure(
+                "fingerprint de recuperação indisponível") from exc
         if actual != approver.fingerprint or actual != statement.approver_key_fingerprint:
-            raise AuthenticationError("fingerprint de recuperação divergente")
+            raise _authentication_error(
+                "fingerprint de recuperação divergente",
+                "FINGERPRINT_MISMATCH")
         now = self._now()
         if not approver.active_at(now):
-            raise AuthenticationError("chave de recuperação inativa")
+            raise _authentication_error(
+                "chave de recuperação inativa", "APPROVER_KEY_INACTIVE")
         issued = _utc(statement.issued_at, "issued_at")
         expires = _utc(statement.expires_at, "expires_at")
-        if now < issued or now >= expires:
-            raise AuthenticationError("janela de recuperação inválida")
+        if now < issued:
+            raise _authentication_error(
+                "janela de recuperação ainda não válida",
+                "AUTHORIZATION_NOT_YET_VALID")
+        if now >= expires:
+            raise _authentication_error(
+                "janela de recuperação expirada",
+                "AUTHORIZATION_EXPIRED")
         ok, detail = cas.verify_openssh_signature(
             data=canonical_recovery_bytes(statement),
             signature=_b64decode(payload["signature"], "signature"),
             approver=approver, namespace=RECOVERY_NAMESPACE)
         if not ok:
-            raise AuthenticationError(f"assinatura de recuperação inválida: {detail}")
+            if detail.startswith(("falha ao verificar assinatura",
+                                  "ssh-keygen indisponível")):
+                raise CryptoInfrastructure(
+                    "verificação de recuperação indisponível")
+            raise _authentication_error(
+                "assinatura de recuperação inválida", "SIGNATURE_INVALID")
+        self.state.consume_recovery_nonce(statement.nonce, statement.new_epoch, now)
         self.epoch = statement.new_epoch
         self.quarantined = False
         self.quarantine_reason = None
