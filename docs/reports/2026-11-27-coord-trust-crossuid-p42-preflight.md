@@ -8,8 +8,8 @@ autorizada.
 > **P4.3/P4.5:** a correção de runtime bundle/ancestrais está em
 > `docs/reports/2026-11-27-coord-trust-crossuid-p43-runner-fs.md`; a prova
 > G0/G8 está em `docs/reports/2026-11-27-coord-trust-crossuid-p45-g0-evidence.md`.
-> As contagens atuais são 564 discover + 167 supervisor = 731, com os 41 do
-> serviço e os 17 P4 dentro do discover. A causa raiz OpenSSH/NSS está em
+> As contagens atuais são 578 discover + 167 supervisor = 745, com os 41 do
+> serviço, 17 P4 e 14 P9 dentro do discover. A causa raiz OpenSSH/NSS está em
 > `docs/reports/2026-11-27-coord-trust-crossuid-p46-signed-authority.md`.
 
 Nenhum merge, deploy, piloto, usuário persistente, secret de produção,
@@ -59,9 +59,9 @@ sanitização e limpeza permanecem no runner normal.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 41 do serviço e os 17 P4) | **564/564 OK** |
+| `unittest discover` (inclui os 41 do serviço, 17 P4 e 14 P9) | **578/578 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **731 = 564 + 167** |
+| Total | **745 = 578 + 167** |
 
 `test_coord_trust_service.py` (**41/41**) e `test_coord_trust_crossuid.py`
 (**17/17**) são subconjuntos do discover; não entram novamente na soma. Também

@@ -137,9 +137,9 @@ autenticada. A suíte P3 continua 41/41.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 41 do serviço e os 17 P4) | **564/564 OK** |
+| `unittest discover` (inclui os 41 do serviço, 17 P4 e 14 P9) | **578/578 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **731 = 564 + 167** |
+| Total | **745 = 578 + 167** |
 
 `test_coord_trust_service.py` (**41/41**) e `test_coord_trust_crossuid.py`
 (**17/17**) são subconjuntos do discover; não entram novamente na soma. Os logs
@@ -161,7 +161,7 @@ UID); o harness não foi executado como root e o workflow não foi disparado.
 - Crash wrapper CI-only com `os._exit(137)` após COMMIT, preservando WAL para
   replay real; não há hook de crash no serviço normal.
 - 17 testes P4 no `unittest discover`; baseline do workflow `coord-python`
-  atualizado de 563/730 para **564/731** (regressão P4.7).
+  atualizado de 564/731 para **578/745** (P9.2).
 - P4.2 corrige A1 (transmit real), A2 (G6 estrito/BLOCKED), A3 (limpeza
   independente), A4 (sanitização), A5 (documentação) e A6 (escopo G9).
 - Nenhuma alteração em Android, transporte, LLM, credenciais reais ou no PR #82.

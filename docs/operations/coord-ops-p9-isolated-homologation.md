@@ -5,7 +5,8 @@ nesta rodada: sem sudo, instalação, criação de usuário no notebook, início
 serviço, piloto, dispatch, deploy, merge, transporte real, ADB ou LLM pago.
 
 **Baseline certificada:** `ab9f08c4b233ea8d3c273084b720f8ffa827d022` (main,
-PR #87 integrado). Certificação cross-UID: **106/106**. Suíte Python: **731**.
+PR #87 integrado). Certificação cross-UID histórica: **106/106**. Suíte
+Python: **745** (após P9.2).
 `real_transport=false` permanece o contrato.
 
 **Objetivo:** deixar pronta para autorização a primeira homologação operacional
@@ -19,8 +20,9 @@ reconstruir componentes aprovados.
 ## 1. Inventário de prontidão
 
 Legenda: **PRONTO** (implementado e testado), **CONFIG** (só configuração),
-**FALTA** (implementação/ambiente ausente), **FORA** (fora do escopo desta
-rodada).
+**FALTA** (implementação/ambiente ausente), **BLOQUEADO** (gate não pode
+executar sem pré-condição externa ou autorização), **FORA** (fora do escopo
+desta rodada).
 
 | Componente | Local principal | Estado | Observação |
 |---|---|---|---|
@@ -35,7 +37,7 @@ rodada).
 | Unidade systemd | `.opencode/deploy/coord-trust-service.service` | **CONFIG** | exemplo; não instalar no notebook |
 | Config/trust/registry | `.opencode/deploy/*.example.json` | **CONFIG** | placeholders; exigem material revisado |
 | Ambiente descartável | — | **FALTA** | sem VM/cloud-init/provisionamento versionado |
-| Piloto sintético no socket do serviço | — | **FALTA (driver pequeno)** | peças existentes cobrem partes; não há um driver único dos 9 passos |
+| Driver sintético do piloto | `.opencode/scripts/coord_ops_p9_pilot.py`, `test_coord_ops_p9_pilot.py` | **PRONTO (host-only)** | 14 testes com cliente falso; socket real/multi-UID permanece BLOCKED até a janela |
 | Supervisor / Agente S | `.opencode/agents/supervisor.md`, `docs/COORDINATOR.md`, `test_supervisor.py` | **PRONTO (política)** | 167 testes; SHADOW; não há motor de decisão operacional; piloto usa fixture determinística |
 | Operação do piloto no socket | `coord_trust_crossuid_client.py`, `ServiceClient` | **PRONTO (peças)** | cliente real do socket; falta o driver único dos 9 passos |
 | OpenCode real | — | **FORA** | exige instância privada, credencial, permissão e aprovação humana específicas |
@@ -66,6 +68,19 @@ rodada).
    uma sequência manual/orquestrada; a menor automação está na §11.
 5. Executar a matriz de homologação e obter revisão independente de B.
 
+### 1.3 Evidência já observada vs pré-condição ainda pendente
+
+| Classe | O que é | Estado |
+|---|---|---|
+| **Observado** | baseline `ab9f08c4`, PR #87 integrado, certificação 106/106, suíte histórica 731 e atual 745; driver P9.2 host-only e 14 testes novos | registrado por CI/PR; não é execução da janela |
+| **Observado** | `coord_ops_p9_pilot.py` e testes com cliente falso; signer helper em subprocesso; matriz H0–H15 + H3b | PASS host-only; **não** certifica socket real |
+| **Pendente** | VM, UIDs 9101–9106, config/trust/registry, signer materializado, service start, jornada no socket real, estados UNKNOWN/quarentena reais, limpeza da VM | BLOCKED até `P9-OPS-APPROVAL`/`P9-SYNTH-APPROVAL` |
+| **Pendente** | H0/H1/H2/H11/H13/H15 e H3b multi-UID real | BLOCKED; exigem operador/VM ou delta focal |
+| **Fora** | H15 OpenCode real, ASSISTED real, DELEGATED | exigem autorização separada |
+
+O driver host-only não deve ser citado como certificação do socket AF_UNIX. A
+futura janela é a única evidência operacional válida para H3/H3b reais.
+
 ---
 
 ## 2. Ambiente isolado proposto
@@ -84,15 +99,27 @@ não é um ambiente operacional interativo.
 | vCPU/RAM | 2 vCPU / 2 GiB |
 | Disco | 8 GiB, descartável; estado < 256 MiB |
 | Rede | loopback apenas; sem IP público, sem egress; serviço com `PrivateNetwork=yes` |
-| Duração | 90 min de janela; hard stop em 120 min |
+| Duração | janela assistida de 90 min; hard stop 120 min; preparação de engenharia é fora da janela |
 | Dados | 100% sintéticos; nenhuma sessão, credencial, worktree ou banco real |
 | Signer | chave sintética em diretório 0700 de UID separado; nunca no serviço/executor |
 | Limpeza | destruir a VM e o disco; nenhum resíduo no notebook |
 
 ### 2.2 UIDs/GIDs efêmeros (somente dentro da VM)
 
-Substituir os valores se houver colisão; verificar com `getent passwd <UID>`
-antes. Não criar esses usuários no notebook.
+Substituir os valores se houver colisão. **Preflight obrigatório antes da
+janela** (somente leitura; não executado nesta rodada):
+
+```sh
+for uid in 9101 9102 9103 9104 9105 9106; do
+  getent passwd "$uid" && echo "UID-OCUPADO-$uid" || true
+  getent group "$uid"  && echo "GID-OCUPADO-$uid" || true
+done
+```
+
+Se qualquer UID/GID estiver ocupado, escolher outro conjunto e registrar no
+manifesto; não reutilizar UID de serviço/consumidor. A ausência dos seis UIDs é
+pré-condição de PASS; colisão é **BLOCKED** até nova numeração. Não criar esses
+usuários no notebook.
 
 | Papel | UID:GID sugerido | Acesso |
 |---|---|---|
@@ -138,9 +165,9 @@ Aplicar somente na VM, via drop-in ou cgroup; não instalar nada no notebook.
 | Executor/coordenador | `CPUQuota=50%`, `MemoryMax=512M` cada |
 | Estado | < 256 MiB; alerta em 200 MiB |
 | Logs/artefatos | < 50 MiB; rotação/limpeza no encerramento |
-| Duração | 90 min; `RuntimeMaxSec` de 1800 s para o serviço como proteção |
+| Duração | janela 90 min; `RuntimeMaxSec` **não** deve ser 1800 s se puder encerrar o serviço entre `assert` e reconciliação; se usado, alinhar à janela (≥90 min) e registrar interrupção como `UNKNOWN` |
 | Rede | 0 conexões externas; 0 POST; 0 LLM |
-| Custo | US$ 0; nenhum modelo pago |
+| Custo | **LLM = US$ 0 (proibido); infraestrutura da VM = a autorizar em separado, com teto e responsável**; nenhum custo externo autorizado nesta rodada |
 
 ---
 
@@ -150,7 +177,8 @@ Antes de qualquer execução, registrar em `DECISIONS.md`/checkpoint:
 
 - `P9-OPS-APPROVAL`: autorização do mantenedor/coordenação para provisionar e
   destruir a VM, criar usuários efêmeros **dentro dela**, iniciar o serviço e
-  executar o piloto sintético.
+  executar o piloto sintético. Inclui **teto e responsável pelo custo de
+  infraestrutura**; não inclui LLM pago nem custo externo não aprovado.
 - `P9-SYNTH-APPROVAL`: autorização para gerar e usar a chave sintética do
   signer e a allowlist de teste; validade curta; sem chave real.
 - `P9-REVIEW`: designação de B como revisor independente desta matriz e dos
@@ -306,34 +334,46 @@ stat -c '%U:%G %a %F %n' /run/better-talker-coord/service.sock
 
 ### 5.4 Piloto sintético
 
-**Estado atual: BLOCKED para um único driver de 9 passos no socket.** As peças
-existentes podem ser executadas separadamente, mas não substituem o percurso
-único. Com o driver mínimo da §11 aprovado, o comando proposto seria:
+**Estado atual:** driver host-only implementado e coberto por 14 testes com
+cliente falso; a execução no socket AF_UNIX real continua **BLOCKED** até a
+janela e o wrapper de UID. O driver não lê chave privada: a autorização e a
+atestação são produzidas pelo helper do signer (ou artefatos públicos
+pré-assinados).
+
+Com o ambiente e o wrapper aprovados, a interface proposta é:
 
 ```sh
-# [VM, operador] PROPOSTO; script ainda NÃO implementado. Interface ilustrativa:
-# ele orquestra o executor e o signer separados, sem ler a chave privada.
-/opt/better-talker/.opencode/scripts/coord_ops_p9_pilot.py \
-  --config /etc/better-talker/trust-service.json \
-  --socket /run/better-talker-coord/service.sock \
-  --executor-user bt-coord-agent --signer-user bt-coord-signer \
-  --mode synthetic --scenario all \
-  --work-dir /var/lib/better-talker-p9-work \
-  --artifacts /var/lib/better-talker-p9-artifacts
+# [VM, UID do executor] PROPOSTO; não executado nesta rodada.
+# O helper do signer é um processo separado (UID 9106) ou artefato pré-assinado.
+runuser -u bt-coord-agent -- env -i \
+  PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp LANG=C LC_ALL=C \
+  python3 /opt/better-talker/.opencode/scripts/coord_ops_p9_pilot.py \
+    --mode synthetic --scenario positive \
+    --socket /run/better-talker-coord/service.sock \
+    --service-uid 9101 --service-gid 9101 --service-id <id> \
+    --signer-helper "<comando do signer, executado sob UID 9106>" \
+    --work-dir /var/lib/better-talker-p9-work \
+    --artifacts /var/lib/better-talker-p9-artifacts \
+    --source-head <HEAD-certificado>
 ```
 
-A autorização inicial pode ser pré-assinada pelo signer e entregue como
-artefato público. A atestação terminal depende de receipt/report/evidence e
-exige uma segunda chamada do signer (helper/one-shot) ou pausa operacional; o
-driver não pode assiná-la. A interface final deve ser fechada na aprovação do
-script; executar tudo como executor, sem acesso ao signer, é inválido para o
-passo 8.
+O driver orquestra `propose → authorize → reserve → assert →
+record_evidence → reconcile → status` e a simulação `SimulatedTransport`;
+`H3b` exige um wrapper multi-UID (coordenador/executor/observer/maintainer) e
+permanece **BLOCKED** no CLI single-UID. O helper pode ser executado pelo
+operador em um passo separado; a chave privada nunca entra no processo do
+executor.
 
-Sem o driver, executar apenas as evidências parciais já existentes (host-only,
-fora da VM operacional) e registrar **BLOCKED**, nunca PASS:
+Ainda faltam, como pré-condições operacionais: o wrapper de troca de UID por
+chamada, a exposição do signer ao executor (socket/arquivo pré-assinado) e a
+execução H3b multi-UID. Nada disso é suprido por mock no socket real.
+
+Os testes host-only existentes podem ser executados separadamente, mas **não**
+substituem a jornada no socket:
 
 ```sh
 # [host-only, não é o piloto operacional]
+python3 .opencode/scripts/test_coord_ops_p9_pilot.py
 python3 .opencode/scripts/demo_communication.py
 python3 .opencode/scripts/coord_pilot_cli.py --store-dir /tmp/p9-dry dry-run
 python3 -m unittest discover
@@ -379,18 +419,18 @@ converter ausência em PASS).
 
 | ID | Cenário | Evidência mínima | PASS | BLOCKED |
 |---|---|---|---|---|
-| H0 | Isolamento da VM | UIDs, mounts, `real_transport=false`, rede sem egress | tudo confere; nenhum dado real | VM/UID/rede não comprovados |
+| H0 | Isolamento da VM | UIDs/GIDs livres (preflight), socket AF_UNIX real, mounts, `real_transport=false`, rede sem egress, chave privada fora do executor | tudo confere; nenhum dado real | VM/UID/rede/chave não comprovados |
 | H1 | Config/health | `CONFIG-OK real_transport=false` sob UID do serviço | check OK; sem ledger/socket criado indevidamente | config/trust/registry inválidos |
-| H2 | Socket e least privilege | socket 0660, grupo, state inacessível ao consumidor | consumidor só socket; leitura do estado negada | permissão divergente/UID compartilhado |
-| H3 | Piloto sintético positivo | 9 passos; `COMPLETED`; `MISS-P9-SYNTH-002` PROPOSED | estado/evidências coerentes; 0 POST real | driver ausente ou passo não observado |
-| H3b | Separação de papéis (config nova) | coordenador `propose/authorize`; executor `reserve/assert/evidence/reconcile` | ambos os códigos/estados esperados; sem autoaprovação | registry dividido não validado em cross-UID |
-| H4 | Autorização inválida | assinatura/envelope alterado | rejeição esperada; sem reserva/despacho | exceção escapou ou reserva ocorreu |
+| H2 | Socket e least privilege | socket 0660, grupo, state inacessível ao consumidor, chave privada inacessível ao executor | consumidor só socket; leitura do estado e da chave negada | permissão divergente/UID compartilhado/chave acessível |
+| H3 | Piloto sintético positivo | **jornada única no socket AF_UNIX real (`ServiceClient`)**; 9 passos; signer 9106 assina autorização **e** atestação; `COMPLETED`; `MISS-P9-SYNTH-002` PROPOSED; `transport_real=false`; **0 POST** | estado/evidências coerentes; lease único; 0 POST | driver/socket/signer não observado ou passo não executado |
+| H3b | Separação de papéis (config nova) | coordenador `propose/authorize`; executor `reserve/assert/evidence/reconcile`; observer/maintainer `status` | host-only: ambos os códigos/estados; sem autoaprovação | cross-UID real não validado; exige delta focal |
+| H4 | Autorização inválida | assinatura/envelope alterado; código e `reason` registrados | `SERVICE_REJECTED`/`SIGNATURE_INVALID` (ou `UNAUTHENTICATED_PEER`); sem reserva/despacho | outro código, exceção escapou ou reserva ocorreu |
 | H5 | Duplicidade/replay | repetição de reserve/request_id | replay/`REQUEST_REPLAY`/`CONFLICT`; um lease | segundo despacho ou estado divergente |
 | H6 | Ausência de autorização | reserve/assert sem authorize | falha fechada; nenhum lease | operação aceita |
 | H7 | Interrupção/UNKNOWN | interrupt após assert | `UNKNOWN`; sem reenvio | estado terminal falso ou reenvio |
 | H8 | Timeout/perda | adaptador sintético sem receipt | `UNKNOWN`; reconciliação só com evidência | COMPLETED por presunção |
 | H9 | Conflito de ownership | dois agentes/consumidores na mesma sessão | segunda reserva recusada | duas transmissões/leases |
-| H10 | Relatório/atestado divergente | hash/identidade/resultado alterado | rejeição; sem COMPLETED | relatório aceito |
+| H10 | Relatório/atestado divergente | hash/identidade/resultado alterado; assinatura do signer 9106 | `SERVICE_REJECTED`/`SIGNATURE_INVALID` (ou código de reconciliação específico); sem COMPLETED | relatório aceito ou código divergente não registrado |
 | H11 | Rollback/quarentena | restaurar ledger antigo | quarentena; recuperação assinada nova epoch | estado antigo volta a valer |
 | H12 | Falha interna/sanitização | exceção inesperada/audit fail | `SERVICE_ERROR`/`INTERNAL`; sem path/traceback | exceção escapou ou vazou |
 | H13 | Limpeza | após destruir VM | nenhum processo/socket/usuário no notebook; chaves descartadas | resíduo ou unidade instalada |
@@ -417,7 +457,10 @@ ignorada; ou limpeza não comprovada.
 | Estado/artefatos | < 256 MiB / < 50 MiB |
 | Rede | 0 conexões externas; somente AF_UNIX |
 | LLM/tokens | 0; nenhum modelo pago |
-| Tempo | setup 20 min, piloto 30 min, negativos 20 min, cleanup/revisão 20 min; hard stop 120 min |
+| Preparação de engenharia | 7–10 h **fora da janela** (VM, config, signer, driver, ensaios) |
+| Janela assistida | 90 min, hard stop 120 min: preflight 10, H3 25, negativos H4–H10/H12 30, H3b/limpeza/reevidência 20, folga 5 |
+| Regra de início | não iniciar nova missão se o tempo restante for menor que o timeout da missão + reconciliação; senão BLOCKED |
+| Interrupção | serviço encerrado antes da reconciliação vira `UNKNOWN`; nunca reenviar |
 | Pessoas | 1 operador, 1 aprovador, 1 revisor B; o operador não assina a própria autorização |
 
 ---
@@ -479,17 +522,19 @@ autorização específica. Para P9, o limite é ASSISTED sintético.
 
 | Etapa | Esforço estimado |
 |---|---|
-| Revisão B deste runbook | 1 ciclo de revisão |
-| VM + UIDs + config + signer + health check | 2–3 h |
-| Piloto sintético positivo (9 passos) | 2–3 h |
-| Matriz negativa + rollback/quarentena | 2–3 h |
-| Cleanup e evidência sanitizada | 1 h |
-| Preflight OpenCode read-only (futuro) | 2 h |
+| Revisão B deste runbook/driver | 1 ciclo de revisão |
+| **Preparação de engenharia (fora da janela)**: VM, UIDs, config, signer, wrapper de UID, ensaio host-only; inclui o esforço de 7–10 h do plano original | 7–10 h |
+| **Janela assistida de execução** | **90 min, hard stop 120 min**: preflight 10, H3 25, negativos 30, H3b/limpeza/reevidência 20, folga 5 |
+| Revisão B pós-janela | 1 ciclo de revisão |
+| Preflight OpenCode read-only (futuro) | 2 h, fora desta janela |
 | Ponte dispatcher/lease + revisão (futuro) | 1–2 ciclos |
 | Primeiro ASSISTED real (futuro) | 1 janela autorizada, 1 POST |
 | DELEGATED | fora desta estimativa |
 
-Estimativas são faixa de esforço, não compromisso de prazo.
+A preparação de engenharia **não** consome a janela de 90 min. Dentro da janela,
+não iniciar missão se o tempo restante for menor que o timeout + reconciliação;
+caso contrário, BLOCKED e UNKNOWN preservado. Infraestrutura tem teto a
+autorizar; LLM é US$ 0 por proibição.
 
 ### 10.3 Handoff para B
 
@@ -501,31 +546,32 @@ transporte real.
 
 ---
 
-## 11. Lacuna de código (decisão da coordenação)
+## 11. Driver implementado e lacunas residuais
 
-**Nenhuma alteração de código foi feita nesta rodada.**
+**Implementado nesta rodada (código `933846b714b05dec786ef9ab99290af80039fb67`;
+sem tocar no serviço/ledger/autoridade):**
 
-Para o piloto único de 9 passos no socket do serviço, a menor alteração
-candidata é **um script de homologação (host-only/VM)**, sem tocar no
-serviço/ledger/autoridade:
+- `.opencode/scripts/coord_ops_p9_pilot.py`: driver `--mode synthetic`, nove
+  passos, `SimulatedTransport`, `ServiceClient`, signer helper subprocessual,
+  summary sanitizado, matriz H0–H15 + H3b, lease único, UNKNOWN sem reenvio,
+  fail-closed e limpeza.
+- `.opencode/scripts/test_coord_ops_p9_pilot.py`: 14 testes host-only com
+  cliente falso: positivo, autorizações inválidas, duplicidade, ausência,
+  interrupção/UNKNOWN, ownership, atestado divergente, falha interna, papéis,
+  sanitização/cleanup, helper do signer e CLI.
+- A matriz marca H0/H1/H2/H11/H13/H15 como **BLOCKED** (ambiente/VM), H3b
+  host-only como coberto e H14 como synthetic-only. O driver **não** declara
+  PASS operacional sem a janela.
 
-- `.opencode/scripts/coord_ops_p9_pilot.py` (nome proposto): ~250–350 linhas;
-  usa `ServiceClient`, fixtures de `coord_trust_crossuid_common` e
-  `SimulatedTransport`; recebe assinaturas do signer separado (não lê a chave
-  privada); aceita `--mode synthetic`; grava `summary.json` sanitizado; não
-  abre rede; não habilita `transmit`.
-- `.opencode/scripts/test_coord_ops_p9_pilot.py`: cobre passo positivo,
-  autorização inválida, duplicidade, ausência, interrupção, UNKNOWN, ownership,
-  atestado divergente, auditoria e cleanup; sem serviço real em CI comum
-  (host-only/fake client), com teste de socket apenas no ambiente autorizado.
-- Nenhuma mudança em `coord_trust_service.py`, `coord_ledger.py`,
-  `coord_authority_signed.py`, `coord_pilot.py` ou no workflow de certificação.
+**Lacunas residuais (não implementadas):**
 
-Alternativa sem código: executar o roteiro manual com `ServiceClient` e os
-fixtures existentes; aceitável para uma janela única, porém menos reproduzível
-e mais sujeito a erro de operador. **Recomendação:** aprovar o script de homologação
-antes da janela; se a coordenação preferir zero código, registrar a execução
-manual como tal e não declarar automação.
+1. Wrapper que executa o driver sob o UID do executor e o signer sob UID 9106,
+   com passagem de autorização/atestado sem chave privada no executor.
+2. H3b multi-UID real (o teste host-only cobre a matriz de permissões, não o
+   kernel/SCM_CREDENTIALS).
+3. VM/provisionamento, config/trust/registry e limites (P9-OPS).
+4. Ponte dispatcher/lease para ASSISTED real; H15 e DELEGATED permanecem
+   bloqueados/fora.
 
-Para ASSISTED real, a lacuna não é “pequena flag”: é a ponte dispatcher/lease
-descrita na §9.1; não implementar sem decisão e revisão específicas.
+Qualquer wrapper adicional deve ser host-only ou de ambiente, sem alterar o
+serviço, o ledger, a autoridade ou o transporte produtivo.

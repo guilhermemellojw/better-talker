@@ -84,11 +84,11 @@ sanitizada.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui 41 serviço + 17 P4) | **564/564 OK** |
+| `unittest discover` (inclui 41 serviço + 17 P4 + 14 P9) | **578/578 OK** |
 | `test_coord_trust_service.py` | **41/41 OK** |
 | `test_coord_trust_crossuid.py` | **17/17 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **731 = 564 + 167** |
+| Total | **745 = 578 + 167** |
 
 Também passaram `py_compile`, parser YAML do workflow, `git diff --check` e a
 varredura AST de handlers. A CI do HEAD final e o resultado do job cross-UID

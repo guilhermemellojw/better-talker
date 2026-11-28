@@ -87,9 +87,9 @@ G8 depois que existem.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 41 do serviço e os 17 P4) | **564/564 OK** |
+| `unittest discover` (inclui os 41 do serviço, 17 P4 e 14 P9) | **578/578 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **731 = 564 + 167** |
+| Total | **745 = 578 + 167** |
 
 `test_coord_trust_service.py` (**41/41**) e `test_coord_trust_crossuid.py`
 (**17/17**) são subconjuntos do discover; não entram novamente na soma. Também
