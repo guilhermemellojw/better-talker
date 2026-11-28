@@ -185,9 +185,13 @@ trust store, chave privada ou âncora.
 
 **Estado local: BLOCKED** — o host desta rodada não permite criar/menorizar um
 segundo UID sem privilégio; usuários reais não foram criados. O teste com dois
-UIDs reais só roda em runner/VM descartável. O dispatch único do candidato
-`31a150330d2b9c8af420cdfac322fde73132dda8` falhou no run `46081657455`; a
-autorização foi consumida e nenhuma nova execução está autorizada.
+UIDs reais só roda em runner/VM descartável. O dispatch do candidato histórico
+P4.2 `31a150330d2b9c8af420cdfac322fde73132dda8` falhou no run `46081657455`.
+Após P4.3/P4.5, o dispatch do HEAD P4.5
+`876bc654ce1ab1032f64e25405d89cb8601e55d3` falhou no run `46087440250`
+(G1/G3/G4/G5/G7); a causa raiz OpenSSH/NSS e a correção P4.6 estão em
+`docs/reports/2026-11-27-coord-trust-crossuid-p46-signed-authority.md`. Ambas
+as autorizações foram consumidas e nenhuma nova execução está autorizada.
 
 A certificação P4 é um job **exclusivamente opt-in** no workflow
 `.github/workflows/coord-python.yml`:
@@ -252,6 +256,14 @@ O bundle vincula `source_head`/`certified_sha` e cada SHA-256 ao blob
 `--certified-sha`). Após a limpeza, o manifesto bruto e `cleanup.json` são
 removidos, mas `runtime_bundle` e `access_evidence` sanitizados permanecem em
 `summary.json.sanitized`/log da execução.
+
+O OpenSSH consulta `getpwuid` mesmo em fingerprint/verify; o UID 65533 não tem
+entrada em `/etc/passwd` do host. O serviço é iniciado em um mount namespace
+privado com `passwd`/`group` sintéticos (`bt-coord-trust:65533`), seguido de
+`setpriv`; nada é alterado em `/etc` do host e nenhum usuário é criado. G0
+executa fingerprint e `ssh-keygen -Y verify` sob 65533 com esse NSS efêmero;
+falha do mount ou do OpenSSH interrompe antes de G1. O serviço permanece
+65533:65533, sem root/capabilities.
 
 Cobertura obrigatória do job:
 

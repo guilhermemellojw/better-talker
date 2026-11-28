@@ -1,6 +1,9 @@
 # COORD-TRUST-BOUNDARY/P4.5 — fechamento de evidência G0/G8
 
-**Estado:** Draft; correção exclusiva das provas de acesso. Nenhum dispatch,
+**Estado:** Draft; correção exclusiva das provas de acesso. A causa raiz
+OpenSSH/NSS está em
+`docs/reports/2026-11-27-coord-trust-crossuid-p46-signed-authority.md`.
+Nenhum dispatch,
 merge, deploy, piloto, usuário persistente, secret de produção, transporte
 real, POST, LLM ou Android foi executado.
 
@@ -73,19 +76,23 @@ e serviço com leitura esperada. Falha em qualquer condição impede G1.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui 40 serviço + 13 P4) | **559/559 OK** |
+| `unittest discover` (inclui 40 serviço + 17 P4) | **563/563 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **726 = 559 + 167** |
+| Total | **730 = 563 + 167** |
 
 `test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
-(**13/13**) são subconjuntos do discover; não entram novamente na soma.
+(**17/17**) são subconjuntos do discover; não entram novamente na soma.
 Também passaram `py_compile`, YAML e `git diff --check`. Logs locais não são
 versionados.
 
 ## 6. Limites
 
-- A autorização anterior foi consumida pelo run `46081657455` (FAIL); nenhuma
-  nova execução está autorizada.
+- A autorização anterior foi consumida pelo run `46081657455` (FAIL). O
+  dispatch posterior do HEAD P4.5
+  `876bc654ce1ab1032f64e25405d89cb8601e55d3` falhou no run `46087440250`
+  (G1/G3/G4/G5/G7); a causa e a correção P4.6 estão em
+  `docs/reports/2026-11-27-coord-trust-crossuid-p46-signed-authority.md`.
+  Nenhuma nova execução está autorizada.
 - G6 estrito, `certified_sha`, `run_attempt=1`, timeout de 10 min, limpeza
   `always()`, sanitização e `real_transport=false` permanecem inalterados.
 - Sem merge, deploy, piloto, transporte real, instalação ou criação de usuário.

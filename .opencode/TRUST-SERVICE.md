@@ -135,9 +135,9 @@ Evidência local (`unshare -rn`):
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 13 P4) | **559/559 OK** |
+| `unittest discover` (inclui os 40 do serviço e os 17 P4) | **563/563 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **726/726 = 559 + 167** |
+| Total | **730/730 = 563 + 167** |
 
 `test_coord_trust_service.py` (**40/40**) é subconjunto do discover; não entra
 novamente na soma.
@@ -153,11 +153,17 @@ A suíte ordinária é omitida quando `crossuid_full=true`. O harness
 descartável, com dois UIDs numéricos efêmeros, sem criar usuários. Antes de G1
 ele copia um runtime bundle mínimo (`0555`/`0444`) para fora do checkout e
 verifica, sob os UIDs efetivos, interpretador, scripts, imports, ancestrais e
-negação de state/trust/âncora/chaves. O dispatch único do candidato
-`31a150330d2b9c8af420cdfac322fde73132dda8` falhou no run `46081657455`; a
-autorização foi consumida e nenhuma nova execução está autorizada. O teste
-local com dois UIDs reais continua **BLOCKED** neste host (sem privilégio para
-criar/menorizar UID; usuários reais não são criados).
+negação de state/trust/âncora/chaves. O serviço recebe um `/etc/passwd`/`group`
+sintético em mount namespace privado apenas para getpwuid do OpenSSH; o UID
+continua 65533, o host não é alterado e nenhum usuário é criado. O dispatch do
+candidato histórico P4.2 `31a150330d2b9c8af420cdfac322fde73132dda8` falhou no
+run `46081657455`; após P4.3/P4.5, o dispatch do HEAD P4.5
+`876bc654ce1ab1032f64e25405d89cb8601e55d3` falhou no run `46087440250`
+(G1/G3/G4/G5/G7), com causa raiz OpenSSH/NSS documentada em
+`docs/reports/2026-11-27-coord-trust-crossuid-p46-signed-authority.md`. Ambas
+as autorizações foram consumidas e nenhuma nova execução está autorizada. O
+teste local com dois UIDs reais continua **BLOCKED** neste host (sem privilégio
+para criar/menorizar UID; usuários reais não são criados).
 
 ## 6. Limitações
 

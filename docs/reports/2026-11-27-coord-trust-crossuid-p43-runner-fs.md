@@ -2,7 +2,9 @@
 
 **Estado:** Draft; P4.4 reconciliou a documentação e P4.5 fecha as provas G0/G8.
 A prova de acesso está em
-`docs/reports/2026-11-27-coord-trust-crossuid-p45-g0-evidence.md`.
+`docs/reports/2026-11-27-coord-trust-crossuid-p45-g0-evidence.md`; a causa raiz
+OpenSSH/NSS está em
+`docs/reports/2026-11-27-coord-trust-crossuid-p46-signed-authority.md`.
 O dispatch
 único do candidato histórico `31a150330d2b9c8af420cdfac322fde73132dda8` falhou
 no run `46081657455`; a autorização foi consumida e **nenhuma nova execução**
@@ -85,12 +87,12 @@ G8 depois que existem.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 13 P4) | **559/559 OK** |
+| `unittest discover` (inclui os 40 do serviço e os 17 P4) | **563/563 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **726 = 559 + 167** |
+| Total | **730 = 563 + 167** |
 
 `test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
-(**13/13**) são subconjuntos do discover; não entram novamente na soma. Também
+(**17/17**) são subconjuntos do discover; não entram novamente na soma. Também
 passaram `py_compile`, parser YAML e `git diff --check`. Os logs locais não são
 versionados. O dispatch do candidato histórico falhou; nenhuma nova execução foi
 autorizada/executada nesta rodada.

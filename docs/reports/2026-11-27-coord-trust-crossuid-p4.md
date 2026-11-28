@@ -1,10 +1,13 @@
-# COORD-TRUST-BOUNDARY/P4/P4.2/P4.3/P4.5 — certificação cross-UID descartável
+# COORD-TRUST-BOUNDARY/P4/P4.2/P4.3/P4.5/P4.6 — certificação cross-UID descartável
 
-**Estado:** Draft; P4.4 reconciliou a documentação e P4.5 fecha as provas G0/G8 de acesso. O
-dispatch único do candidato `31a150330d2b9c8af420cdfac322fde73132dda8` falhou
-no run `46081657455`; a autorização foi consumida e nenhuma nova execução está
-autorizada. Nenhum merge, deploy, piloto, usuário persistente, secret de
-produção, transporte real, POST, LLM ou Android foi executado.
+**Estado:** Draft; P4.4 reconciliou a documentação, P4.5 fechou as provas G0/G8
+de acesso e P4.6 corrige a causa raiz OpenSSH/NSS. O dispatch do candidato
+histórico `31a150330d2b9c8af420cdfac322fde73132dda8` falhou no run
+`46081657455`; após P4.3/P4.5, o dispatch do HEAD
+`876bc654ce1ab1032f64e25405d89cb8601e55d3` falhou no run `46087440250`
+(G1/G3/G4/G5/G7). Ambas as autorizações foram consumidas e nenhuma nova
+execução está autorizada. Nenhum merge, deploy, piloto, usuário persistente,
+secret de produção, transporte real, POST, LLM ou Android foi executado.
 
 **Base:** `main` no merge do PR #83, `cc7b452253d0e6a8039e36c32e4276fd14937e80`;
 cabeça P3 certificada por B: `fa89ebb23cf13cca86d6c475d2771e7891cd4844`.
@@ -22,9 +25,12 @@ foi removido. Ver
 **P4.5:** a prova G0/G8 (PermissionError vs ENOENT, existência, não-gravabilidade
 e hashes do bundle) está em
 `docs/reports/2026-11-27-coord-trust-crossuid-p45-g0-evidence.md`.
+**P4.6:** a causa raiz OpenSSH/NSS e o mount efêmero estão em
+`docs/reports/2026-11-27-coord-trust-crossuid-p46-signed-authority.md`.
 **Branch:** `feat/coord-trust-crossuid-cert`.
 **SHA de implementação (código final P4.3):** `17cd7d37138407a7602d4848fe994e4f9de9f53d`.
 **SHA de implementação P4.2:** `5ee8d98cc9f739caff91686728c4a736f9cc4b3d`.
+**SHA de implementação P4.6:** `ca915c7072ec34f0a2db65d1ae7b3ede894facf6`.
 **SHA do candidato histórico (dispatch FAIL):** `31a150330d2b9c8af420cdfac322fde73132dda8`.
 **SHA da baseline documental P4.4:** `0ced987a0c1e15686c2710d697abde9053112496`.
 **SHA final certificado:** definido no comentário externo de certificação em
@@ -40,14 +46,15 @@ auto-referenciado neste documento.
 | `.opencode/scripts/coord_trust_crossuid_client.py` | cliente executado como consumidor; jornada, SCM_RIGHTS, GID, saturação, frames, sandbox e recuperação |
 | `.opencode/scripts/coord_trust_crossuid_common.py` | fixtures sintéticas, job do cliente sem material privado, layout/config, assinatura dinâmica da atestação |
 | `.opencode/scripts/coord_trust_crossuid_crash_service.py` | crash real CI-only após COMMIT/limite, preservando WAL para replay |
-| `.opencode/scripts/test_coord_trust_crossuid.py` | 13 testes host-only (workflow, layout, job, sanitizador, limites, GID, nonce, A1, A2, resumo e bundle runtime) |
+| `.opencode/scripts/test_coord_trust_crossuid.py` | 17 testes host-only (workflow, layout, job, sanitizador, limites, GID, nonce, A1, A2, resumo e bundle runtime) |
 | `docs/operations/trust-service-deployment.md §7` | procedimento P4, UIDs, isolamento, comando previsto e critérios de interrupção |
 | `.opencode/TRUST-SERVICE.md` | contrato atualizado com nonce persistido e certificação opt-in |
 
-O único delta comportamental no serviço é defensivo: o nonce da declaração de
-recuperação é persistido (`service_recovery_nonces`) e consumido uma vez, e a
-âncora é selada após o audit final da recuperação para que um restart não entre
-em quarentena indevidamente. A suíte P3 continua 40/40.
+Além do delta P3 — nonce da declaração de recuperação persistido
+(`service_recovery_nonces`) e consumido uma vez, com a âncora selada após o
+audit final da recuperação —, P4.6 adiciona o NSS efêmero do serviço e códigos
+`reason` sanitizados para distinguir infraestrutura criptográfica de rejeição
+autenticada. A suíte P3 continua 40/40.
 
 ## 2. Ambiente e isolamento
 
@@ -126,12 +133,12 @@ em quarentena indevidamente. A suíte P3 continua 40/40.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 13 P4) | **559/559 OK** |
+| `unittest discover` (inclui os 40 do serviço e os 17 P4) | **563/563 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **726 = 559 + 167** |
+| Total | **730 = 563 + 167** |
 
 `test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
-(**13/13**) são subconjuntos do discover; não entram novamente na soma. Os logs
+(**17/17**) são subconjuntos do discover; não entram novamente na soma. Os logs
 locais não são versionados; as contagens são reproduzíveis pelos comandos do
 workflow. Evidência CI do HEAD final fica no comentário externo do PR.
 
@@ -149,17 +156,19 @@ UID); o harness não foi executado como root e o workflow não foi disparado.
   restart imediatamente após recuperação.
 - Crash wrapper CI-only com `os._exit(137)` após COMMIT, preservando WAL para
   replay real; não há hook de crash no serviço normal.
-- 13 testes P4 no `unittest discover`; baseline do workflow `coord-python`
-  atualizado de 546/713 para **559/726**.
+- 17 testes P4 no `unittest discover`; baseline do workflow `coord-python`
+  atualizado de 546/713 para **563/730**.
 - P4.2 corrige A1 (transmit real), A2 (G6 estrito/BLOCKED), A3 (limpeza
   independente), A4 (sanitização), A5 (documentação) e A6 (escopo G9).
 - Nenhuma alteração em Android, transporte, LLM, credenciais reais ou no PR #82.
 
 ## 7. Riscos residuais / BLOCKED
 
-- **Execução real do job:** o dispatch único do candidato `31a15033` falhou
-  no run `46081657455`; a autorização foi consumida. Uma nova execução exige
-  recertificação e autorização explícita; nada foi disparado nesta rodada.
+- **Execução real do job:** o dispatch do candidato `31a15033` falhou no run
+  `46081657455`, e o do HEAD P4.5 `876bc654` falhou no run `46087440250`
+  (G1/G3/G4/G5/G7; causa P4.6). Ambas as autorizações foram consumidas. Uma
+  nova execução exige recertificação e autorização explícita; nada foi
+  disparado nesta rodada.
 - **Cross-UID do serviço:** o harness prova o mecanismo e a jornada somente no
   runner descartável; este host não reproduz dois UIDs reais.
 - **`--ambient-caps`:** se o runner não suportar, G6 é **BLOCKED**; `EACCES`
