@@ -9,6 +9,9 @@ LLM ou Android foi executado.
 **Run que falhou:** `46087440250`, job `140800230211`, attempt 1, no HEAD
 `876bc654ce1ab1032f64e25405d89cb8601e55d3`.
 **SHA de implementação P4.6:** `ca915c7072ec34f0a2db65d1ae7b3ede894facf6`.
+**Correção posterior P4.7:** o handler genérico que referenciava `exc` sem
+binder foi fechado em
+`docs/reports/2026-11-27-coord-trust-crossuid-p47-exception-handler.md`.
 **Candidato histórico P4.2 (dispatch FAIL):** `31a150330d2b9c8af420cdfac322fde73132dda8`.
 **SHA final certificado:** definido no comentário externo de certificação em
 https://github.com/guilhermemellojw/better-talker/pull/87; não é
@@ -126,11 +129,11 @@ sensível é devolvido.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui 40 serviço + 17 P4) | **563/563 OK** |
+| `unittest discover` (inclui 41 serviço + 17 P4) | **564/564 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **730 = 563 + 167** |
+| Total | **731 = 564 + 167** |
 
-`test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
+`test_coord_trust_service.py` (**41/41**) e `test_coord_trust_crossuid.py`
 (**17/17**) são subconjuntos do discover. Também passaram `py_compile`, YAML e
 `git diff --check`. Nenhum dispatch foi executado nesta rodada; a CI do HEAD
 final é registrada no comentário externo do PR #87.

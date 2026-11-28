@@ -87,11 +87,11 @@ G8 depois que existem.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 17 P4) | **563/563 OK** |
+| `unittest discover` (inclui os 41 do serviço e os 17 P4) | **564/564 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **730 = 563 + 167** |
+| Total | **731 = 564 + 167** |
 
-`test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
+`test_coord_trust_service.py` (**41/41**) e `test_coord_trust_crossuid.py`
 (**17/17**) são subconjuntos do discover; não entram novamente na soma. Também
 passaram `py_compile`, parser YAML e `git diff --check`. Os logs locais não são
 versionados. O dispatch do candidato histórico falhou; nenhuma nova execução foi

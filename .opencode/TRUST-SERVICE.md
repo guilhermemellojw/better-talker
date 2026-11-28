@@ -135,11 +135,11 @@ Evidência local (`unshare -rn`):
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 17 P4) | **563/563 OK** |
+| `unittest discover` (inclui os 41 do serviço e os 17 P4) | **564/564 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **730/730 = 563 + 167** |
+| Total | **731/731 = 564 + 167** |
 
-`test_coord_trust_service.py` (**40/40**) é subconjunto do discover; não entra
+`test_coord_trust_service.py` (**41/41**) é subconjunto do discover; não entra
 novamente na soma.
 
 A certificação cross-UID real é um job **opt-in** no workflow

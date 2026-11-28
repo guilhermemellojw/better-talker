@@ -27,10 +27,14 @@ e hashes do bundle) está em
 `docs/reports/2026-11-27-coord-trust-crossuid-p45-g0-evidence.md`.
 **P4.6:** a causa raiz OpenSSH/NSS e o mount efêmero estão em
 `docs/reports/2026-11-27-coord-trust-crossuid-p46-signed-authority.md`.
+**P4.7:** o fechamento do handler genérico (fail-first e `reason=INTERNAL`)
+está em
+`docs/reports/2026-11-27-coord-trust-crossuid-p47-exception-handler.md`.
 **Branch:** `feat/coord-trust-crossuid-cert`.
 **SHA de implementação (código final P4.3):** `17cd7d37138407a7602d4848fe994e4f9de9f53d`.
 **SHA de implementação P4.2:** `5ee8d98cc9f739caff91686728c4a736f9cc4b3d`.
 **SHA de implementação P4.6:** `ca915c7072ec34f0a2db65d1ae7b3ede894facf6`.
+**SHA de implementação P4.7:** `c94038c21f2470a36a035c9458aade32b3d25959`.
 **SHA do candidato histórico (dispatch FAIL):** `31a150330d2b9c8af420cdfac322fde73132dda8`.
 **SHA da baseline documental P4.4:** `0ced987a0c1e15686c2710d697abde9053112496`.
 **SHA final certificado:** definido no comentário externo de certificação em
@@ -54,7 +58,7 @@ Além do delta P3 — nonce da declaração de recuperação persistido
 (`service_recovery_nonces`) e consumido uma vez, com a âncora selada após o
 audit final da recuperação —, P4.6 adiciona o NSS efêmero do serviço e códigos
 `reason` sanitizados para distinguir infraestrutura criptográfica de rejeição
-autenticada. A suíte P3 continua 40/40.
+autenticada. A suíte P3 continua 41/41.
 
 ## 2. Ambiente e isolamento
 
@@ -133,11 +137,11 @@ autenticada. A suíte P3 continua 40/40.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 17 P4) | **563/563 OK** |
+| `unittest discover` (inclui os 41 do serviço e os 17 P4) | **564/564 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **730 = 563 + 167** |
+| Total | **731 = 564 + 167** |
 
-`test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
+`test_coord_trust_service.py` (**41/41**) e `test_coord_trust_crossuid.py`
 (**17/17**) são subconjuntos do discover; não entram novamente na soma. Os logs
 locais não são versionados; as contagens são reproduzíveis pelos comandos do
 workflow. Evidência CI do HEAD final fica no comentário externo do PR.
@@ -157,7 +161,7 @@ UID); o harness não foi executado como root e o workflow não foi disparado.
 - Crash wrapper CI-only com `os._exit(137)` após COMMIT, preservando WAL para
   replay real; não há hook de crash no serviço normal.
 - 17 testes P4 no `unittest discover`; baseline do workflow `coord-python`
-  atualizado de 546/713 para **563/730**.
+  atualizado de 563/730 para **564/731** (regressão P4.7).
 - P4.2 corrige A1 (transmit real), A2 (G6 estrito/BLOCKED), A3 (limpeza
   independente), A4 (sanitização), A5 (documentação) e A6 (escopo G9).
 - Nenhuma alteração em Android, transporte, LLM, credenciais reais ou no PR #82.

@@ -76,11 +76,11 @@ e serviço com leitura esperada. Falha em qualquer condição impede G1.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui 40 serviço + 17 P4) | **563/563 OK** |
+| `unittest discover` (inclui 41 serviço + 17 P4) | **564/564 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **730 = 563 + 167** |
+| Total | **731 = 564 + 167** |
 
-`test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
+`test_coord_trust_service.py` (**41/41**) e `test_coord_trust_crossuid.py`
 (**17/17**) são subconjuntos do discover; não entram novamente na soma.
 Também passaram `py_compile`, YAML e `git diff --check`. Logs locais não são
 versionados.
