@@ -684,6 +684,20 @@ interface ChatDao {
     /** #26-fix-c: substitui o payload de uma mensagem (edição inline). */
     @Query("UPDATE chat_messages SET payload = :newPayload WHERE id = :messageId")
     suspend fun updateMessagePayload(messageId: String, newPayload: String)
+
+    /**
+     * P5 — atualização condicional e atômica: só substitui se o payload
+     * persistido continuar idêntico ao capturado antes da geração.
+     */
+    @Query(
+        "UPDATE chat_messages SET payload = :newPayload " +
+            "WHERE id = :messageId AND payload = :expectedPayload AND isActive = 1"
+    )
+    suspend fun updateMessagePayloadIfUnchanged(
+        messageId: String,
+        expectedPayload: String,
+        newPayload: String,
+    ): Int
 }
 
 @Dao

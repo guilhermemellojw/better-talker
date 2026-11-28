@@ -58,12 +58,15 @@ object ContentEligibilityGate {
         )
     }
 
-    /** Texto seguro para qualquer rota de leitura/cópia/inserção. */
+    /** Texto seguro para leitura/cópia/inserção; vazio quando não elegível. */
     fun safeText(
         text: String,
         corpus: List<String>,
         questionRefs: List<String> = emptyList(),
-    ): String = decide(text, corpus, questionRefs).text
+    ): String {
+        val decision = decide(text, corpus, questionRefs)
+        return if (decision.allowed) decision.text else ""
+    }
 
     fun forFinalAnswer(text: String, corpus: List<String>, refs: List<String>) =
         decide(text, corpus, refs)

@@ -3319,6 +3319,20 @@ class CopilotViewModel(
             postText("Abra uma nota para receber o texto revisado.")
             return
         }
+        // P5 — checa proveniência e elegibilidade ANTES do provider.
+        val earlySource = deliveryProvenanceFor(sourceMessageId)
+        val earlyTargetMismatch = sourceTargetKey != null &&
+            earlySource?.targetKey != null && earlySource.targetKey != sourceTargetKey
+        val earlyEligible = earlySource != null && !earlySource.rejected &&
+            earlySource.messageId == sourceMessageId && earlySource.noteId == nid &&
+            earlySource.scopeId == recoveryScope && earlySource.binds(draft) &&
+            !earlyTargetMismatch && ContentEligibilityGate.forDraftReview(
+                draft, earlySource.corpus, earlySource.questionRefs,
+            ).allowed
+        if (!earlyEligible) {
+            postText("Fonte rejeitada ou sem proveniência válida; nenhuma revisão foi gerada.")
+            return
+        }
         val remote = ProviderFactory.resolveRemote(settings, app)
         if (!ProviderFactory.useRemoteRoute(remote)) {
             postText("Configure a chave de IA na tela Modelo IA para eu entregar o texto revisado.")
@@ -3477,12 +3491,18 @@ class CopilotViewModel(
             val sourceBody = sourceText
             val scopeMismatch = source?.scopeId != null && source.scopeId != currentScope
             val missingSource = source == null || sourceBody == null
+            val sourceEligible = source != null && sourceBody != null &&
+                !source.rejected &&
+                ContentEligibilityGate.forDraftReview(
+                    sourceBody, source.corpus, source.questionRefs,
+                ).allowed
             val invalidSource = source == null || sourceBody == null || noteIdForPost == null ||
                 source.messageId.isBlank() ||
                 source.noteId != noteIdForPost ||
                 scopeMismatch ||
                 !source.binds(sourceBody) ||
-                source.targetKey != sourceTargetKey
+                source.targetKey != sourceTargetKey ||
+                !sourceEligible
             if (invalidSource) {
                 postText(
                     if (missingSource) {
@@ -4451,6 +4471,30 @@ class CopilotViewModel(
                 // no payload quando a resposta veio de texto longo.
                 val oldMap = ChatCodec.unescMap(target.payload)
                 val existingText = oldMap["text"].orEmpty()
+                // P5 — proveniência e elegibilidade ANTES do provider: fonte
+                // rejeitada, vínculo inválido ou texto não fundamentado não
+                // gastam chamada e não criam autoridade nova.
+                val bound = DeliveryProvenance.fromPayload(oldMap)
+                    ?.takeIf { it.messageId == target.id && it.noteId == nid }
+                val originalGate = bound?.let {
+                    ContentEligibilityGate.forFinalAnswer(
+                        existingText, it.corpus, it.questionRefs,
+                    )
+                }
+                if (bound == null || bound.rejected || !bound.binds(existingText) ||
+                    originalGate?.allowed != true
+                ) {
+                    postText(
+                        if (bound?.rejected == true) {
+                            "Fonte rejeitada; não é possível continuar esta resposta."
+                        } else {
+                            "Não há proveniência válida para continuar esta resposta."
+                        },
+                    )
+                    return@launch
+                }
+                val expectedPayload = target.payload
+                val expectedText = existingText
                 val continueBudget = OutputBudget.continueGeneration(
                     currentText = existingText,
                     targetWords = oldMap["targetWords"]?.toIntOrNull(),
@@ -4502,13 +4546,16 @@ class CopilotViewModel(
                     postText("Não consegui continuar a resposta agora. Tente novamente.")
                     return@launch
                 }
-                // P2.4 — a continuação não cria autoridade nova: exige o
-                // vínculo original válido e revalida TODO o conteúdo final
-                // contra o corpus/herança da própria mensagem.
-                val bound = DeliveryProvenance.fromPayload(oldMap)
-                    ?.takeIf { it.messageId == target.id && it.noteId == nid }
-                if (bound == null || !bound.binds(existingText)) {
-                    postText("Não há proveniência válida para continuar esta resposta.")
+                // P5 — relê o estado persistido após a chamada: edição,
+                // exclusão ou invalidação concorrente impedem a atualização.
+                val current = db.chatDao().get(target.id)
+                val currentMap = current?.let { ChatCodec.unescMap(it.payload) }
+                if (current == null || !current.isActive || current.noteId != nid ||
+                    current.payload != expectedPayload ||
+                    currentMap?.get("text").orEmpty() != expectedText ||
+                    bound.stillValidAfterProvider(bound, currentMap.orEmpty(), expectedText) == null
+                ) {
+                    postText("A mensagem mudou durante a geração; continuação não aplicada.")
                     return@launch
                 }
                 val contGate = ContentEligibilityGate.forFinalAnswer(
@@ -4534,7 +4581,13 @@ class CopilotViewModel(
                     if (continueTruncated) put("truncated", "1") else remove("truncated")
                     putAll(updated.toPayload())
                 }
-                db.chatDao().updateMessagePayload(target.id, ChatCodec.escMap(newMap))
+                val written = db.chatDao().updateMessagePayloadIfUnchanged(
+                    target.id, expectedPayload, ChatCodec.escMap(newMap),
+                )
+                if (written != 1) {
+                    postText("A mensagem mudou durante a geração; continuação não aplicada.")
+                    return@launch
+                }
                 deliveryProvenance[target.id] = updated
                 // #streaming-fix: a bolha existente já recebeu o texto novo.
                 com.bettertalker.app.data.llm.LocalProgress.clearPartial()
@@ -6655,6 +6708,11 @@ class CopilotViewModel(
                 turnContext = null,
                 documentarySources = cardSources,
             )
+            if (verified.text.isBlank()) {
+                postText(verified.notice
+                    ?: "Trecho sem fonte verificável; nenhum card foi criado.")
+                return
+            }
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text
                     .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
@@ -6688,7 +6746,7 @@ class CopilotViewModel(
                     cardOrigin = CardOrigin.ORATORY,
                     cardSuggestedAction = suggestedAction,
                 )
-                val notice = listOfNotNull(fidelityNotice, removalNotice)
+                val notice = listOfNotNull(fidelityNotice, removalNotice, verified.notice)
                     .joinToString(" ").ifBlank { null }
                 if (messageId != null && notice != null) {
                     _cardVerificationNotices.value =
@@ -10352,6 +10410,11 @@ class CopilotViewModel(
                 documentarySources = documentarySources,
                 structuralExtras = structuralContext,
             )
+            if (verified.text.isBlank()) {
+                postText(verified.notice
+                    ?: "Texto sem fonte verificável; nada foi aplicado.")
+                return
+            }
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text
                     .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
@@ -10383,6 +10446,7 @@ class CopilotViewModel(
             if (removalNotice != null) {
                 postText(removalNotice)
             }
+            verified.notice?.let { postText(it) }
         } catch (e: kotlinx.coroutines.CancellationException) {
             _runState.value = ChatRunState.Cancelled()
             throw e

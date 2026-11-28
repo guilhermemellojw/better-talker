@@ -46,6 +46,8 @@ data class VerificationResult(
     val text: String,
     val removed: List<String>,
     val metrics: VerificationMetrics = VerificationMetrics(),
+    /** P5 — motivo da rejeição do gate central, para a interface. */
+    val notice: String? = null,
 ) {
     val hasRemovals: Boolean get() = removed.isNotEmpty()
 }

@@ -59,10 +59,11 @@ private fun structuralItem(id: String, text: String, resolved: Boolean = true): 
  * texto ao usuário.
  *
  * Corpus factual = [turnContext] + [documentarySources] elegíveis. Textos de
- * [structuralExtras] permanecem como contexto, nunca como prova. Com corpus
- * vazio, citações literais não comprovadas são removidas pelo contrato
- * central; explicações e paráfrases legítimas, sem aspas/referência, seguem
- * utilizáveis ("sem fonte" ≠ "fato confirmado"). Puro/testável.
+ * [structuralExtras] permanecem como contexto, nunca como prova.
+ * Todo resultado passa pelo `ContentEligibilityGate` — com corpus vazio ou
+ * não vazio — antes e depois das verificações complementares. Aspas abertas,
+ * citações não fundadas e conteúdo resultante rejeitado produzem texto vazio
+ * e aviso; explicações e paráfrases legítimas seguem utilizáveis. Puro/testável.
  */
 internal fun verifyGeneratedText(
     text: String,
@@ -87,39 +88,60 @@ internal fun verifyGeneratedText(
     val corpus = buildList {
         turnContext?.let { addAll(verificationCorpus(it)) }
         addAll(
-            // F3 — contrato compartilhado: `isDocumentaryEligible()` exclui
-            // PARTIAL (rejeita passagem parcial como evidência integral) e
-            // mantém a exclusão de waived/não resolvidos/texto vazio.
             documentarySources
                 .filter { it.isDocumentaryEligible() }
                 .map { it.text }
         )
     }.filter { it.isNotBlank() }
-    // P3/PROBE_EMPTY — o verificador legado devolvia o texto intacto quando
-    // o corpus estava vazio ("sem verificação" ≠ "fato confirmado"). Nesse
-    // caso específico o contrato central remove citação literal não provada;
-    // explicações e paráfrases sem aspas/referência continuam utilizáveis.
-    if (corpus.isEmpty()) {
-        val decision = ContentEligibilityGate.forFinalAnswer(text, emptyList(), questionRefs)
-        val categories = mapOf(
-            VerificationCategory.QUOTE to decision.findings.count {
-                it == FidelityFinding.LITERAL_UNSUPPORTED
-            },
-        ).filterValues { it > 0 }
-        return VerificationResult(
-            text = if (decision.allowed) decision.text else "",
-            removed = decision.removed + if (!decision.allowed && decision.removed.isEmpty()) {
-                listOf("conteúdo rejeitado")
-            } else {
-                emptyList()
-            },
-            metrics = VerificationMetrics(
-                flaggedChars = decision.removed.sumOf { it.length },
-                flaggedByCategory = categories,
-            ),
-        )
+
+    // P5 — decisão central ANTES de qualquer transformação: aspas abertas e
+    // citações não fundadas são detectadas mesmo quando o corpus é não vazio
+    // e o verificador legado exige aspas fechadas.
+    val initialGate = ContentEligibilityGate.forFinalAnswer(text, corpus, questionRefs)
+    // Verificações complementares permanecem ativas.
+    val strict = GroundednessVerifier.verify(text, corpus)
+    // Valida também o conteúdo resultante das transformações.
+    val afterStrict = ContentEligibilityGate.forFinalAnswer(
+        strict.text, corpus, questionRefs,
+    )
+    // Na geração fora do chat, citações não fundadas são REMOVIDAS com aviso
+    // (comportamento certificado); o que não pode seguir é trecho incompleto
+    // ou conteúdo resultante vazio. `allowed=false` por remoção comum não
+    // equivale a rejeição do texto restante.
+    val unfinished = initialGate.findings.any {
+        it == FidelityFinding.UNFINISHED_REDACTED
+    } || afterStrict.findings.any {
+        it == FidelityFinding.UNFINISHED_REDACTED
     }
-    return GroundednessVerifier.verify(text, corpus)
+    val rejected = unfinished || afterStrict.text.isBlank()
+    val notice = when {
+        unfinished -> initialGate.notice ?: afterStrict.notice
+        !initialGate.allowed -> initialGate.notice
+        !afterStrict.allowed -> afterStrict.notice
+        else -> null
+    }
+    val removed = (initialGate.removed + strict.removed + afterStrict.removed).distinct()
+    val categories = strict.metrics.flaggedByCategory.toMutableMap()
+    val unfinishedCount = initialGate.findings.count {
+        it == FidelityFinding.UNFINISHED_REDACTED
+    }
+    if (unfinishedCount > 0) {
+        categories[VerificationCategory.QUOTE] =
+            (categories[VerificationCategory.QUOTE] ?: 0) + unfinishedCount
+    }
+    return VerificationResult(
+        text = if (rejected) "" else afterStrict.text,
+        removed = removed + if (rejected && removed.isEmpty()) {
+            listOf("conteúdo rejeitado")
+        } else {
+            emptyList()
+        },
+        metrics = VerificationMetrics(
+            flaggedChars = removed.sumOf { it.length },
+            flaggedByCategory = categories,
+        ),
+        notice = notice,
+    )
 
 }
 

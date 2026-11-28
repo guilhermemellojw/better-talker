@@ -66,6 +66,22 @@ data class DeliveryProvenance(
         return copy(contentSha256 = sha256(mergedText), boundAt = boundAt)
     }
 
+    /**
+     * P5 — revalida o vínculo depois de uma chamada ao provider: identidade,
+     * nota, escopo, alvo, autoridade das fontes e hash devem ser idênticos
+     * aos capturados antes da geração. Qualquer divergência falha fechado.
+     */
+    fun stillValidAfterProvider(
+        expected: DeliveryProvenance,
+        currentPayload: Map<String, String>,
+        expectedText: String? = null,
+    ): DeliveryProvenance? {
+        if (expectedText != null && currentPayload["text"] != expectedText) return null
+        val current = fromPayload(currentPayload) ?: return null
+        if (current.rejected || current != expected) return null
+        return current
+    }
+
     /** Payload persistido na própria ChatEntity; nenhum schema novo. */
     fun toPayload(): Map<String, String> {
         val json = JSONObject().apply {
@@ -132,6 +148,7 @@ data class DeliveryProvenance(
             boundAt: Long,
             explicitTargetChange: Boolean = false,
         ): DeliveryProvenance? {
+            if (source.rejected) return null
             if (!source.binds(sourceText) || revisedText.isBlank()) return null
             if (source.noteId != noteId) return null
             // Revisão não muda escopo implicitamente; troca de alvo exige
