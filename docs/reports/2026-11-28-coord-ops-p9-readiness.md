@@ -44,8 +44,10 @@ autorização para POST. DELEGATED permanece fora do escopo.
   lease, replay, UNKNOWN e quarentena cobertos.
 - **Transporte sintético:** `SimulatedTransport` e `run_synthetic_journey`
   prontos; `coord_pilot_cli.py dry-run` faz 1 POST falso e reconcilia.
-- **Agente S:** a carta `docs/COORDINATOR.md` define SHADOW/ASSISTED/DELEGATED,
-  mas não há motor operacional; o piloto usa fixture determinística, não LLM.
+- **Supervisor/Agente S:** `.opencode/agents/supervisor.md`,
+  `docs/COORDINATOR.md` e `test_supervisor.py` (167) definem a política
+  SHADOW/ASSISTED/DELEGATED, mas não há motor operacional; o piloto usa
+  fixture determinística, não LLM.
 - **OpenCode:** `OpenCodeTransport` e `ReadOnlyHttpClient` prontos para
   preflight read-only; `POST` real não foi exercitado nem autorizado.
 
@@ -84,7 +86,7 @@ não como equivalente.
 | ID | Lacuna | Menor alteração candidata | Decisão |
 |---|---|---|---|
 | G-P9-1 | Sem VM/provisionamento reproduzível | runbook + cloud-init (sem código de produto) | aprovar janela e provedor |
-| G-P9-2 | Sem driver único dos 9 passos no socket | script de homologação ~250–350 linhas + teste; sem tocar serviço/ledger | aprovar script de homologação ou aceitar execução manual |
+| G-P9-2 | Sem driver único dos 9 passos no socket | script de homologação ~250–350 linhas + teste; signer separado para autorização/atestado; sem tocar serviço/ledger | aprovar script ou aceitar execução manual |
 | G-P9-3 | Separação de papéis do registry não certificada cross-UID | teste focal de `propose/authorize` pelo coordenador e `reserve/assert/...` pelo executor | aprovar delta focal antes do piloto |
 | G-P9-4 | OpenCode real sem ponte lease/dispatcher | dispatcher separado, um lease/um POST | adiar para ASSISTED real |
 | G-P9-5 | Sem autorização para execução | P9-OPS/P9-SYNTH + P9-REVIEW | solicitar ao mantenedor/B |

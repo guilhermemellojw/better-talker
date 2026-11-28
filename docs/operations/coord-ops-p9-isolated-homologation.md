@@ -36,7 +36,8 @@ rodada).
 | Config/trust/registry | `.opencode/deploy/*.example.json` | **CONFIG** | placeholders; exigem material revisado |
 | Ambiente descartável | — | **FALTA** | sem VM/cloud-init/provisionamento versionado |
 | Piloto sintético no socket do serviço | — | **FALTA (driver pequeno)** | peças existentes cobrem partes; não há um driver único dos 9 passos |
-| Agente S operacional | `docs/COORDINATOR.md` | **FORA** | SHADOW; não há motor de decisão operacional; piloto usa fixture determinística |
+| Supervisor / Agente S | `.opencode/agents/supervisor.md`, `docs/COORDINATOR.md`, `test_supervisor.py` | **PRONTO (política)** | 167 testes; SHADOW; não há motor de decisão operacional; piloto usa fixture determinística |
+| Operação do piloto no socket | `coord_trust_crossuid_client.py`, `ServiceClient` | **PRONTO (peças)** | cliente real do socket; falta o driver único dos 9 passos |
 | OpenCode real | — | **FORA** | exige instância privada, credencial, permissão e aprovação humana específicas |
 | DELEGATED | `docs/COORDINATOR.md` §2.1 | **FORA** | exige contrato de delegação e certificação adicionais |
 
@@ -184,8 +185,10 @@ transporte real.
   `agent-a` é apenas placeholder.
 - `MISS-P9-SYNTH-002`: próxima proposta (resolver `P9-DECISION-002`), criada
   em `PROPOSED`, **não autorizada e não despachada**.
-- Autoridade: `SyntheticSigner` (UID 9106), allowlist pública no trust store;
-  ambiente `SHADOW`; `max_transmissions=1`; custo 0; validade curta.
+- Autoridade: `SyntheticSigner` no UID 9106, allowlist pública no trust store;
+  ambiente `SHADOW`; `max_transmissions=1`; custo 0; validade curta. O driver
+  recebe apenas envelope/assinatura e atestação públicas; **não lê a chave
+  privada**.
 - Transporte: `SimulatedTransport` em memória ou receipt/evidence sintéticos
   registrados no serviço; **nenhum** `OpenCodeTransport` real, sessão ou POST.
 
@@ -196,11 +199,11 @@ transporte real.
 | 1 | Agente S lê `P9-REPORT-001` | relatório sanitizado, hash, identidade da missão |
 | 2 | Detecta tarefa pendente e dependências | `blockers`/`dependencies` explícitos; sem inventar dados |
 | 3 | Propõe encaminhamento | `MISS-P9-SYNTH-001` em `PROPOSED`; sem autorização |
-| 4 | Recebe autorização assinada de teste | envelope V2 verificado pelo serviço/ledger |
+| 4 | Recebe autorização assinada de teste | envelope V2 pré-assinado pelo signer 9106; verificado pelo serviço/ledger |
 | 5 | Reserva a missão | lease único; estado `DISPATCHING`; sem duplicidade |
 | 6 | Simula despacho por adaptador sintético | receipt `msg-p9-synth-001`; `transport_real=false`; 0 POST |
 | 7 | Recebe relatório fictício | `BT-COORD-REPORT:v1` associado; `assess_report` compatível |
-| 8 | Reconcilia resultado | atestação sintética válida; estado `COMPLETED`; receipt/report/evidence vinculados |
+| 8 | Reconcilia resultado | atestação do signer 9106 sobre receipt/report/evidence; estado `COMPLETED` |
 | 9 | Propõe próximo encaminhamento | `MISS-P9-SYNTH-002` em `PROPOSED`; `dispatched=false` |
 
 O passo 3 e o passo 9 são decisão determinística de fixture, não LLM. O
@@ -308,16 +311,23 @@ existentes podem ser executadas separadamente, mas não substituem o percurso
 único. Com o driver mínimo da §11 aprovado, o comando proposto seria:
 
 ```sh
-# [VM] PROPOSTO; script ainda NÃO implementado.
-runuser -u bt-coord-agent -- env -i \
-  PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR=/tmp LANG=C LC_ALL=C \
-  python3 /opt/better-talker/.opencode/scripts/coord_ops_p9_pilot.py \
-    --config /etc/better-talker/trust-service.json \
-    --socket /run/better-talker-coord/service.sock \
-    --mode synthetic --scenario all \
-    --work-dir /var/lib/better-talker-p9-work \
-    --artifacts /var/lib/better-talker-p9-artifacts
+# [VM, operador] PROPOSTO; script ainda NÃO implementado. Interface ilustrativa:
+# ele orquestra o executor e o signer separados, sem ler a chave privada.
+/opt/better-talker/.opencode/scripts/coord_ops_p9_pilot.py \
+  --config /etc/better-talker/trust-service.json \
+  --socket /run/better-talker-coord/service.sock \
+  --executor-user bt-coord-agent --signer-user bt-coord-signer \
+  --mode synthetic --scenario all \
+  --work-dir /var/lib/better-talker-p9-work \
+  --artifacts /var/lib/better-talker-p9-artifacts
 ```
+
+A autorização inicial pode ser pré-assinada pelo signer e entregue como
+artefato público. A atestação terminal depende de receipt/report/evidence e
+exige uma segunda chamada do signer (helper/one-shot) ou pausa operacional; o
+driver não pode assiná-la. A interface final deve ser fechada na aprovação do
+script; executar tudo como executor, sem acesso ao signer, é inválido para o
+passo 8.
 
 Sem o driver, executar apenas as evidências parciais já existentes (host-only,
 fora da VM operacional) e registrar **BLOCKED**, nunca PASS:
@@ -500,9 +510,10 @@ candidata é **um script de homologação (host-only/VM)**, sem tocar no
 serviço/ledger/autoridade:
 
 - `.opencode/scripts/coord_ops_p9_pilot.py` (nome proposto): ~250–350 linhas;
-  usa `ServiceClient`, `SyntheticSigner`, `coord_trust_crossuid_common`
-  (fixtures) e `SimulatedTransport`; aceita `--mode synthetic`; grava
-  `summary.json` sanitizado; não abre rede; não habilita `transmit`.
+  usa `ServiceClient`, fixtures de `coord_trust_crossuid_common` e
+  `SimulatedTransport`; recebe assinaturas do signer separado (não lê a chave
+  privada); aceita `--mode synthetic`; grava `summary.json` sanitizado; não
+  abre rede; não habilita `transmit`.
 - `.opencode/scripts/test_coord_ops_p9_pilot.py`: cobre passo positivo,
   autorização inválida, duplicidade, ausência, interrupção, UNKNOWN, ownership,
   atestado divergente, auditoria e cleanup; sem serviço real em CI comum
