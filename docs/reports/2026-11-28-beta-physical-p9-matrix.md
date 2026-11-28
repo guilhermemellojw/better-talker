@@ -3,6 +3,8 @@
 **Candidato:** `901d74fbf1f9120bd35be534a8d9ca9c3a8f32fd` (PR #86)
 **Baseline host:** P8 PASS (GO host; NO-GO distribuição).
 **Status:** testes independentes **implementados e compilados**; execução física **BLOCKED**; provider fake **BLOCKED em A**.
+**PR Draft de testes:** https://github.com/guilhermemellojw/better-talker/pull/89
+**Compilação androidTest:** BUILD SUCCESSFUL; APK SHA-256 `df60bcf6000fafacc8c1ec42c832f6c30fc67b11f24b214d82bffd93e4e019a6`.
 **Regra:** compilação/host-only **não** é PASS físico.
 
 ## 1. P8-1..P8-8

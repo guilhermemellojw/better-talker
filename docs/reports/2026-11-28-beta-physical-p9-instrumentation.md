@@ -2,6 +2,7 @@
 
 **Branch:** `test/beta-physical-p9-instrumentation`
 **Base:** `901d74fbf1f9120bd35be534a8d9ca9c3a8f32fd` (PR #86 certificado P8)
+**PR Draft:** https://github.com/guilhermemellojw/better-talker/pull/89
 **Ownership:** D = `androidTest`/fixtures; A = `ProviderSource`/injeção; C = APK/assinatura.
 **Estado:** testes independentes **implementados e compilados**; provas físicas **BLOCKED**; provider fake **BLOCKED em A**.
 **Sem PASS físico, merge, ADB, instalação, LLM pago, versão ou release.**
