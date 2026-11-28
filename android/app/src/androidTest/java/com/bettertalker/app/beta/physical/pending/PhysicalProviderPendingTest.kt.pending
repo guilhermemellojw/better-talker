@@ -1,0 +1,314 @@
+package com.bettertalker.app.beta.physical.pending
+
+import android.content.Context
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.bettertalker.app.data.copilot.CardPayload
+import com.bettertalker.app.data.copilot.CardStatus
+import com.bettertalker.app.data.copilot.CardSuggestedAction
+import com.bettertalker.app.data.copilot.CardTargetKind
+import com.bettertalker.app.data.copilot.DeliveryProvenance
+import com.bettertalker.app.data.db.AppDatabase
+import com.bettertalker.app.data.db.ChatEntity
+import com.bettertalker.app.data.db.SpeechSectionEntity
+import com.bettertalker.app.data.llm.LlmProvider
+import com.bettertalker.app.data.llm.LlmRequest
+import com.bettertalker.app.data.llm.LlmResponse
+import com.bettertalker.app.data.llm.LlmResponseMeta
+import com.bettertalker.app.data.llm.LocalProgress
+import com.bettertalker.app.data.llm.ProviderFactory
+import com.bettertalker.app.data.llm.ProviderSource
+import com.bettertalker.app.data.prefs.SettingsStore
+import com.bettertalker.app.data.util.ChatCodec
+import com.bettertalker.app.domain.speech.SectionRole
+import com.bettertalker.app.ui.copilot.CopilotViewModel
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/**
+ * BETA-PHYSICAL/P9 — testes PENDENTES de A (provider fake/history).
+ *
+ * NÃO COMPILADO (.kt.pending) de propósito: o candidato `901d74fb` ainda não
+ * tem a interface produtiva `ProviderSource` prometida no contrato P10.
+ * Quando A publicar `ProviderSource` + o 5º parâmetro do CopilotViewModel,
+ * renomear para `.kt`, rodar `assemblePublicAppDebugAndroidTest` e executar
+ * no A34. Este é o ÚNICO fake de provider; não criar infraestrutura paralela.
+ */
+@RunWith(AndroidJUnit4::class)
+class PhysicalProviderPendingTest {
+
+    private val ctx: Context = InstrumentationRegistry.getInstrumentation().targetContext
+    private lateinit var db: AppDatabase
+    private lateinit var fake: FakeProviderSource
+    private val noteId = "p9-a-note"
+    private val sectionId = "p9-a-section"
+
+    @Before
+    fun setUp() = runBlocking {
+        // Reutiliza o fixture de Room real do P9 (arquivo temporário).
+        // A fixture está em com.bettertalker.app.beta.physical.PhysicalRoomFixture.
+        // Aqui o seed é feito direto para manter o cenário A legível.
+        db = androidx.room.Room.databaseBuilder(
+            ctx, AppDatabase::class.java, "p9-provider-${System.nanoTime()}.db",
+        ).allowMainThreadQueries().build()
+        db.noteDao().upsert(
+            com.bettertalker.app.data.db.NoteEntity(
+                id = noteId, title = "P9 A", mdText = "", plainText = "",
+                folderId = null, colorArgb = 0L, pinned = false, trashed = false,
+                createdAt = 1L, updatedAt = 1L, richHtml = "",
+            ),
+        )
+        db.speechSectionDao().upsert(
+            SpeechSectionEntity(
+                id = sectionId, noteId = noteId, order = 1, role = SectionRole.BODY.name,
+                title = "Ponto A", minutes = 5, contentHtml = "<p>corpo</p>",
+                bibleRefsJson = "[]", publicationRefsJson = "[]", methodPrinciple = null,
+                createdAt = 1L, updatedAt = 1L,
+            ),
+        )
+        fake = FakeProviderSource()
+    }
+
+    @After
+    fun tearDown() {
+        db.close()
+    }
+
+    private fun vm(): CopilotViewModel =
+        // PENDENTE A: 5º parâmetro providerSource (contrato P10).
+        CopilotViewModel(ctx, db, noteId, null, fake)
+
+    private suspend fun waitRequest(timeoutMs: Long = 8_000): LlmRequest =
+        withTimeout(timeoutMs) {
+            while (fake.requests.isEmpty()) delay(10)
+            fake.requests.last()
+        }
+
+    private fun validProvenance(id: String, text: String): DeliveryProvenance =
+        DeliveryProvenance.newForMessage(
+            messageId = id, turnId = "t-$id", noteId = noteId,
+            scopeId = sectionId, targetKey = "SECTION:$sectionId",
+            corpus = listOf(text), questionRefs = emptyList(),
+            content = text, boundAt = 1L,
+        )
+
+    private suspend fun seedMessage(id: String, text: String, prov: DeliveryProvenance?, card: CardPayload? = null) {
+        val map = buildMap {
+            prov?.let { putAll(it.toPayload()) }
+            put("text", if (card != null) "<texto-do-card>$text</texto-do-card>" else text)
+            card?.let { putAll(it.toMap()) }
+        }
+        db.chatDao().put(
+            ChatEntity(
+                id = id, noteId = noteId, fromMe = false, kind = "text",
+                payload = ChatCodec.escMap(map), createdAt = System.currentTimeMillis(),
+                sectionId = sectionId, isActive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun historyEnviadoAoProviderNaoContemConteudoRejeitado() = runBlocking {
+        val good = "Conteúdo fundamentado válido."
+        val bad = "A Bíblia diz: “Deus promete que nunca haverá guerra"
+        seedMessage("m-good", good, validProvenance("m-good", good))
+        seedMessage("m-bad", bad, validProvenance("m-bad", bad).copy(rejected = true))
+
+        val vm = vm()
+        try {
+            vm.send("Pergunta nova")
+            val request = waitRequest()
+
+            assertTrue("histórico válido presente", request.history.any { it.text.contains("fundamentado") })
+            assertFalse("conteúdo rejeitado não pode ir ao provider",
+                request.history.any { it.text.contains("Deus promete") })
+        } finally {
+            vm.viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun fonteRejeitadaBloqueiaAntesDoProvider() = runBlocking {
+        val sourceText = "Rascunho com proveniência rejeitada."
+        seedMessage(
+            "m-source", sourceText,
+            validProvenance("m-source", sourceText).copy(rejected = true),
+            CardPayload(
+                targetKind = CardTargetKind.SECTION, targetId = sectionId,
+                targetLabel = "Ponto A", status = CardStatus.AVAILABLE,
+                suggestedAction = CardSuggestedAction.REPLACE, gateMessageId = "m-source",
+            ),
+        )
+
+        val vm = vm()
+        try {
+            vm.send("Revise o rascunho acima")
+            // A regra P7/P8 já rejeita antes do provider; a prova é zero requests.
+            delay(300)
+            assertTrue("provider não pode ser chamado", fake.requests.isEmpty())
+        } finally {
+            vm.viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun cancelamentoDuranteStreamingNaoPersisteFinal() = runBlocking {
+        val source = "Conteúdo fundamentado para cancelar."
+        seedMessage("m-cancel", source, validProvenance("m-cancel", source))
+        fake.gate = CompletableDeferred()
+        fake.response = response("<texto-do-card>resposta parcial inventada</texto-do-card>")
+
+        val vm = vm()
+        try {
+            vm.send("Pergunta")
+            waitRequest()
+            vm.stopGeneration()
+            fake.gate!!.complete(Unit)
+            delay(500)
+            assertFalse("parcial não pode virar final copiável",
+                db.chatDao().all(noteId).any {
+                    val m = ChatCodec.unescMap(it.payload)
+                    m["cancelled"] != "1" && m["text"].orEmpty().contains("inventada")
+                })
+        } finally {
+            vm.viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun revisaoAi09UsaFontePersistidaESemFallback() = runBlocking {
+        val source = "Rascunho original com João 17:17 — Santifica-os por meio da verdade."
+        val prov = validProvenance("m-ai09", source)
+        seedMessage(
+            "m-ai09", source, prov,
+            CardPayload(
+                targetKind = CardTargetKind.SECTION, targetId = sectionId,
+                targetLabel = "Ponto A", status = CardStatus.AVAILABLE,
+                suggestedAction = CardSuggestedAction.REPLACE, gateMessageId = "m-ai09",
+            ),
+        )
+        fake.response = response("<texto-do-card>Rascunho revisado fiel.</texto-do-card>")
+
+        val vm = vm()
+        try {
+            vm.send("Revise o rascunho acima, mais curto")
+            val request = waitRequest()
+            assertTrue("provider recebeu o pedido de revisão",
+                request.message.contains("revise", ignoreCase = true) ||
+                    request.message.contains("curto", ignoreCase = true))
+            // PENDENTE: aguardar a mensagem nova e assertar:
+            // - sourceMessageId == m-ai09
+            // - corpus == prov.corpus (nunca corpus vivo)
+            // - targetKey/scope preservados
+            // - texto revisado elegível e sem fallback.
+        } finally {
+            vm.viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun continuacaoConcorrenteNaoSobrescreveEdicao() = runBlocking {
+        val original = "Conteúdo original fundamentado."
+        val prov = validProvenance("m-cont", original)
+        seedMessage("m-cont", original, prov)
+        fake.gate = CompletableDeferred()
+        fake.response = response(" Trecho continuado.")
+
+        val vm = vm()
+        try {
+            vm.continueGeneration("m-cont")
+            waitRequest()
+            val row = db.chatDao().get("m-cont")!!
+            val edited = ChatCodec.escMap(
+                ChatCodec.unescMap(row.payload).toMutableMap().apply {
+                    remove(DeliveryProvenance.KEY)
+                    remove(DeliveryProvenance.KEY_SHA256)
+                    put("text", "edição concorrente")
+                },
+            )
+            db.chatDao().updateMessagePayload("m-cont", edited)
+            fake.gate!!.complete(Unit)
+            delay(500)
+            assertEquals("edição concorrente", fixtureText("m-cont"))
+        } finally {
+            vm.viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun conteudoSemFundamentoNaoViraCardNemCopia() = runBlocking {
+        fake.response = response(
+            "A Bíblia diz: “Deus promete que nunca haverá guerra”.<texto-do-card>“Deus promete que nunca haverá guerra”</texto-do-card>",
+        )
+
+        val vm = vm()
+        try {
+            vm.send("Pergunta")
+            waitRequest()
+            delay(300)
+            val last = db.chatDao().all(noteId).lastOrNull()
+            assertFalse("card não pode persistir quote inventada",
+                last?.payload.orEmpty().contains("Deus promete"))
+            assertTrue("resposta sem fonte não pode ser copiada",
+                vm.eligibleCopyText(last?.id.orEmpty(), "Deus promete que nunca haverá guerra").isEmpty())
+        } finally {
+            vm.viewModelScope.cancel()
+        }
+    }
+
+    private fun response(text: String): LlmResponse = LlmResponse(
+        text,
+        LlmResponseMeta(
+            providerId = "fake", model = "fake-model", durationMs = 0L,
+            attempts = 1, offline = false,
+        ),
+    )
+
+    private fun fixtureText(id: String): String =
+        db.chatDao().let { dao ->
+            runBlocking {
+                dao.get(id)?.let { ChatCodec.unescMap(it.payload)["text"].orEmpty() }.orEmpty()
+            }
+        }
+
+    /** Único fake de provider; espelha o contrato P10 (não criar outro). */
+    class FakeProviderSource : ProviderSource {
+        val requests = mutableListOf<LlmRequest>()
+        var gate: CompletableDeferred<Unit>? = null
+        var failWith: Throwable? = null
+        var response: LlmResponse = LlmResponse(
+            "resposta determinística",
+            LlmResponseMeta("fake", "fake-model", 0L, 1, false),
+        )
+
+        override suspend fun resolveRemote(settings: SettingsStore, context: Context?): ProviderFactory.RemoteConfig =
+            ProviderFactory.RemoteConfig(apiKey = "fake-key")
+
+        override fun createFor(
+            config: ProviderFactory.RemoteConfig,
+            context: Context?,
+            effort: String,
+        ): LlmProvider = object : LlmProvider {
+            override val id = "fake"
+            override val model = "fake-model"
+            override suspend fun generate(request: LlmRequest): LlmResponse {
+                requests += request
+                gate?.await()
+                failWith?.let { throw it }
+                LocalProgress.appendPartial("parcial controlado")
+                return response
+            }
+        }
+
+        override fun useRemoteRoute(config: ProviderFactory.RemoteConfig): Boolean = true
+    }
+}
