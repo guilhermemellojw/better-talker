@@ -3,8 +3,8 @@
 **Relatório gerado automaticamente com dados verificáveis da API do GitHub.** As alterações são propostas por PR; o planejamento estratégico não é modificado automaticamente.
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
-- `main` consultada: `ab9f08c4b233ea8d3c273084b720f8ffa827d022`
-- Checks da `main` consultada: **Verde (com ignorados)**
+- `main` consultada: `de3f8f48179aaf501304bc8a7b3ad6490ed095ca`
+- Checks da `main` consultada: **Pendente**
 - PRs encontrados na janela de consulta: **85** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-28.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -15,8 +15,8 @@
 | --- | ---: | ---: | ---: |
 | Mentor | 0 | 22 | 0 |
 | Referências e UX | 0 | 12 | 0 |
-| TRUST | 1 | 13 | 0 |
-| Beta e infraestrutura | 3 | 9 | 0 |
+| TRUST | 0 | 14 | 0 |
+| Beta e infraestrutura | 1 | 11 | 0 |
 | Documentação | 2 | 9 | 0 |
 | Outros | 3 | 11 | 0 |
 
@@ -25,9 +25,6 @@
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
 | [#88 — COORD-OPS/P9 — prontidão operacional isolada e piloto sintético (Draft)](https://github.com/guilhermemellojw/better-talker/pull/88) | Documentação | `60d6cc8aded2` | Pendente |
-| [#86 — feat(pedagogy): BETA-PEDAGOGY/P4 — candidato combinado A+C (Draft)](https://github.com/guilhermemellojw/better-talker/pull/86) | Beta e infraestrutura | `901d74fbf1f9` | Verde |
-| [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | `fe0ca1b37089` | Verde |
-| [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `ddc80e3e0a8d` | Verde |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
@@ -38,6 +35,9 @@
 
 | PR | Frente inferida | Data UTC |
 | --- | --- | --- |
+| [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | 2026-11-28 15:17 |
+| [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | 2026-11-28 15:17 |
+| [#86 — feat(pedagogy): BETA-PEDAGOGY/P4 — candidato combinado A+C (Draft)](https://github.com/guilhermemellojw/better-talker/pull/86) | Beta e infraestrutura | 2026-11-28 15:17 |
 | [#87 — COORD-TRUST-BOUNDARY/P4 — certificação cross-UID descartável](https://github.com/guilhermemellojw/better-talker/pull/87) | TRUST | 2026-11-28 11:04 |
 | [#83 — COORD-TRUST-BOUNDARY: servico protegido local (fundacao)](https://github.com/guilhermemellojw/better-talker/pull/83) | TRUST | 2026-11-27 21:35 |
 | [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | 2026-11-27 18:30 |
@@ -60,9 +60,6 @@
 | [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | 2026-11-25 17:23 |
 | [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | 2026-11-25 15:27 |
 | [#61 — ci(android): estabiliza lint e assemblies com in-process](https://github.com/guilhermemellojw/better-talker/pull/61) | Beta e infraestrutura | 2026-11-25 14:20 |
-| [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | 2026-11-25 14:08 |
-| [#10 — docs: roadmap estratégico e protocolo de continuidade do Better Talker](https://github.com/guilhermemellojw/better-talker/pull/10) | Documentação | 2026-11-25 11:17 |
-| [#52 — feat(mentor): integração conversacional do Mentor (continuidade)](https://github.com/guilhermemellojw/better-talker/pull/52) | Mentor | 2026-11-25 09:35 |
 
 ## Interpretação e próximos gates
 
@@ -74,11 +71,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-28 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **9**; desses, Drafts: **8**.
-- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=76.
-- Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 1.0 dias (referência fixa: 2026-11-28).
-- Estados de check dos PRs abertos: Pendente=1, Verde=8.
+- PRs abertos: **6**; desses, Drafts: **6**.
+- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=79.
+- Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
+- Mediana de idade dos PRs abertos: 1.1 dias (referência fixa: 2026-11-28).
+- Estados de check dos PRs abertos: Pendente=1, Verde=5.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
