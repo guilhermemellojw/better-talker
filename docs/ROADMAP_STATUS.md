@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#88 — COORD-OPS/P9 — prontidão operacional isolada e piloto sintético (Draft)](https://github.com/guilhermemellojw/better-talker/pull/88) | Documentação | `60d6cc8aded2` | Verde (com ignorados) |
+| [#88 — COORD-OPS/P9 — prontidão operacional isolada e piloto sintético (Draft)](https://github.com/guilhermemellojw/better-talker/pull/88) | Documentação | `60d6cc8aded2` | Pendente |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
 | [#79 — COORD-CI/P1: CI Python host-only da coordenacao (Draft)](https://github.com/guilhermemellojw/better-talker/pull/79) | Beta e infraestrutura | `da916cde0691` | Verde |
 | [#77 — COORD-06B/P1: verificacao offline de autoridade assinada (Draft)](https://github.com/guilhermemellojw/better-talker/pull/77) | Outros | `47c7cc871a94` | Verde |
@@ -75,7 +75,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=79.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 1.1 dias (referência fixa: 2026-11-28).
-- Estados de check dos PRs abertos: Verde=5, Verde (com ignorados)=1.
+- Estados de check dos PRs abertos: Pendente=1, Verde=5.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
