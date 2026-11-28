@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#88 — COORD-OPS/P9 — prontidão operacional isolada e piloto sintético (Draft)](https://github.com/guilhermemellojw/better-talker/pull/88) | Documentação | `d793c837393b` | Pendente |
+| [#88 — COORD-OPS/P9 — prontidão operacional isolada e piloto sintético (Draft)](https://github.com/guilhermemellojw/better-talker/pull/88) | Documentação | `030897001c53` | Pendente |
 | [#86 — feat(pedagogy): BETA-PEDAGOGY/P4 — candidato combinado A+C (Draft) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/86) | Beta e infraestrutura | `901d74fbf1f9` | Verde |
 | [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | `fe0ca1b37089` | Verde |
 | [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `ddc80e3e0a8d` | Verde |
