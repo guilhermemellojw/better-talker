@@ -569,8 +569,11 @@ class AuthorityAdapter:
         try:
             actual = cas.public_key_fingerprint(approver.public_key)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            # Falha local do OpenSSH/NSS não é rejeição da chave: o fingerprint
+            # sequer pôde ser calculado. O prefixo permite diagnóstico seguro
+            # sem expor a mensagem crua ao consumidor.
             raise la.AuthorizationRejected(
-                f"FINGERPRINT_MISMATCH: {exc}") from exc
+                "CRYPTO_INFRASTRUCTURE: fingerprint indisponível") from exc
         if actual != approver.fingerprint or actual != fingerprint:
             raise la.AuthorizationRejected(
                 "FINGERPRINT_MISMATCH: fingerprint não corresponde à chave")
