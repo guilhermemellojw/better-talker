@@ -18,6 +18,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -558,6 +559,165 @@ class CrossUidHarnessTest(unittest.TestCase):
             consumer_paths[plan.trust_store_path] = "PermissionError"
             consumer_paths[harness.runtime_dir] = "writable"
             self.assertFalse(harness.verify_runtime_access(layout))
+
+    def test_service_launch_mounts_synthetic_passwd_for_ssh(self):
+        """Regressão P4.6: UID 65533 sem passwd precisa de NSS efêmero."""
+        import coord_trust_crossuid_harness as harness_module
+
+        with tempfile.TemporaryDirectory() as root:
+            harness = harness_module.Harness(
+                repo=str(ROOT), output=os.path.join(root, "out"),
+                deadline_seconds=30)
+            self.addCleanup(harness.cleanup)
+            with open(harness.passwd_file, encoding="utf-8") as handle:
+                passwd = handle.read()
+            with open(harness.group_file, encoding="utf-8") as handle:
+                group = handle.read()
+            self.assertIn("bt-coord-trust:x:65533:65533:", passwd)
+            self.assertIn("bt-coord-trust:x:65533:", group)
+            self.assertEqual(0o644, os.stat(harness.passwd_file).st_mode & 0o777)
+            self.assertEqual(0o644, os.stat(harness.group_file).st_mode & 0o777)
+            cmd = harness._service_launch(
+                ["/usr/bin/setpriv", "--reuid=65533", "--regid=65533",
+                 "/usr/bin/python3", "-c", "print('service')"])
+            self.assertEqual("/usr/bin/unshare", cmd[0])
+            self.assertIn("-m", cmd)
+            self.assertIn("--propagation", cmd)
+            self.assertIn(harness.passwd_file, " ".join(cmd))
+            self.assertIn(harness.group_file, " ".join(cmd))
+            self.assertIn("/etc/passwd", " ".join(cmd))
+            self.assertIn("/etc/group", " ".join(cmd))
+            self.assertIn("setpriv", " ".join(cmd))
+
+    def test_authorization_rejection_has_safe_reason(self):
+        from test_coord_trust_service import Fixture
+
+        with tempfile.TemporaryDirectory() as root:
+            fx = Fixture(root)
+            self.assertTrue(fx.propose()["ok"])
+            response = fx.authorize(signature=b"invalid-signature")
+            self.assertFalse(response["ok"], response)
+            self.assertEqual("SERVICE_REJECTED", response["error"]["code"])
+            self.assertEqual("SIGNATURE_INVALID", response["error"]["reason"])
+            self.assertNotIn("invalid-signature", common.canonical_json(response))
+
+    def test_crypto_infrastructure_and_recovery_reasons_are_distinct(self):
+        from test_coord_trust_service import Fixture, _b64
+
+        with tempfile.TemporaryDirectory() as root:
+            fx = Fixture(root)
+            self.assertTrue(fx.propose()["ok"])
+
+            with mock.patch.object(
+                    svc.cas, "public_key_fingerprint",
+                    side_effect=ValueError("No user exists for uid 65533")):
+                authorize_infra = fx.authorize(signature=b"unused")
+            self.assertEqual("SERVICE_REJECTED",
+                             authorize_infra["error"]["code"])
+            self.assertEqual("CRYPTO_INFRASTRUCTURE",
+                             authorize_infra["error"]["reason"])
+            self.assertNotIn(
+                "No user exists", common.canonical_json(authorize_infra))
+
+            def statement(*, nonce: str, trust: str | None = None,
+                          approver: str = "maintainer",
+                          issued: datetime | None = None,
+                          expires: datetime | None = None):
+                return svc.RecoveryStatement(
+                    schema=svc.RECOVERY_SCHEMA, approver_id=approver,
+                    approver_key_fingerprint=fx.signer.fingerprint,
+                    trust_policy_sha256=trust or fx.allowlist.digest(),
+                    new_epoch=2, reason="diagnóstico P4.6",
+                    issued_at=issued or NOW,
+                    expires_at=expires or NOW + timedelta(minutes=10),
+                    nonce=nonce)
+
+            def sign(value):
+                return fx.signer.sign(
+                    svc.canonical_recovery_bytes(value),
+                    namespace=svc.RECOVERY_NAMESPACE, directory=fx.keys)
+
+            def recover(value, signature) -> dict:
+                return fx.request("recover", {
+                    "statement": value.to_mapping(),
+                    "signature": _b64(signature)})
+
+            invalid = recover(statement(nonce="diag-bad-sig"), b"invalid")
+            self.assertEqual("UNAUTHENTICATED_PEER",
+                             invalid["error"]["code"])
+            self.assertEqual("SIGNATURE_INVALID",
+                             invalid["error"]["reason"])
+
+            expired_statement = statement(
+                nonce="diag-expired",
+                issued=NOW - timedelta(minutes=20),
+                expires=NOW - timedelta(minutes=10))
+            expired = recover(expired_statement, sign(expired_statement))
+            self.assertEqual("UNAUTHENTICATED_PEER", expired["error"]["code"])
+            self.assertEqual("AUTHORIZATION_EXPIRED",
+                             expired["error"]["reason"])
+
+            trust_statement = statement(
+                nonce="diag-trust", trust="f" * 64)
+            trust = recover(trust_statement, sign(trust_statement))
+            self.assertEqual("UNAUTHENTICATED_PEER", trust["error"]["code"])
+            self.assertEqual("TRUST_POLICY_MISMATCH",
+                             trust["error"]["reason"])
+
+            unknown_statement = statement(
+                nonce="diag-unknown", approver="intruder")
+            unknown = recover(unknown_statement, sign(unknown_statement))
+            self.assertEqual("UNAUTHENTICATED_PEER", unknown["error"]["code"])
+            self.assertEqual("APPROVER_KEY_UNKNOWN",
+                             unknown["error"]["reason"])
+
+            fingerprint_statement = statement(nonce="diag-fingerprint")
+            fingerprint_signature = sign(fingerprint_statement)
+            with mock.patch.object(
+                    svc.cas, "public_key_fingerprint",
+                    side_effect=ValueError("No user exists for uid 65533")):
+                fingerprint = recover(
+                    fingerprint_statement, fingerprint_signature)
+            self.assertEqual("CRYPTO_INFRASTRUCTURE",
+                             fingerprint["error"]["code"])
+            self.assertEqual("CRYPTO_INFRASTRUCTURE",
+                             fingerprint["error"]["reason"])
+
+            verify_statement = statement(nonce="diag-verify")
+            verify_signature = sign(verify_statement)
+            with mock.patch.object(
+                    svc.cas, "verify_openssh_signature",
+                    return_value=(False,
+                                  "falha ao verificar assinatura: Timeout")):
+                verify = recover(verify_statement, verify_signature)
+            self.assertEqual("CRYPTO_INFRASTRUCTURE",
+                             verify["error"]["code"])
+            self.assertEqual("CRYPTO_INFRASTRUCTURE",
+                             verify["error"]["reason"])
+
+            serialized = common.canonical_json(
+                (authorize_infra, invalid, expired, trust, unknown,
+                 fingerprint, verify))
+            for raw in ("No user exists", "falha ao verificar",
+                        "unused", "invalid"):
+                self.assertNotIn(raw, serialized)
+
+    def test_dependent_client_modes_are_blocked_without_authorization(self):
+        import coord_trust_crossuid_harness as harness_module
+
+        with tempfile.TemporaryDirectory() as root:
+            harness = harness_module.Harness(
+                repo=str(ROOT), output=os.path.join(root, "out"),
+                deadline_seconds=30)
+            self.addCleanup(harness.cleanup)
+            harness.journey_blocked = True
+            blocked_modes = (
+                "prepare", "reserve", "assert", "record-evidence",
+                "reconcile", "assert-old", "reserve-old")
+            for mode in blocked_modes:
+                result = harness.run_client(None, "unused-job", mode)
+                self.assertTrue(result.get("blocked"), (mode, result))
+                self.assertIn("BLOCKED", result.get("error", ""))
 
     def test_summary_and_traceback_are_sanitized(self):
         import coord_trust_crossuid_harness as harness_module

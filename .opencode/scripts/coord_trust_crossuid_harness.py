@@ -18,6 +18,7 @@ import json
 import os
 import pwd
 import re
+import shlex
 import shutil
 import signal
 import sqlite3
@@ -42,6 +43,7 @@ CRASH_SERVICE = os.path.join(SCRIPTS_DIR, "coord_trust_crossuid_crash_service.py
 SERVICE_CLI = os.path.join(SCRIPTS_DIR, "coord_trust_service_cli.py")
 SETPRIV = shutil.which("setpriv") or "/usr/bin/setpriv"
 UNSHARE = shutil.which("unshare") or "/usr/bin/unshare"
+MOUNT = shutil.which("mount") or "/usr/bin/mount"
 
 # Fecho mínimo de importação do serviço/cliente. A cópia é feita para o
 # work_root 0711 do runner, fora dos ancestrais do checkout, com arquivos 0444
@@ -193,6 +195,7 @@ class Harness:
         self.layouts: list[Layout] = []
         self.service: Optional[ServiceProcess] = None
         self.service_logs: dict[str, str] = {}
+        self.journey_blocked = False
         self.signer_dir = tempfile.mkdtemp(
             prefix="keys-", dir=self.work_root)
         self.runtime_dir = SCRIPTS_DIR
@@ -200,6 +203,15 @@ class Harness:
         self.crash_service = CRASH_SERVICE
         self.client_script = CLIENT
         self.runtime_manifest: dict[str, str] = {}
+        self.identity_dir = os.path.join(self.work_root, "identity")
+        self.passwd_file = os.path.join(self.identity_dir, "passwd")
+        self.group_file = os.path.join(self.identity_dir, "group")
+        self.probe_tmp = os.path.join(self.work_root, "probe-tmp")
+        os.makedirs(self.probe_tmp, mode=0o700, exist_ok=True)
+        os.chmod(self.probe_tmp, 0o700)
+        if os.geteuid() == 0:
+            os.chown(self.probe_tmp, common.SERVICE_UID, common.SERVICE_GID)
+        self._write_identity_files()
         self.paths: list[str] = [self.work_root, self.signer_dir, self.output]
         self.process_groups: set[int] = set()
         self.cleanup_manifest = os.path.join(self.output, "cleanup.json")
@@ -584,6 +596,120 @@ class Harness:
             return False
         return True
 
+    def _write_identity_files(self) -> None:
+        """Identidade NSS efêmera para o UID do serviço sem usuário persistente.
+
+        O OpenSSH consulta getpwuid mesmo em `-lf`/`-Y verify`; um UID sem
+        entrada em /etc/passwd falha com "No user exists for uid". O arquivo
+        abaixo só é montado no mount namespace privado do serviço, nunca no
+        host, e não cria usuário persistente.
+        """
+        os.makedirs(self.identity_dir, mode=0o711, exist_ok=True)
+        passwd = (
+            "root:x:0:0:root:/root:/usr/sbin/nologin\n"
+            "bt-coord-trust:x:65533:65533:Better Talker trust service:"
+            "/tmp:/usr/sbin/nologin\n"
+            "nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n"
+        )
+        group = (
+            "root:x:0:\n"
+            "bt-coord-trust:x:65533:\n"
+            "nogroup:x:65534:\n"
+        )
+        for path, payload in ((self.passwd_file, passwd),
+                              (self.group_file, group)):
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(path, 0o644)
+            if os.geteuid() == 0:
+                os.chown(path, 0, 0)
+        os.chmod(self.identity_dir, 0o711)
+        if os.geteuid() == 0:
+            os.chown(self.identity_dir, 0, 0)
+
+    def _service_launch(self, cmd: list[str]) -> list[str]:
+        """Monta passwd/group sintéticos apenas no namespace do serviço."""
+        inner = " && ".join((
+            f"{MOUNT} --bind {shlex.quote(self.passwd_file)} /etc/passwd",
+            f"{MOUNT} --bind {shlex.quote(self.group_file)} /etc/group",
+            "exec " + shlex.join(cmd),
+        ))
+        return [
+            UNSHARE, "-m", "--propagation", "private",
+            "--", "/bin/sh", "-c", inner,
+        ]
+
+    def _probe_identity_mount(self) -> bool:
+        """Prova fingerprint e verify OpenSSH sob UID 65533 com NSS efêmero."""
+        if (not os.path.isfile(self.passwd_file)
+                or not os.path.isfile(self.group_file)
+                or self.signer is None):
+            return False
+        probe_dir = self.identity_dir
+        public_path = os.path.join(probe_dir, "probe.pub")
+        data_path = os.path.join(probe_dir, "probe.data")
+        sig_path = os.path.join(probe_dir, "probe.sig")
+        allowed_path = os.path.join(probe_dir, "probe.allowed")
+        data = b"bt-coord-trust-nss-probe\n"
+        namespace = "bt-coord-trust-nss-probe"
+        with open(public_path, "w", encoding="utf-8") as handle:
+            handle.write(self.signer.public_line + "\n")
+        with open(data_path, "wb") as handle:
+            handle.write(data)
+        signature = self.signer.sign(
+            data, namespace=namespace,
+            directory=os.path.dirname(self.signer.private_path))
+        with open(sig_path, "wb") as handle:
+            handle.write(signature)
+        with open(allowed_path, "w", encoding="utf-8") as handle:
+            handle.write(
+                self.signer.approver_key(self.now).allowed_signers_line()
+                + "\n")
+        for path in (public_path, data_path, sig_path, allowed_path):
+            os.chmod(path, 0o644)
+            if os.geteuid() == 0:
+                os.chown(path, 0, 0)
+        setpriv = shlex.join(self._setpriv_prefix(
+            common.SERVICE_UID, common.SERVICE_GID))
+        fingerprint_cmd = shlex.join([
+            "ssh-keygen", "-lf", public_path, "-E", "sha256"])
+        verify_cmd = shlex.join([
+            "ssh-keygen", "-Y", "verify", "-f", allowed_path,
+            "-I", self.signer.approver_id, "-n", namespace,
+            "-s", sig_path,
+        ])
+        inner = " && ".join((
+            f"{MOUNT} --bind {shlex.quote(self.passwd_file)} /etc/passwd",
+            f"{MOUNT} --bind {shlex.quote(self.group_file)} /etc/group",
+            f"{setpriv} {fingerprint_cmd}",
+            f"{setpriv} {verify_cmd} < {shlex.quote(data_path)}",
+        ))
+        result = subprocess.run(
+            [UNSHARE, "-m", "--propagation", "private",
+             "--", "/bin/sh", "-c", inner],
+            env={
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "HOME": self.probe_tmp,
+                "TMPDIR": self.probe_tmp,
+                "LANG": "C",
+                "LC_ALL": "C",
+            },
+            capture_output=True, timeout=30)
+        fingerprint_match = (
+            self.signer.fingerprint.encode("ascii") in result.stdout)
+        ok = result.returncode == 0 and fingerprint_match
+        self.check(
+            "G0", "OpenSSH fingerprint/verify sob UID 65533 com NSS efêmero",
+            ok,
+            {"rc": result.returncode,
+             "fingerprint_match": fingerprint_match,
+             "stderr": common.sanitize_text(
+                 result.stderr.decode("utf-8", "replace"), self.paths)[-800:]},
+        )
+        return ok
+
     # ---------- layout / ownership ----------
 
     def new_layout(self, tag: str) -> Layout:
@@ -781,8 +907,9 @@ class Harness:
         if crash_point:
             args.extend(["--crash-point", crash_point])
         label = label or ("crash-" + crash_point if crash_point else "service")
-        cmd = self._setpriv_prefix(
+        service_cmd = self._setpriv_prefix(
             common.SERVICE_UID, common.SERVICE_GID) + args
+        cmd = self._service_launch(service_cmd)
         sp = self.start_process(
             cmd, self.service_env(plan), label, plan)
         sp.config = dict(layout.config)
@@ -897,6 +1024,13 @@ class Harness:
                    use_unshare: bool = False,
                    timeout: float = 30.0) -> dict[str, Any]:
         self.deadline.check()
+        if self.journey_blocked and mode in {
+                "prepare", "reserve", "assert", "record-evidence",
+                "reconcile", "assert-old", "reserve-old"}:
+            return {
+                "ok": False, "blocked": True,
+                "error": "BLOCKED: pré-condição de autorização G1",
+            }
         cmd = self._client_command(
             uid, gid, job_path, mode, extra,
             ambient_setgid=ambient_setgid)
@@ -1263,6 +1397,12 @@ class Harness:
             "G1", "propose/authorize cross-UID",
             prepare_value.get("ok"),
             {"prepare": prepare_value.get("results", {})})
+        self.journey_blocked = not bool(prepare_value.get("ok"))
+        if self.journey_blocked:
+            self.check(
+                "G1", "pré-condição authorize para reserve/assert/evidence",
+                False, "BLOCKED: authorize não produziu autorização válida",
+                blocked=True)
         reserve = self.run_client(
             layout, layout.plan.client_job_path, "reserve")
         reserve_value = reserve.get("json") if "json" in reserve else reserve
@@ -1532,6 +1672,13 @@ class Harness:
         prepared_value = prepared.get("json") if "json" in prepared else prepared
         self.check("G3", "prepare cross-UID antes do backup",
                    prepared_value.get("ok"), prepared_value)
+        if not prepared_value.get("ok"):
+            self.journey_blocked = True
+            self.check(
+                "G3", "rollback/replay bloqueados sem autorização",
+                False, "BLOCKED: prepare falhou antes do backup", blocked=True)
+            self.stop_service()
+            return
         self.stop_service()
 
         backup_ledger = os.path.join(layout.plan.root, "backup", "ledger.db")
@@ -1550,6 +1697,13 @@ class Harness:
         self.check("G3", "reserva real antes do rollback",
                    reserved_value.get("ok") and isinstance(lease, str),
                    reserved_value)
+        if not (reserved_value.get("ok") and isinstance(lease, str)):
+            self.journey_blocked = True
+            self.check(
+                "G3", "rollback/replay bloqueados sem lease",
+                False, "BLOCKED: reserva não produziu lease", blocked=True)
+            self.stop_service()
+            return
         asserted = self.run_client(
             layout, layout.plan.client_job_path, "assert",
             extra=("--lease", str(lease), "--request-id",
@@ -1557,6 +1711,13 @@ class Harness:
         asserted_value = asserted.get("json") if "json" in asserted else asserted
         self.check("G3", "assert real antes do rollback",
                    asserted_value.get("ok"), asserted_value)
+        if not asserted_value.get("ok"):
+            self.journey_blocked = True
+            self.check(
+                "G3", "rollback/replay bloqueados sem assert",
+                False, "BLOCKED: assert falhou antes do rollback", blocked=True)
+            self.stop_service()
+            return
         self.stop_service()
 
         self.restore_db(backup_ledger, os.path.join(
@@ -1572,6 +1733,13 @@ class Harness:
         self.check("G3", "rollback restaurado entra em quarentena",
                    status_result.get("quarantined") is True,
                    status_result)
+        if status_result.get("quarantined") is not True:
+            self.check(
+                "G3", "recuperação/replay bloqueados sem quarentena",
+                False, "BLOCKED: restauração não entrou em quarentena",
+                blocked=True)
+            self.stop_service()
+            return
 
         payloads = self._recovery_payloads(
             layout, artifacts, valid_nonce="nonce-recovery-rollback")
@@ -1621,6 +1789,13 @@ class Harness:
                    and (valid_value.get("response", {}).get("result") or {}
                         ).get("epoch") == 2,
                    valid_value)
+        if not valid_value.get("ok"):
+            self.check(
+                "G3", "replay/epoch pós-recuperação bloqueados",
+                False, "BLOCKED: recuperação não abriu epoch nova",
+                blocked=True)
+            self.stop_service()
+            return
 
         old_assert = self.run_client(
             layout, layout.plan.client_job_path, "assert-old",
@@ -1679,7 +1854,8 @@ class Harness:
             layout, layout.plan.client_job_path, "prepare")
         prepared_value = prepared.get("json") if "json" in prepared else prepared
         if not prepared_value.get("ok"):
-            self.check("G4", f"prepare {point}", False, prepared_value)
+            self.check("G4", f"prepare {point}", False, prepared_value,
+                       blocked=True)
             self.stop_service()
             return
         self.stop_service()
@@ -1790,6 +1966,11 @@ class Harness:
         prepared_value = prepared.get("json") if "json" in prepared else prepared
         self.check("G7", "prepare com limites reduzidos",
                    prepared_value.get("ok"), prepared_value)
+        if not prepared_value.get("ok"):
+            self.check(
+                "G7", "jornada dependente de autorização bloqueada",
+                False, "BLOCKED: prepare falhou; concorrência segue independente",
+                blocked=True)
 
         concurrent = self.run_client(
             layout, layout.plan.client_job_path, "concurrent",
@@ -1962,6 +2143,7 @@ class Harness:
             if os.geteuid() != 0:
                 raise HarnessError("P4-BLOCKED: root descartável obrigatório")
             for tool, path in (("setpriv", SETPRIV), ("unshare", UNSHARE),
+                               ("mount", MOUNT),
                                ("ssh-keygen", shutil.which("ssh-keygen"))):
                 self.check("G0", "ferramenta disponível: " + tool,
                            bool(path and os.path.exists(path)), path)
@@ -1996,6 +2178,9 @@ class Harness:
                        bool(self.signer.fingerprint), {
                            "approver": self.signer.approver_id,
                            "fingerprint": self.signer.fingerprint})
+            if not self._probe_identity_mount():
+                raise HarnessError(
+                    "OpenSSH não funciona sob UID efêmero com NSS sintético")
 
             self.run_main_gates()
             self.run_rollback_gates()
