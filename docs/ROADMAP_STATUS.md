@@ -24,8 +24,8 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#87 — COORD-TRUST-BOUNDARY/P4 — certificação cross-UID descartável (Draft)](https://github.com/guilhermemellojw/better-talker/pull/87) | TRUST | `690fee56f444` | Pendente |
-| [#86 — feat(pedagogy): BETA-PEDAGOGY/P4 — candidato combinado A+C (Draft) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/86) | Beta e infraestrutura | `f05ce35c399d` | Verde |
+| [#87 — COORD-TRUST-BOUNDARY/P4 — certificação cross-UID descartável (Draft)](https://github.com/guilhermemellojw/better-talker/pull/87) | TRUST | `690fee56f444` | Verde (com ignorados) |
+| [#86 — feat(pedagogy): BETA-PEDAGOGY/P4 — candidato combinado A+C (Draft) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/86) | Beta e infraestrutura | `c693c28e2cdc` | Pendente |
 | [#85 — feat(pedagogy): BETA-PEDAGOGY/P1 — AI-03/04/09 (continuidade e revisão efetiva) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/85) | Beta e infraestrutura | `fe0ca1b37089` | Verde |
 | [#84 — BETA-TRUST/P1 — fidelidade obrigatória às fontes (Draft)](https://github.com/guilhermemellojw/better-talker/pull/84) | TRUST | `ddc80e3e0a8d` | Verde |
 | [#81 — P14B: adapter de autoridade #77 -> ledger 1.1 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/81) | Outros | `b8b35882fbc2` | Verde |
@@ -77,8 +77,8 @@
 - PRs abertos: **9**; desses, Drafts: **9**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=75.
 - Mediana abertura → merge: 0.2 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.7 dias (referência fixa: 2026-11-28).
-- Estados de check dos PRs abertos: Pendente=1, Verde=8.
+- Mediana de idade dos PRs abertos: 0.8 dias (referência fixa: 2026-11-28).
+- Estados de check dos PRs abertos: Pendente=1, Verde=7, Verde (com ignorados)=1.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
