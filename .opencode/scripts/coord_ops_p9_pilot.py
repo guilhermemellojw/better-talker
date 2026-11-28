@@ -981,44 +981,51 @@ class PilotDriver:
     def run(self, scenarios: Sequence[str] = ("H3",)) -> dict[str, Any]:
         executed: list[str] = []
         for scenario in scenarios:
-            if scenario == "H3":
-                executed.append("H3")
-                self.run_positive()
-            elif scenario == "H3b":
-                executed.append("H3b")
-                self.run_roles()
-            elif scenario == "H4":
-                executed.append("H4")
-                self.run_invalid_authorization()
-            elif scenario == "H5":
-                executed.append("H5")
-                self.run_duplicate()
-            elif scenario == "H6":
-                executed.append("H6")
-                self.run_missing_authorization()
-            elif scenario == "H7":
-                executed.append("H7")
-                self.run_interrupt()
-            elif scenario == "H8":
-                executed.append("H8")
-                self.run_unknown_transport()
-            elif scenario == "H9":
-                executed.append("H9")
-                self.run_ownership_conflict()
-            elif scenario == "H10":
-                executed.append("H10")
-                self.run_divergent_attestation()
-            elif scenario == "H12":
-                if self.socket_real:
-                    self._blocked(
-                        "H12", "falha interna/auditoria exige cliente falso host-only")
+            try:
+                if scenario == "H3":
+                    executed.append("H3")
+                    self.run_positive()
+                elif scenario == "H3b":
+                    executed.append("H3b")
+                    self.run_roles()
+                elif scenario == "H4":
+                    executed.append("H4")
+                    self.run_invalid_authorization()
+                elif scenario == "H5":
+                    executed.append("H5")
+                    self.run_duplicate()
+                elif scenario == "H6":
+                    executed.append("H6")
+                    self.run_missing_authorization()
+                elif scenario == "H7":
+                    executed.append("H7")
+                    self.run_interrupt()
+                elif scenario == "H8":
+                    executed.append("H8")
+                    self.run_unknown_transport()
+                elif scenario == "H9":
+                    executed.append("H9")
+                    self.run_ownership_conflict()
+                elif scenario == "H10":
+                    executed.append("H10")
+                    self.run_divergent_attestation()
+                elif scenario == "H12":
+                    if self.socket_real:
+                        self._blocked(
+                            "H12", "falha interna/auditoria exige cliente falso host-only")
+                    else:
+                        executed.append("H12")
+                        self.run_internal_failure()
+                elif scenario == "all":
+                    return self.run(("H3",) + NEGATIVE_GATES + ("H3b",))
                 else:
-                    executed.append("H12")
-                    self.run_internal_failure()
-            elif scenario == "all":
-                return self.run(("H3",) + NEGATIVE_GATES + ("H3b",))
-            else:
-                raise DriverError("cenário desconhecido: " + scenario)
+                    raise DriverError("cenário desconhecido: " + scenario)
+            except Exception as exc:  # noqa: BLE001 - falha fechada no resumo
+                gate = scenario if scenario in GATES else "H3"
+                self._fail(
+                    gate, "falha interna do driver",
+                    code="SERVICE_ERROR",
+                    evidence={"exception": type(exc).__name__})
 
         matrix = self._matrix()
         statuses = [item["status"] for item in matrix.values()]
