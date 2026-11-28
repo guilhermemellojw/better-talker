@@ -1,6 +1,9 @@
 # COORD-TRUST-BOUNDARY/P4.3 — fechamento de filesystem do runner
 
-**Estado:** Draft; P4.4 é reconciliação exclusivamente documental. O dispatch
+**Estado:** Draft; P4.4 reconciliou a documentação e P4.5 fecha as provas G0/G8.
+A prova de acesso está em
+`docs/reports/2026-11-27-coord-trust-crossuid-p45-g0-evidence.md`.
+O dispatch
 único do candidato histórico `31a150330d2b9c8af420cdfac322fde73132dda8` falhou
 no run `46081657455`; a autorização foi consumida e **nenhuma nova execução**
 está autorizada. Nenhum merge, deploy, piloto, usuário persistente, secret de
@@ -82,12 +85,12 @@ G8 depois que existem.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 12 P4) | **558/558 OK** |
+| `unittest discover` (inclui os 40 do serviço e os 13 P4) | **559/559 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **725 = 558 + 167** |
+| Total | **726 = 559 + 167** |
 
 `test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
-(**12/12**) são subconjuntos do discover; não entram novamente na soma. Também
+(**13/13**) são subconjuntos do discover; não entram novamente na soma. Também
 passaram `py_compile`, parser YAML e `git diff --check`. Os logs locais não são
 versionados. O dispatch do candidato histórico falhou; nenhuma nova execução foi
 autorizada/executada nesta rodada.

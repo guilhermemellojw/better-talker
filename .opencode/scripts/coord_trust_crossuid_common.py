@@ -474,8 +474,8 @@ def client_job(plan: Plan, artifacts: MissionArtifacts, *,
 
 
 def sandbox_job(plan: Plan, artifacts: MissionArtifacts, *,
-                service_pid: int, keys_dir: Optional[str] = None
-                ) -> dict[str, Any]:
+                service_pid: int, keys_dir: Optional[str] = None,
+                keys_file: Optional[str] = None) -> dict[str, Any]:
     """Job de diagnóstico do sandbox; não é entregue ao cliente normal."""
     return {
         "schema": SANDBOX_SCHEMA,
@@ -491,6 +491,8 @@ def sandbox_job(plan: Plan, artifacts: MissionArtifacts, *,
         "consumer_registry_path": plan.registry_path,
         "anchor_path": plan.anchor_path,
         "keys_dir": keys_dir or plan.keys_dir,
+        "keys_file": keys_file or os.path.join(
+            keys_dir or plan.keys_dir, ".p14b-synthetic-key"),
         "runtime_dir": plan.runtime_dir,
         "consumer_uid": CONSUMER_UID,
         "consumer_gid": CONSUMER_GID,
@@ -548,7 +550,7 @@ def validate_sandbox_job(value: Mapping[str, Any]) -> None:
         "schema", "socket_path", "service_uid", "service_gid", "service_id",
         "service_pid", "mission_id", "state_dir", "ledger_path",
         "trust_store_path", "consumer_registry_path", "anchor_path",
-        "keys_dir", "runtime_dir", "consumer_uid", "consumer_gid",
+        "keys_dir", "keys_file", "runtime_dir", "consumer_uid", "consumer_gid",
     }
     if required - set(value):
         raise ValueError("job de sandbox incompleto")

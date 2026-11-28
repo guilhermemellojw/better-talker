@@ -239,6 +239,20 @@ esse bundle. Manifesto SHA-256, importação real, scripts, ancestrais e negaç�
 de state/trust/âncora/chaves são verificados sob os UIDs 65533/65534. O
 checkout não é chmodado e nenhuma permissão de HOME/estado é ampliada.
 
+G0 distingue `PermissionError` de `FileNotFoundError`: ausência de arquivo não
+comprova isolamento. State, trust store, consumer registry, diretório da âncora
+e chaves existentes devem estar legíveis para o serviço e retornar
+`PermissionError` para o consumidor; `work_root`/`runtime` devem ser
+`not-writable`. Ledger e arquivo de âncora, ainda inexistentes antes do start,
+têm os diretórios pais verificados em G0 e a existência + negação efetiva
+exigidas em G8. Falha obrigatória interrompe antes de G1.
+
+O bundle vincula `source_head`/`certified_sha` e cada SHA-256 ao blob
+`HEAD:.opencode/scripts/<name>` do SHA certificado (o workflow passa
+`--certified-sha`). Após a limpeza, o manifesto bruto e `cleanup.json` são
+removidos, mas `runtime_bundle` e `access_evidence` sanitizados permanecem em
+`summary.json.sanitized`/log da execução.
+
 Cobertura obrigatória do job:
 
 1. **G1** — jornada cross-UID completa (`propose` → `authorize` → `reserve` →

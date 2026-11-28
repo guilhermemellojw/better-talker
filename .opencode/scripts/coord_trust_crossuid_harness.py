@@ -88,8 +88,20 @@ for spec in sys.argv[1:]:
                 handle.read(1)
             result["paths"][path] = "readable"
         elif kind == "dir":
-            result["paths"][path] = bool(
-                os.access(path, os.R_OK | os.X_OK))
+            try:
+                os.stat(path)
+            except FileNotFoundError:
+                result["paths"][path] = "FileNotFoundError"
+            except OSError as exc:
+                result["paths"][path] = type(exc).__name__
+            else:
+                result["paths"][path] = (
+                    "readable" if os.access(path, os.R_OK | os.X_OK)
+                    else "PermissionError")
+        elif kind == "nowrite":
+            result["paths"][path] = (
+                "not-writable" if not os.access(path, os.W_OK)
+                else "writable")
         elif kind == "ancestor":
             result["ancestors"][path] = bool(os.access(path, os.X_OK))
     except OSError as exc:
@@ -150,13 +162,21 @@ class Deadline:
 class Harness:
     def __init__(self, *, repo: str, output: str, deadline_seconds: float,
                  keep: bool = False, run_id: Optional[str] = None,
-                 work_root: Optional[str] = None) -> None:
+                 work_root: Optional[str] = None,
+                 certified_sha: Optional[str] = None) -> None:
         self.repo = os.path.abspath(repo)
         self.output = os.path.abspath(output)
         os.makedirs(self.output, mode=0o755, exist_ok=True)
         self.run_id = run_id or str(os.getpid())
         if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", self.run_id):
             raise HarnessError("run_id inválido")
+        self.certified_sha = certified_sha
+        if self.certified_sha is not None and not re.fullmatch(
+                r"[0-9a-f]{40}", self.certified_sha):
+            raise HarnessError("certified_sha inválido")
+        self.runtime_source_head = ""
+        self.runtime_certified_sha = self.certified_sha
+        self.access_evidence: dict[str, Any] = {}
         if work_root is None:
             self.work_root = tempfile.mkdtemp(
                 prefix="coord-trust-p4-work-", dir="/tmp")
@@ -272,16 +292,35 @@ class Harness:
                 os.fsync(handle.fileno())
             os.chmod(target, 0o444)
             manifest[name] = hashlib.sha256(payload).hexdigest()
+        source_head = self._repo_head()
+        if self.certified_sha is not None and source_head != self.certified_sha:
+            raise HarnessError("bundle diverge do SHA certificado")
+        if self.certified_sha is not None and source == SCRIPTS_DIR:
+            for name, expected in manifest.items():
+                result = subprocess.run(
+                    ["git", "-C", self.repo, "show",
+                     f"HEAD:.opencode/scripts/{name}"],
+                    capture_output=True, timeout=10)
+                if result.returncode != 0:
+                    raise HarnessError(
+                        "blob certificado indisponível: " + name)
+                actual = hashlib.sha256(result.stdout).hexdigest()
+                if actual != expected:
+                    raise HarnessError(
+                        "bundle diverge do blob certificado: " + name)
         manifest_path = os.path.join(runtime, "runtime-manifest.json")
         common.write_json(
             manifest_path,
             {
                 "schema": "BT-COORD-TRUST-CROSSUID-RUNTIME-V1",
                 "files": manifest,
-                "source_head": self._repo_head(),
+                "source_head": source_head,
+                "certified_sha": self.certified_sha,
             },
             mode=0o444,
         )
+        self.runtime_source_head = source_head
+        self.runtime_certified_sha = self.certified_sha
         os.chmod(manifest_path, 0o444)
         os.chmod(runtime, 0o555)
         if os.geteuid() == 0:
@@ -302,9 +341,19 @@ class Harness:
         details: dict[str, Any] = {
             "runtime_outside_source": False,
             "directory_mode": None,
+            "source_head": self.runtime_source_head,
+            "certified_sha": self.runtime_certified_sha,
             "files": {},
         }
-        ok = True
+        ok = bool(self.runtime_manifest)
+        current_head = self._repo_head()
+        if self.runtime_source_head != current_head:
+            ok = False
+            details["source_head_mismatch"] = current_head
+        if (self.runtime_certified_sha is not None
+                and self.runtime_certified_sha != self.runtime_source_head):
+            ok = False
+            details["certified_sha_mismatch"] = self.runtime_certified_sha
         try:
             common_path = os.path.commonpath([runtime, source])
             details["runtime_outside_source"] = common_path != source
@@ -371,8 +420,17 @@ class Harness:
                     stderr or "", tuple(self.paths + [self.repo]))[-1000:]}
 
     def verify_runtime_access(self, layout: Layout) -> bool:
-        """Comprova filesystem sob os UIDs efetivos antes de iniciar o serviço."""
+        """Comprova filesystem sob os UIDs efetivos antes de iniciar o serviço.
+
+        G0 exige existência confirmada e PermissionError real para state,
+        trust/registry, âncora e chaves; FileNotFoundError nunca é aceito como
+        prova de isolamento. Ledger/âncora arquivo são exigidos depois do
+        start, em G8, quando existirem.
+        """
         plan = layout.plan
+        keys_file = (self.signer.private_path if self.signer is not None
+                     else os.path.join(self.signer_dir,
+                                       ".p14b-synthetic-key"))
         script_specs = [
             "file:" + os.path.join(self.runtime_dir, name)
             for name in RUNTIME_FILES
@@ -383,30 +441,51 @@ class Harness:
             "ancestor:/tmp",
             "ancestor:/",
         ]
-        base_specs = script_specs + ancestor_specs
+        nowrite_specs = [
+            "nowrite:" + self.work_root,
+            "nowrite:" + self.runtime_dir,
+        ]
+        base_specs = script_specs + ancestor_specs + nowrite_specs
         service_specs = base_specs + [
             "dir:" + plan.state_dir,
             "file:" + plan.trust_store_path,
             "file:" + plan.registry_path,
             "dir:" + plan.anchor_dir,
             "dir:" + self.signer_dir,
+            "file:" + keys_file,
         ]
         consumer_specs = base_specs + [
             "dir:" + plan.state_dir,
             "file:" + plan.trust_store_path,
             "file:" + plan.registry_path,
-            "file:" + os.path.join(plan.state_dir, "ledger.db"),
             "dir:" + plan.anchor_dir,
-            "file:" + plan.anchor_path,
             "dir:" + self.signer_dir,
+            "file:" + keys_file,
         ]
         service = self._identity_probe(
             plan, common.SERVICE_UID, common.SERVICE_GID, service_specs)
         consumer = self._identity_probe(
             plan, common.CONSUMER_UID, common.CONSUMER_GID, consumer_specs)
+        self.access_evidence = {
+            "service": {
+                "uid": service.get("uid"), "gid": service.get("gid"),
+                "imports": service.get("imports"),
+                "paths": service.get("paths"),
+                "ancestors": service.get("ancestors"),
+            },
+            "consumer": {
+                "uid": consumer.get("uid"), "gid": consumer.get("gid"),
+                "imports": consumer.get("imports"),
+                "paths": consumer.get("paths"),
+                "ancestors": consumer.get("ancestors"),
+            },
+        }
+
+        def paths_of(probe: Mapping[str, Any]) -> Mapping[str, Any]:
+            return probe.get("paths", {}) if isinstance(probe, Mapping) else {}
 
         def scripts_ok(probe: Mapping[str, Any]) -> bool:
-            paths = probe.get("paths", {}) if isinstance(probe, Mapping) else {}
+            paths = paths_of(probe)
             return (bool(probe.get("imports"))
                     and all(paths.get(os.path.join(self.runtime_dir, name))
                             == "readable" for name in RUNTIME_FILES))
@@ -415,23 +494,36 @@ class Harness:
             values = probe.get("ancestors", {}) if isinstance(probe, Mapping) else {}
             return bool(values) and all(values.values())
 
+        def not_writable(probe: Mapping[str, Any]) -> bool:
+            paths = paths_of(probe)
+            return (paths.get(self.work_root) == "not-writable"
+                    and paths.get(self.runtime_dir) == "not-writable")
+
         def state_ok(probe: Mapping[str, Any]) -> bool:
-            paths = probe.get("paths", {}) if isinstance(probe, Mapping) else {}
-            return (paths.get(plan.state_dir) is True
+            paths = paths_of(probe)
+            return (paths.get(plan.state_dir) == "readable"
                     and paths.get(plan.trust_store_path) == "readable"
                     and paths.get(plan.registry_path) == "readable"
-                    and paths.get(plan.anchor_dir) is True)
+                    and paths.get(plan.anchor_dir) == "readable"
+                    and paths.get(self.signer_dir) == "PermissionError"
+                    and paths.get(keys_file) == "PermissionError")
 
         def denied(probe: Mapping[str, Any]) -> bool:
-            paths = probe.get("paths", {}) if isinstance(probe, Mapping) else {}
-            return (paths.get(plan.state_dir) is False
-                    and paths.get(plan.trust_store_path) != "readable"
-                    and paths.get(plan.registry_path) != "readable"
-                    and paths.get(plan.anchor_dir) is False
-                    and paths.get(plan.anchor_path) != "readable"
-                    and paths.get(os.path.join(
-                        plan.state_dir, "ledger.db")) != "readable"
-                    and paths.get(self.signer_dir) is False)
+            paths = paths_of(probe)
+            return (paths.get(plan.state_dir) == "PermissionError"
+                    and paths.get(plan.trust_store_path) == "PermissionError"
+                    and paths.get(plan.registry_path) == "PermissionError"
+                    and paths.get(plan.anchor_dir) == "PermissionError"
+                    and paths.get(self.signer_dir) == "PermissionError"
+                    and paths.get(keys_file) == "PermissionError")
+
+        def exists_ok() -> bool:
+            return (os.path.isdir(plan.state_dir)
+                    and os.path.isdir(plan.anchor_dir)
+                    and os.path.isfile(plan.trust_store_path)
+                    and os.path.isfile(plan.registry_path)
+                    and os.path.isdir(self.signer_dir)
+                    and os.path.isfile(keys_file))
 
         identity_ok = (
             service.get("uid") == common.SERVICE_UID
@@ -457,22 +549,38 @@ class Harness:
              "consumer": consumer.get("ancestors")},
         )
         self.check(
+            "G0", "work_root/runtime não graváveis pelos UIDs",
+            not_writable(service) and not_writable(consumer),
+            {"service": not_writable(service),
+             "consumer": not_writable(consumer)},
+        )
+        self.check(
             "G0", "serviço lê state/trust/anchor; chaves negadas",
-            state_ok(service)
-            and service.get("paths", {}).get(self.signer_dir) is False,
+            state_ok(service),
             {"uid": service.get("uid"), "paths": service.get("paths")},
         )
         self.check(
-            "G0", "consumidor não lê state/trust/anchor/chaves",
+            "G0", "consumidor recebe PermissionError, não ENOENT",
             denied(consumer),
             {"uid": consumer.get("uid"), "paths": consumer.get("paths")},
         )
-        consumers = [
+        self.check(
+            "G0", "state/trust/registry/âncora/chaves existem antes do G1",
+            exists_ok(),
+            {"state": os.path.isdir(plan.state_dir),
+             "trust": os.path.isfile(plan.trust_store_path),
+             "registry": os.path.isfile(plan.registry_path),
+             "anchor_dir": os.path.isdir(plan.anchor_dir),
+             "keys_dir": os.path.isdir(self.signer_dir),
+             "keys_file": os.path.isfile(keys_file)},
+        )
+        mandatory = [
             identity_ok, scripts_ok(service), scripts_ok(consumer),
             ancestors_ok(service), ancestors_ok(consumer),
-            state_ok(service), denied(consumer),
+            not_writable(service), not_writable(consumer),
+            state_ok(service), denied(consumer), exists_ok(),
         ]
-        if not all(consumers):
+        if not all(mandatory):
             return False
         return True
 
@@ -1047,11 +1155,18 @@ class Harness:
 
     def check_runtime_files(self, layout: Layout) -> None:
         runtime_files = {}
-        for name, path in (
-            ("ledger", os.path.join(layout.plan.state_dir, "ledger.db")),
-            ("service_db", os.path.join(layout.plan.state_dir, "service.db")),
-            ("anchor", layout.plan.anchor_path),
-        ):
+        service_files = {
+            "ledger": os.path.join(layout.plan.state_dir, "ledger.db"),
+            "service_db": os.path.join(layout.plan.state_dir, "service.db"),
+            "anchor": layout.plan.anchor_path,
+            "trust_store": layout.plan.trust_store_path,
+            "registry": layout.plan.registry_path,
+        }
+        keys_file = (self.signer.private_path if self.signer is not None
+                     else os.path.join(self.signer_dir,
+                                       ".p14b-synthetic-key"))
+        for name, path in list(service_files.items()) + [
+                ("keys_file", keys_file)]:
             try:
                 info = os.lstat(path)
                 runtime_files[name] = {
@@ -1061,16 +1176,25 @@ class Harness:
                 }
             except OSError as exc:
                 runtime_files[name] = type(exc).__name__
+        service_ok = all(
+            isinstance(runtime_files.get(name), Mapping)
+            and runtime_files[name].get("uid") == common.SERVICE_UID
+            and runtime_files[name].get("gid") == common.SERVICE_GID
+            and runtime_files[name].get("mode") == "0o600"
+            and runtime_files[name].get("nlink") == 1
+            for name in service_files)
+        keys_ok = (
+            isinstance(runtime_files.get("keys_file"), Mapping)
+            and runtime_files["keys_file"].get("uid") == 0
+            and runtime_files["keys_file"].get("mode") == "0o600"
+            and runtime_files["keys_file"].get("nlink") == 1)
         self.check(
-            "G1", "ledger/service state/âncora privados e sem hardlink",
-            all(
-                isinstance(value, Mapping)
-                and value.get("uid") == common.SERVICE_UID
-                and value.get("gid") == common.SERVICE_GID
-                and value.get("mode") == "0o600"
-                and value.get("nlink") == 1
-                for value in runtime_files.values()),
-            runtime_files)
+            "G1", "ledger/service state/trust/registry/âncora privados",
+            service_ok, {name: runtime_files.get(name)
+                         for name in service_files})
+        self.check(
+            "G8", "chave sintética existe e é 0600 root",
+            keys_ok, runtime_files.get("keys_file"))
 
     def check_g6(self, layout: Layout) -> None:
         gid_socket = self.run_client(
@@ -1269,9 +1393,12 @@ class Harness:
         self.check_g6(layout)
 
         self.stage("G8 — sandbox do consumidor")
+        keys_file = (self.signer.private_path if self.signer is not None
+                     else os.path.join(self.signer_dir,
+                                       ".p14b-synthetic-key"))
         sandbox = common.sandbox_job(
             layout.plan, artifacts, service_pid=sp.proc.pid,
-            keys_dir=self.signer_dir)
+            keys_dir=self.signer_dir, keys_file=keys_file)
         common.validate_sandbox_job(sandbox)
         common.write_json(layout.plan.sandbox_job_path, sandbox)
         sandbox_run = self.run_client(
@@ -1287,9 +1414,36 @@ class Harness:
                    and sandbox_value.get("no_new_privs") == "1",
                    {"cap_eff": sandbox_value.get("cap_eff"),
                     "no_new_privs": sandbox_value.get("no_new_privs")})
+        read_results = sandbox_value.get("read_results", {})
+        required_read_denials = {
+            name: read_results.get(name)
+            for name in ("ledger", "trust_store", "consumer_registry",
+                         "anchor", "keys_file")
+        }
+        exists = {
+            "ledger": os.path.isfile(os.path.join(
+                layout.plan.state_dir, "ledger.db")),
+            "trust_store": os.path.isfile(layout.plan.trust_store_path),
+            "consumer_registry": os.path.isfile(layout.plan.registry_path),
+            "anchor": os.path.isfile(layout.plan.anchor_path),
+            "keys_file": os.path.isfile(keys_file),
+        }
+        self.check(
+            "G8", "ledger/trust/registry/âncora/chaves existem após start",
+            all(exists.values()), exists)
+        self.check(
+            "G8", "consumer recebe PermissionError, não ENOENT",
+            all(value == "PermissionError"
+                for value in required_read_denials.values()),
+            required_read_denials)
         self.check("G8", "consumer não lê ledger/trust/anchor/keys",
                    sandbox_value.get("state_read_blocked"),
-                   sandbox_value.get("read_results"))
+                   read_results)
+        self.access_evidence["g8"] = {
+            "exists": exists,
+            "read_results": read_results,
+            "state_read_blocked": sandbox_value.get("state_read_blocked"),
+        }
         self.check("G8", "consumer em network namespace sem rede",
                    sandbox_value.get("network_error") is not None,
                    {"network_error": sandbox_value.get("network_error"),
@@ -1711,6 +1865,12 @@ class Harness:
             "deadline_seconds": self.deadline_seconds,
             "deadline_remaining_seconds": round(deadline_left, 3),
             "checks": [check.to_mapping() for check in self.checks],
+            "runtime_bundle": {
+                "source_head": self.runtime_source_head,
+                "certified_sha": self.runtime_certified_sha,
+                "files": dict(self.runtime_manifest),
+            },
+            "access_evidence": self.access_evidence,
             "blocked": blocked,
             "result": ("BLOCKED" if blocked else
                        "PASS" if self.checks and all(
@@ -1869,11 +2029,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--keep", action="store_true")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--work-root", default=None)
+    parser.add_argument("--certified-sha", default=None)
     args = parser.parse_args(argv)
     harness = Harness(
         repo=args.repo, output=args.output,
         deadline_seconds=args.deadline_seconds, keep=args.keep,
-        run_id=args.run_id, work_root=args.work_root)
+        run_id=args.run_id, work_root=args.work_root,
+        certified_sha=args.certified_sha)
     return harness.run()
 
 

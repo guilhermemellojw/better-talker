@@ -135,9 +135,9 @@ Evidência local (`unshare -rn`):
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 12 P4) | **558/558 OK** |
+| `unittest discover` (inclui os 40 do serviço e os 13 P4) | **559/559 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **725/725 = 558 + 167** |
+| Total | **726/726 = 559 + 167** |
 
 `test_coord_trust_service.py` (**40/40**) é subconjunto do discover; não entra
 novamente na soma.

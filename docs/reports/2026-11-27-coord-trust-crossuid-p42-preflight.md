@@ -5,10 +5,11 @@
 no run `46081657455`; a autorização foi consumida e nenhuma nova execução está
 autorizada.
 
-> **P4.3:** a correção de runtime bundle/ancestrais está em
-> `docs/reports/2026-11-27-coord-trust-crossuid-p43-runner-fs.md`; as contagens
-> atuais são 558 discover + 167 supervisor = 725, com os 40 do serviço e os 12
-> P4 dentro do discover.
+> **P4.3/P4.5:** a correção de runtime bundle/ancestrais está em
+> `docs/reports/2026-11-27-coord-trust-crossuid-p43-runner-fs.md`; a prova
+> G0/G8 está em `docs/reports/2026-11-27-coord-trust-crossuid-p45-g0-evidence.md`.
+> As contagens atuais são 559 discover + 167 supervisor = 726, com os 40 do
+> serviço e os 13 P4 dentro do discover.
 
 Nenhum merge, deploy, piloto, usuário persistente, secret de produção,
 transporte real, POST, LLM ou Android foi executado.
@@ -57,12 +58,12 @@ sanitização e limpeza permanecem no runner normal.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 12 P4) | **558/558 OK** |
+| `unittest discover` (inclui os 40 do serviço e os 13 P4) | **559/559 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **725 = 558 + 167** |
+| Total | **726 = 559 + 167** |
 
 `test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
-(**12/12**) são subconjuntos do discover; não entram novamente na soma. Também
+(**13/13**) são subconjuntos do discover; não entram novamente na soma. Também
 passaram `py_compile`, parser YAML do workflow consolidado e `git diff --check`.
 Os logs locais não são versionados; as contagens são reproduzíveis pelos
 comandos do workflow. O dispatch do candidato histórico falhou; nenhuma nova

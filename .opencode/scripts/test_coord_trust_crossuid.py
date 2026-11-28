@@ -123,6 +123,7 @@ class CrossUidHarnessTest(unittest.TestCase):
         self.assertNotIn("killall", cleanup["run"])
         self.assertIn(".opencode/scripts/coord_trust_crossuid_harness.py", raw)
         self.assertIn("sudo -n setsid --wait unshare -n", raw)
+        self.assertIn('--certified-sha "$CERTIFIED_SHA"', raw)
         self.assertIn("command -v setsid", raw)
         self.assertIn("actions/upload-artifact@v4", raw)
 
@@ -321,6 +322,16 @@ class CrossUidHarnessTest(unittest.TestCase):
                 (signer.approver_key(NOW),))
             harness.signer = signer
             harness.allowlist = allowlist
+            for path in (
+                os.path.join(layout_plan.state_dir, "ledger.db"),
+                os.path.join(layout_plan.state_dir, "service.db"),
+                layout_plan.trust_store_path,
+                layout_plan.registry_path,
+                layout_plan.anchor_path,
+            ):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "wb") as handle:
+                    handle.write(b"fixture\n")
             layout = harness_module.Layout(
                 plan=layout_plan,
                 config={
@@ -415,7 +426,13 @@ class CrossUidHarnessTest(unittest.TestCase):
                         "no_new_privs": "1",
                         "state_read_blocked": True,
                         "network_error": "OSError",
-                        "read_results": {},
+                        "read_results": {
+                            "ledger": "PermissionError",
+                            "trust_store": "PermissionError",
+                            "consumer_registry": "PermissionError",
+                            "anchor": "PermissionError",
+                            "keys_file": "PermissionError",
+                        },
                     }
                 raise AssertionError("modo inesperado: " + mode)
 
@@ -465,6 +482,82 @@ class CrossUidHarnessTest(unittest.TestCase):
                 "closed_without_response": True}
             harness.check_g6(layout)
             self.assertTrue(harness.checks[-1].passed)
+
+    def test_g0_access_requires_permission_error_and_no_write(self):
+        """Regressão P4.5: ENOENT não comprova isolamento; leitura/escrita não passam."""
+        import types
+
+        import coord_trust_crossuid_harness as harness_module
+
+        with tempfile.TemporaryDirectory() as root:
+            plan = common.build_plan(os.path.join(root, "layout"))
+            os.makedirs(plan.state_dir, mode=0o700)
+            os.makedirs(plan.anchor_dir, mode=0o700)
+            with open(plan.trust_store_path, "wb") as handle:
+                handle.write(b"trust\n")
+            with open(plan.registry_path, "wb") as handle:
+                handle.write(b"registry\n")
+            signer = p14b.SyntheticSigner(
+                os.path.join(root, "keys"), persist=True)
+            harness = harness_module.Harness(
+                repo=str(ROOT), output=os.path.join(root, "out"),
+                deadline_seconds=30)
+            self.addCleanup(harness.cleanup)
+            harness.signer = signer
+            layout = harness_module.Layout(
+                plan=plan, config={"real_transport": False})
+            base_paths = {
+                os.path.join(harness.runtime_dir, name): "readable"
+                for name in harness_module.RUNTIME_FILES
+            }
+            service_paths = dict(base_paths)
+            service_paths.update({
+                plan.state_dir: "readable",
+                plan.trust_store_path: "readable",
+                plan.registry_path: "readable",
+                plan.anchor_dir: "readable",
+                harness.signer_dir: "PermissionError",
+                signer.private_path: "PermissionError",
+                harness.work_root: "not-writable",
+                harness.runtime_dir: "not-writable",
+            })
+            consumer_paths = dict(base_paths)
+            consumer_paths.update({
+                plan.state_dir: "PermissionError",
+                plan.trust_store_path: "PermissionError",
+                plan.registry_path: "PermissionError",
+                plan.anchor_dir: "PermissionError",
+                harness.signer_dir: "PermissionError",
+                signer.private_path: "PermissionError",
+                harness.work_root: "not-writable",
+                harness.runtime_dir: "not-writable",
+            })
+            service = {
+                "uid": common.SERVICE_UID, "gid": common.SERVICE_GID,
+                "imports": True, "paths": service_paths,
+                "ancestors": {harness.work_root: True,
+                              harness.runtime_dir: True},
+            }
+            consumer = {
+                "uid": common.CONSUMER_UID, "gid": common.CONSUMER_GID,
+                "imports": True, "paths": consumer_paths,
+                "ancestors": {harness.work_root: True,
+                              harness.runtime_dir: True},
+            }
+            harness._identity_probe = (
+                lambda plan_value, uid, gid, specs:
+                service if uid == common.SERVICE_UID else consumer)
+            self.assertTrue(harness.verify_runtime_access(layout))
+            self.assertIn("service", harness.access_evidence)
+            self.assertIn("consumer", harness.access_evidence)
+            consumer_paths[plan.state_dir] = "FileNotFoundError"
+            self.assertFalse(harness.verify_runtime_access(layout))
+            consumer_paths[plan.state_dir] = "PermissionError"
+            consumer_paths[plan.trust_store_path] = "readable"
+            self.assertFalse(harness.verify_runtime_access(layout))
+            consumer_paths[plan.trust_store_path] = "PermissionError"
+            consumer_paths[harness.runtime_dir] = "writable"
+            self.assertFalse(harness.verify_runtime_access(layout))
 
     def test_summary_and_traceback_are_sanitized(self):
         import coord_trust_crossuid_harness as harness_module
@@ -532,6 +625,13 @@ class CrossUidHarnessTest(unittest.TestCase):
                 self.assertEqual(manifest["files"][name], actual)
             self.assertNotIn("state_dir", manifest["files"])
             self.assertNotIn("ledger", manifest["files"])
+            harness.write_output()
+            summary = common.read_json(
+                os.path.join(root, "out", "summary.json"))
+            self.assertEqual(set(harness_module.RUNTIME_FILES),
+                             set(summary["runtime_bundle"]["files"]))
+            self.assertEqual(
+                manifest["files"], summary["runtime_bundle"]["files"])
             imported = __import__("subprocess").run(
                 [__import__("sys").executable, "-c",
                  "import coord_trust_service; "

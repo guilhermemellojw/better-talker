@@ -631,6 +631,7 @@ def sandbox(job: Mapping[str, Any]) -> dict[str, Any]:
     attempt_read("consumer_registry", str(job["consumer_registry_path"]))
     attempt_read("anchor", str(job["anchor_path"]))
     attempt_read("keys_dir", str(job["keys_dir"]))
+    attempt_read("keys_file", str(job["keys_file"]))
 
     status_values = {}
     try:
@@ -662,8 +663,9 @@ def sandbox(job: Mapping[str, Any]) -> dict[str, Any]:
         "status", {"mission_id": job["mission_id"]},
         request_id="sandbox-status")
     state_read_blocked = all(
-        blocked[name] in {"PermissionError", "FileNotFoundError"}
-        for name in ("state_dir", "ledger", "trust_store", "anchor", "keys_dir"))
+        blocked[name] == "PermissionError"
+        for name in ("state_dir", "ledger", "trust_store",
+                     "consumer_registry", "anchor", "keys_dir", "keys_file"))
     return {
         "mode": "sandbox",
         "ok": state_read_blocked and network_error is not None

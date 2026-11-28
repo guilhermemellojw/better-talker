@@ -1,6 +1,6 @@
-# COORD-TRUST-BOUNDARY/P4/P4.2/P4.3 — certificação cross-UID descartável
+# COORD-TRUST-BOUNDARY/P4/P4.2/P4.3/P4.5 — certificação cross-UID descartável
 
-**Estado:** Draft; P4.4 é uma reconciliação exclusivamente documental. O
+**Estado:** Draft; P4.4 reconciliou a documentação e P4.5 fecha as provas G0/G8 de acesso. O
 dispatch único do candidato `31a150330d2b9c8af420cdfac322fde73132dda8` falhou
 no run `46081657455`; a autorização foi consumida e nenhuma nova execução está
 autorizada. Nenhum merge, deploy, piloto, usuário persistente, secret de
@@ -19,6 +19,9 @@ foi removido. Ver
 `docs/reports/2026-11-27-coord-trust-crossuid-p42-preflight.md`.
 **P4.3:** o runtime bundle/ancestrais está em
 `docs/reports/2026-11-27-coord-trust-crossuid-p43-runner-fs.md`.
+**P4.5:** a prova G0/G8 (PermissionError vs ENOENT, existência, não-gravabilidade
+e hashes do bundle) está em
+`docs/reports/2026-11-27-coord-trust-crossuid-p45-g0-evidence.md`.
 **Branch:** `feat/coord-trust-crossuid-cert`.
 **SHA de implementação (código final P4.3):** `17cd7d37138407a7602d4848fe994e4f9de9f53d`.
 **SHA de implementação P4.2:** `5ee8d98cc9f739caff91686728c4a736f9cc4b3d`.
@@ -37,7 +40,7 @@ auto-referenciado neste documento.
 | `.opencode/scripts/coord_trust_crossuid_client.py` | cliente executado como consumidor; jornada, SCM_RIGHTS, GID, saturação, frames, sandbox e recuperação |
 | `.opencode/scripts/coord_trust_crossuid_common.py` | fixtures sintéticas, job do cliente sem material privado, layout/config, assinatura dinâmica da atestação |
 | `.opencode/scripts/coord_trust_crossuid_crash_service.py` | crash real CI-only após COMMIT/limite, preservando WAL para replay |
-| `.opencode/scripts/test_coord_trust_crossuid.py` | 12 testes host-only (workflow, layout, job, sanitizador, limites, GID, nonce, A1, A2, resumo e bundle runtime) |
+| `.opencode/scripts/test_coord_trust_crossuid.py` | 13 testes host-only (workflow, layout, job, sanitizador, limites, GID, nonce, A1, A2, resumo e bundle runtime) |
 | `docs/operations/trust-service-deployment.md §7` | procedimento P4, UIDs, isolamento, comando previsto e critérios de interrupção |
 | `.opencode/TRUST-SERVICE.md` | contrato atualizado com nonce persistido e certificação opt-in |
 
@@ -123,12 +126,12 @@ em quarentena indevidamente. A suíte P3 continua 40/40.
 
 | Suíte | Resultado |
 |---|---|
-| `unittest discover` (inclui os 40 do serviço e os 12 P4) | **558/558 OK** |
+| `unittest discover` (inclui os 40 do serviço e os 13 P4) | **559/559 OK** |
 | `test_supervisor.py` | **167/167 passed** |
-| Total | **725 = 558 + 167** |
+| Total | **726 = 559 + 167** |
 
 `test_coord_trust_service.py` (**40/40**) e `test_coord_trust_crossuid.py`
-(**12/12**) são subconjuntos do discover; não entram novamente na soma. Os logs
+(**13/13**) são subconjuntos do discover; não entram novamente na soma. Os logs
 locais não são versionados; as contagens são reproduzíveis pelos comandos do
 workflow. Evidência CI do HEAD final fica no comentário externo do PR.
 
@@ -146,8 +149,8 @@ UID); o harness não foi executado como root e o workflow não foi disparado.
   restart imediatamente após recuperação.
 - Crash wrapper CI-only com `os._exit(137)` após COMMIT, preservando WAL para
   replay real; não há hook de crash no serviço normal.
-- 12 testes P4 no `unittest discover`; baseline do workflow `coord-python`
-  atualizado de 546/713 para **558/725**.
+- 13 testes P4 no `unittest discover`; baseline do workflow `coord-python`
+  atualizado de 546/713 para **559/726**.
 - P4.2 corrige A1 (transmit real), A2 (G6 estrito/BLOCKED), A3 (limpeza
   independente), A4 (sanitização), A5 (documentação) e A6 (escopo G9).
 - Nenhuma alteração em Android, transporte, LLM, credenciais reais ou no PR #82.
